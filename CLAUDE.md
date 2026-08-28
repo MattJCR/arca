@@ -46,7 +46,9 @@ Ver `docs/architecture/` para los principios, la jerarquía de carga y la estruc
 ## Flujo de trabajo
 
 1. Comprender la solicitud → 2. Analizar código existente → 3. Identificar restricciones →
-4. Planificar → 5. Implementar → 6. Tests → 7. Actualizar manual (`docs/manual/`) → 8. Revisar (subagent `code-reviewer`) → 9. Entregar.
+4. Planificar → 5. Implementar → 6. Tests → 7. Actualizar manual (`docs/manual/`) → 8. Revisar (subagent `code-reviewer`) → 9. Checkpoint → 10. Entregar.
+
+- **Checkpoint al cerrar cada tarea:** toda tarea terminada crea o actualiza `.claude/checkpoint.md` (skill `save-checkpoint`) indicando brevemente la tarea cerrada, **lo siguiente** (próxima tarea del plan y primera acción concreta) y los bloqueos abiertos. Es acumulativo y refleja el estado actual, no el historial.
 
 Detalle completo en `docs/development/workflow.md`.
 

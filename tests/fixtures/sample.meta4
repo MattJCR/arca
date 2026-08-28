@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metalink xmlns="urn:ietf:params:xml:ns:metalink">
+  <file name="wikipedia_es_all_maxi_2026-06.zim">
+    <size>112233445566</size>
+    <hash type="sha-1">aaaabbbbccccddddeeeeffff0000111122223333</hash>
+    <hash type="sha-256">0f2c71a0ec1cd0edaa4ba2f7cfa4dc02aa77c1efd279b1f28c05e2cf7a391a1e</hash>
+    <url priority="2">https://mirror-two.example.org/zim/wikipedia_es_all_maxi_2026-06.zim</url>
+    <url priority="1">https://mirror-one.example.org/zim/wikipedia_es_all_maxi_2026-06.zim</url>
+    <url>https://mirror-last.example.org/zim/wikipedia_es_all_maxi_2026-06.zim</url>
+  </file>
+</metalink>

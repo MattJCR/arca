@@ -39,10 +39,15 @@ select = ["E", "W", "F", "I", "UP", "B", "SIM", "RUF"]
 python_version = "3.12"
 strict = true
 warn_unreachable = true
+untyped_calls_exclude = ["pymupdf"]
 
 [[tool.mypy.overrides]]
 module = ["libzim.*", "pymupdf.*", "fitz.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.support"]
+disallow_subclassing_any = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

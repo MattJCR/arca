@@ -17,6 +17,14 @@ Texto plano editable a mano, en la raíz. Claves reconocidas y valores por defec
 | `port` | `8042` | fuera de 1–65535 se ignora |
 | `free_space_warn_gib` | `10.0` | umbral del aviso de espacio; debe ser > 0 |
 | `session_dir` | `""` | ver abajo |
+| `download_concurrency` | `2` | descargas simultáneas de `arca run` y del worker del servidor; entero > 0 |
+| `download_max_attempts` | `5` | reintentos por descarga antes de marcarla `failed`; entero > 0 |
+| `embed_url` | `"http://127.0.0.1:8080"` | servidor de embeddings (ver `documents.md`) |
+| `embed_model` | `"multilingual-e5-base"` | modelo declarado en los manifiestos de lote |
+| `embed_dims` | `768` | dimensiones esperadas; un servidor que devuelva otras se rechaza |
+| `chat_url` | `"http://127.0.0.1:8081"` | dónde buscar el chat cuando el servidor no lo gestiona ARCA; si lo arranca ARCA, la URL sale del propio `argv` |
+| `chat_model` | `""` | nombre del GGUF de `models/chat/`; vacío = el primero legible |
+| `llama_bin` | `""` | ruta o nombre del binario `llama-server`; vacío = buscar en `vendor/llama.cpp/` y en el `PATH` (ver `llama.md`) |
 
 Robustez deliberada: un `arca.json` ausente, corrupto o con tipos equivocados nunca impide arrancar — cada valor inválido cae a su defecto (invariante 5). Las claves desconocidas se ignoran.
 

@@ -4,28 +4,74 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>$title</title>
+<link rel="stylesheet" href="/static/fonts/fonts.css">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header>
 <h1>ARCA</h1>
 <p class="tagline">$tagline</p>
-<nav class="lang">$lang_links</nav>
+<a class="header-link" href="/admin" data-i18n="home.nav.admin"></a>
+$lang_selector
 </header>
-<main>
-<section>
-<h2>$status_heading</h2>
-<ul class="status">
-$status_items
-</ul>
-$invite_block
+<main class="archive">
+<section class="pane pane-archive" aria-labelledby="archive-heading">
+<h2 id="archive-heading" data-i18n="home.archive.heading"></h2>
+<p id="health-strip" class="message" hidden></p>
+<form id="search-form" role="search">
+<div class="field field-wide">
+<label for="search-q" data-i18n="home.search.label"></label>
+<input id="search-q" type="search" autocomplete="off" data-i18n-placeholder="home.search.placeholder">
+</div>
+<div class="field">
+<label for="search-scope" data-i18n="home.search.scope_label"></label>
+<select id="search-scope">
+<option value="" data-i18n="home.search.scope_all"></option>
+</select>
+</div>
+<div class="field field-submit">
+<button type="submit" data-i18n="home.search.button"></button>
+</div>
+</form>
+<p id="search-message" class="message" hidden></p>
+<p id="search-count" class="result-count" hidden></p>
+<ol id="search-results" class="results"></ol>
+<ul id="search-sources" class="sources-note" hidden></ul>
+<section id="semantic-band" class="band" hidden>
+<h3 data-i18n="home.semantic.heading"></h3>
+<p class="detail" id="semantic-note" hidden></p>
+<ol id="semantic-results" class="results"></ol>
 </section>
-<section>
-<h2>$diag_heading</h2>
-<ul class="diagnostics">
-$diag_items
-</ul>
 </section>
+<section class="pane pane-viewer" id="viewer-pane" hidden aria-labelledby="viewer-heading">
+<div class="viewer-bar">
+<button type="button" id="viewer-back" data-i18n="home.viewer.back"></button>
+<h2 id="viewer-heading" data-i18n="home.viewer.heading"></h2>
+</div>
+<p class="seal" id="viewer-seal"></p>
+<iframe id="viewer-frame" sandbox="allow-same-origin" data-i18n-title="home.viewer.frame_title"></iframe>
+</section>
+<aside class="pane pane-assistant" aria-labelledby="assistant-heading">
+<h2 id="assistant-heading" data-i18n="home.assistant.heading"></h2>
+<p class="assistant-state"><span class="state state-degraded" id="chat-state" data-i18n="home.chat.state.unavailable"></span></p>
+<p id="chat-unavailable" class="detail" data-i18n="home.chat.unavailable"></p>
+<p id="chat-selection" class="seal" hidden></p>
+<ol id="chat-log" class="chat-log"></ol>
+<p id="chat-message" class="message" hidden></p>
+<form id="chat-form">
+<div class="field field-wide">
+<label class="visually-hidden" for="chat-input" data-i18n="home.chat.placeholder"></label>
+<textarea id="chat-input" rows="3" data-i18n-placeholder="home.chat.placeholder"></textarea>
+</div>
+<div class="field field-submit">
+<button type="submit" data-i18n="home.chat.send"></button>
+</div>
+</form>
+</aside>
 </main>
+<noscript><p class="message" data-noscript>$noscript</p></noscript>
+<script id="i18n-data" type="application/json">$i18n_json</script>
+<script src="/static/archive.js"></script>
+<script src="/static/chat.js"></script>
 </body>
 </html>

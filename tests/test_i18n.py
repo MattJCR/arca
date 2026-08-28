@@ -1,3 +1,6 @@
+import re
+from pathlib import Path
+
 import pytest
 
 from arca.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, load_catalog, normalize_language
@@ -50,7 +53,7 @@ def test_diagnostic_keys_exist_for_every_reachable_state() -> None:
 
 def test_text_formats_named_params() -> None:
     catalog = load_catalog("es")
-    rendered = catalog.text("status.root", root="X:/lib")
+    rendered = catalog.text("home.search.empty", query="X:/lib")
     assert "X:/lib" in rendered
 
 
@@ -60,8 +63,66 @@ def test_text_returns_key_when_missing() -> None:
 
 def test_text_survives_missing_params() -> None:
     catalog = load_catalog("en")
-    assert catalog.text("status.root") == catalog.messages["status.root"]
+    assert catalog.text("home.search.empty") == catalog.messages["home.search.empty"]
 
 
 def test_unsupported_language_loads_default_catalog() -> None:
     assert load_catalog("fr").language == DEFAULT_LANGUAGE
+
+
+STATIC_DIR = Path(__file__).resolve().parents[1] / "arca" / "static"
+TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "arca" / "templates"
+DYNAMIC_PREFIXES = (
+    "admin.downloads.status.",
+    "admin.vendor.state.",
+    "admin.vendor.drift.",
+    "admin.status.worst.",
+    "admin.content.state.",
+    "admin.content.index.",
+    "home.sources.",
+    "home.seal.kind.",
+    "home.health.",
+)
+
+
+def _template_keys() -> set[str]:
+    keys: set[str] = set()
+    for template in TEMPLATE_DIR.glob("*.html"):
+        text = template.read_text("utf-8")
+        keys.update(re.findall(r'data-i18n(?:-placeholder|-title)?="([^"]+)"', text))
+    return keys
+
+
+def _script_keys() -> set[str]:
+    keys: set[str] = set()
+    for script in STATIC_DIR.glob("*.js"):
+        text = script.read_text("utf-8")
+        for key in re.findall(r'(?<![\w.])t\(\s*"([^"]+)"', text):
+            if not key.endswith("."):
+                keys.add(key)
+    return keys
+
+
+def test_every_key_used_by_the_interface_exists_in_both_catalogs() -> None:
+    used = _template_keys() | _script_keys()
+    assert used
+    for lang in SUPPORTED_LANGUAGES:
+        catalog = load_catalog(lang)
+        missing = {key for key in used if not catalog.has(key)}
+        assert not missing, f"{lang}: {sorted(missing)}"
+
+
+def test_dynamic_key_families_are_complete_in_both_catalogs() -> None:
+    for lang in SUPPORTED_LANGUAGES:
+        keys = set(load_catalog(lang).messages)
+        for prefix in DYNAMIC_PREFIXES:
+            assert any(key.startswith(prefix) for key in keys), f"{lang}:{prefix}"
+
+
+def test_the_interface_never_hardcodes_a_user_facing_string_from_a_catalog() -> None:
+    spanish = load_catalog("es").messages
+    long_strings = {value for value in spanish.values() if len(value) > 24}
+    for script in STATIC_DIR.glob("*.js"):
+        text = script.read_text("utf-8")
+        for value in long_strings:
+            assert value not in text, f"{script.name}: {value}"

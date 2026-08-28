@@ -1,0 +1,57 @@
+[
+  {
+    "key": "fastapi",
+    "version": "0.141.1",
+    "kind": "pypi",
+    "url": "https://files.pythonhosted.org/packages/8a/02/91e3416a8fdd715abb903a952a6bec7cdd8d14eed55d415fc8595524c319/fastapi-0.141.1.tar.gz",
+    "commit": "",
+    "sha256": "e8822fc40db1e1858054d7a949a888695bc9bdce70139178e33bd2871a453ca1",
+    "license": "MIT",
+    "captured_at": "2026-08-28",
+    "notes": "sdist captured from uv.lock; wheelhouse is generated with pip download"
+  },
+  {
+    "key": "uvicorn",
+    "version": "0.52.4",
+    "kind": "pypi",
+    "url": "https://files.pythonhosted.org/packages/f2/0f/3f86e61397dd33bf2ccf28188c40db6a740658aeebbbf6e7dbc101a1f487/uvicorn-0.52.4.tar.gz",
+    "commit": "",
+    "sha256": "73acfee47a0b133c5de13d219492d62d8a31e935f4fe6e41a232451a15379f86",
+    "license": "BSD-3-Clause",
+    "captured_at": "2026-08-28",
+    "notes": "sdist captured from uv.lock; wheelhouse is generated with pip download"
+  },
+  {
+    "key": "libzim",
+    "version": "3.12.0",
+    "kind": "pypi",
+    "url": "https://files.pythonhosted.org/packages/79/4f/b9d4fe1f01696e0d664b272690297ac9311fa5e7b69386f80cd05a2a3c38/libzim-3.12.0.tar.gz",
+    "commit": "",
+    "sha256": "7bee04851616ef5804a2ee38feb6093a8f1a64284cd817db93481df993d9c73d",
+    "license": "GPL-3.0-or-later",
+    "captured_at": "2026-08-28",
+    "notes": "sdist captured from uv.lock; wheelhouse is generated with pip download"
+  },
+  {
+    "key": "pymupdf",
+    "version": "1.28.2",
+    "kind": "pypi",
+    "url": "https://files.pythonhosted.org/packages/a3/fb/b6761fa2d5266f2cdb24c3b91f4023070ab7848381417678e7a289a1d52a/pymupdf-1.28.2.tar.gz",
+    "commit": "",
+    "sha256": "5e0be7908a715aa20333caddd73f1d6f01e4cd0c26e869fa2dd0b7f344da2249",
+    "license": "AGPL-3.0-only",
+    "captured_at": "2026-08-28",
+    "notes": "sdist captured from uv.lock; wheelhouse is generated with pip download"
+  },
+  {
+    "key": "numpy",
+    "version": "2.5.2",
+    "kind": "pypi",
+    "url": "https://files.pythonhosted.org/packages/9a/80/db0b4559e57ec36362bedbb05530a87fafbcb6067708c946967a41d449e7/numpy-2.5.2.tar.gz",
+    "commit": "",
+    "sha256": "d482d171c406ae88c5b19cad3b6a1c4c5209f886ab74bc44c2c865c23f52d860",
+    "license": "BSD-3-Clause",
+    "captured_at": "2026-08-28",
+    "notes": "sdist captured from uv.lock; wheelhouse is generated with pip download"
+  }
+]

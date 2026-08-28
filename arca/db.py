@@ -106,6 +106,7 @@ def open_library_rw(path: Path) -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA journal_mode = WAL")
     connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA busy_timeout = 5000")
     _migrate(connection)
     return connection
 
@@ -123,6 +124,22 @@ def open_library_ro(path: Path) -> sqlite3.Connection:
 def schema_version(connection: sqlite3.Connection) -> int:
     row = connection.execute("PRAGMA user_version").fetchone()
     return int(row[0])
+
+
+def read_setting(connection: sqlite3.Connection, key: str, default: str = "") -> str:
+    row = connection.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    if row is None:
+        return default
+    return str(row["value"])
+
+
+def write_setting(connection: sqlite3.Connection, key: str, value: str) -> None:
+    connection.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    connection.commit()
 
 
 def record_event(

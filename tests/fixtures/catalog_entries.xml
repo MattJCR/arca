@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:opds="http://opds-spec.org/2010/catalog"
+      xmlns:kiwix="http://www.kiwix.org/opds/">
+  <id>catalog-feed</id>
+  <title>All zims</title>
+  <entry>
+    <id>urn:uuid:0c45160e-f917-760a-9159-dfe3c53cdcdd</id>
+    <title>Wikipedia (Spanish)</title>
+    <updated>2026-06-05T00:00:00Z</updated>
+    <summary>Encyclopedia articles in Spanish</summary>
+    <language>spa</language>
+    <kiwix:name>wikipedia_es_all</kiwix:name>
+    <kiwix:flavour>maxi</kiwix:flavour>
+    <kiwix:tags>wikipedia;_category:wikipedia;_ftindex:yes;_pictures:yes</kiwix:tags>
+    <kiwix:articleCount>1900000</kiwix:articleCount>
+    <author><name>Kiwix</name></author>
+    <link rel="http://opds-spec.org/acquisition/open-access"
+          type="application/x-zim"
+          href="https://download.kiwix.org/zim/wikipedia/wikipedia_es_all_maxi_2026-06.zim.meta4"
+          length="112233445566"/>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          type="image/png"
+          href="/catalog/v2/illustration/0c45160e/"/>
+  </entry>
+  <entry>
+    <id>urn:uuid:2f1a9b3c-1111-2222-3333-444455556666</id>
+    <title>DevDocs Python</title>
+    <updated>2026-05-01T00:00:00Z</updated>
+    <summary>Python documentation from DevDocs</summary>
+    <language>eng</language>
+    <kiwix:name>devdocs_en_python</kiwix:name>
+    <kiwix:flavour></kiwix:flavour>
+    <kiwix:tags>devdocs;_category:devdocs</kiwix:tags>
+    <kiwix:articleCount>12000</kiwix:articleCount>
+    <author><name>Kiwix</name></author>
+    <link rel="http://opds-spec.org/acquisition/open-access"
+          type="application/x-zim"
+          href="https://download.kiwix.org/zim/devdocs/devdocs_en_python_2026-05.zim.meta4"
+          length="55667788"/>
+  </entry>
+  <entry>
+    <id>urn:uuid:no-acquisition-entry</id>
+    <title>Broken entry without link</title>
+    <updated>2026-05-01T00:00:00Z</updated>
+  </entry>
+</feed>

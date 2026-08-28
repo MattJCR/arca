@@ -18,6 +18,12 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8042
 DEFAULT_FREE_SPACE_WARN_GIB = 10.0
 FREE_SPACE_FLOOR_GIB = 1.0
+DEFAULT_DOWNLOAD_CONCURRENCY = 2
+DEFAULT_DOWNLOAD_MAX_ATTEMPTS = 5
+DEFAULT_EMBED_URL = "http://127.0.0.1:8080"
+DEFAULT_EMBED_MODEL = "multilingual-e5-base"
+DEFAULT_EMBED_DIMS = 768
+DEFAULT_CHAT_URL = "http://127.0.0.1:8081"
 LOG_MAX_BYTES = 5_000_000
 LOG_BACKUP_COUNT = 3
 
@@ -42,6 +48,14 @@ class ArcaConfig:
     port: int = DEFAULT_PORT
     free_space_warn_gib: float = DEFAULT_FREE_SPACE_WARN_GIB
     session_dir: str = ""
+    download_concurrency: int = DEFAULT_DOWNLOAD_CONCURRENCY
+    download_max_attempts: int = DEFAULT_DOWNLOAD_MAX_ATTEMPTS
+    embed_url: str = DEFAULT_EMBED_URL
+    embed_model: str = DEFAULT_EMBED_MODEL
+    embed_dims: int = DEFAULT_EMBED_DIMS
+    chat_url: str = DEFAULT_CHAT_URL
+    chat_model: str = ""
+    llama_bin: str = ""
 
 
 @dataclass(frozen=True)
@@ -91,6 +105,18 @@ def load_config(root: Path) -> ArcaConfig:
             parsed, "free_space_warn_gib", defaults.free_space_warn_gib
         ),
         session_dir=_read_str(parsed, "session_dir", defaults.session_dir),
+        download_concurrency=_read_positive_int(
+            parsed, "download_concurrency", defaults.download_concurrency
+        ),
+        download_max_attempts=_read_positive_int(
+            parsed, "download_max_attempts", defaults.download_max_attempts
+        ),
+        embed_url=_read_str(parsed, "embed_url", defaults.embed_url) or defaults.embed_url,
+        embed_model=_read_str(parsed, "embed_model", defaults.embed_model) or defaults.embed_model,
+        embed_dims=_read_positive_int(parsed, "embed_dims", defaults.embed_dims),
+        chat_url=_read_str(parsed, "chat_url", defaults.chat_url) or defaults.chat_url,
+        chat_model=_read_str(parsed, "chat_model", defaults.chat_model),
+        llama_bin=_read_str(parsed, "llama_bin", defaults.llama_bin),
     )
 
 
@@ -161,6 +187,13 @@ def _read_str(parsed: dict[object, object], key: str, default: str) -> str:
 def _read_port(parsed: dict[object, object], default: int) -> int:
     value = parsed.get("port")
     if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 65535:
+        return value
+    return default
+
+
+def _read_positive_int(parsed: dict[object, object], key: str, default: int) -> int:
+    value = parsed.get(key)
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
         return value
     return default
 

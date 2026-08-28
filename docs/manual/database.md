@@ -11,6 +11,10 @@ Módulo: `arca/db.py`. Fichero: `<raiz>/library.db`, esquema completo de §7.1 (
 
 `library.db` es la excepción sancionada de WAL (§7.1: «WAL solo aquí; los lotes no»): incluso una conexión de solo lectura puede materializar `library.db-wal`/`-shm` junto al fichero, porque SQLite necesita el índice WAL para leer. El test `test_open_ro_leaves_the_database_bytes_untouched` fija el contrato real: los bytes del fichero de datos no cambian y no aparece nada más que esos dos sidecars. Los lotes sellados (hito 3) sí tendrán prohibición absoluta de sidecars (`journal_mode=DELETE`).
 
+## Ajustes
+
+- `read_setting(conn, key, default="")` / `write_setting(conn, key, value)` sobre la tabla `settings` (clave/valor de texto). Hoy la usa `search.disabled_zim`: array JSON con los UUID de las colecciones excluidas de las búsquedas (ver `zim.md`).
+
 ## Eventos
 
 - `record_event(conn, level, area, message, detail="")` — inserta con timestamp UTC `...Z`. Los mensajes de evento son datos técnicos y se escriben en inglés; no pasan por i18n.

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:dc="http://purl.org/dc/terms/"
+      xmlns:thr="http://purl.org/syndication/thread/1.0">
+  <id>language-feed</id>
+  <title>List of languages</title>
+  <entry>
+    <title>Spanish</title>
+    <dc:language>spa</dc:language>
+    <thr:count>140</thr:count>
+    <id>lang-spa</id>
+  </entry>
+  <entry>
+    <title>English</title>
+    <dc:language>eng</dc:language>
+    <thr:count>1200</thr:count>
+    <id>lang-eng</id>
+  </entry>
+  <entry>
+    <title>Broken entry without code</title>
+    <thr:count>3</thr:count>
+    <id>lang-broken</id>
+  </entry>
+  <entry>
+    <dc:language>und</dc:language>
+    <id>lang-unnamed</id>
+  </entry>
+</feed>

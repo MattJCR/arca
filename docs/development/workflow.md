@@ -33,7 +33,22 @@ Para cada tarea:
 6. Crear o actualizar las pruebas.
 7. Actualizar el manual de usuario desarrollador (`docs/manual/`, ver `developer-manual.md`).
 8. Revisar la solución.
-9. Entregar únicamente cuando cumpla todos los requisitos.
+9. Crear o actualizar `.claude/checkpoint.md` indicando brevemente qué sigue.
+10. Entregar únicamente cuando cumpla todos los requisitos.
+
+## Checkpoint al cerrar cada tarea
+
+Al terminar una tarea —no solo al pausar o al compactar contexto— se escribe o se
+actualiza `.claude/checkpoint.md` con la skill `save-checkpoint`. El checkpoint es
+acumulativo: siempre refleja el estado actual del proyecto, no el historial.
+
+Contenido mínimo, breve:
+
+- Tarea recién cerrada (ID del plan) y su resultado.
+- **Lo siguiente:** la próxima tarea del plan y la primera acción concreta.
+- Bloqueos o decisiones abiertas, si las hay.
+
+No sustituye a `ARCA-plan.md` ni al manual: no duplica su contenido, los referencia.
 
 ## Definición de tarea completada
 

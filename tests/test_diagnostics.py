@@ -2,8 +2,12 @@ import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from arca.config import ArcaConfig, config_path, init_library
+import pytest
+
+from arca.config import ArcaConfig, config_path, init_library, library_db_path
+from arca.db import open_library_rw
 from arca.diagnostics import BUILD_EPOCH, CheckState, render, run_checks, worst_state
+from arca.fetch import write_sha256_sidecar
 from arca.i18n import load_catalog
 
 NOW = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
@@ -83,3 +87,103 @@ def test_render_omits_impact_and_action_when_ok(tmp_path: Path) -> None:
     rendered = render(results["library_path"], load_catalog("es"))
     assert "impact" not in rendered
     assert "action" not in rendered
+
+
+def test_content_checks_are_ok_on_a_clean_library(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    states = _states(root, ArcaConfig(), NOW)
+    assert states["zim_integrity"] is CheckState.OK
+    assert states["incomplete_downloads"] is CheckState.OK
+    assert states["doc_drift"] is CheckState.OK
+    assert states["undocumented_dependency"] is CheckState.OK
+
+
+def test_zim_integrity_degrades_on_corrupt_missing_or_unverifiable(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    connection = open_library_rw(library_db_path(root))
+    try:
+        rows = (
+            ("u-ok", "ok.zim", "present"),
+            ("u-corrupt", "corrupt.zim", "corrupt"),
+            ("u-missing", "missing.zim", "present"),
+            ("u-nohash", "nohash.zim", "present"),
+        )
+        for uuid, filename, status in rows:
+            connection.execute(
+                "INSERT INTO zim_files (uuid, book_name, filename, status) VALUES (?, ?, ?, ?)",
+                (uuid, filename, filename, status),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+    for filename in ("ok.zim", "corrupt.zim", "nohash.zim"):
+        (root / "zim" / filename).write_bytes(b"payload")
+    write_sha256_sidecar(root / "zim" / "ok.zim", "0" * 64)
+    write_sha256_sidecar(root / "zim" / "corrupt.zim", "0" * 64)
+    results = {result.check_id: result for result in run_checks(root, ArcaConfig(), now=NOW)}
+    check = results["zim_integrity"]
+    assert check.state is CheckState.DEGRADED
+    assert check.params["corrupt"] == "1"
+    assert check.params["missing"] == "1"
+    assert check.params["unverifiable"] == "1"
+
+
+def test_orphan_part_files_degrade_incomplete_downloads(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    orphan = root / "zim" / "orphan.zim.part"
+    orphan.write_bytes(b"partial")
+    results = {result.check_id: result for result in run_checks(root, ArcaConfig(), now=NOW)}
+    assert results["incomplete_downloads"].state is CheckState.DEGRADED
+    assert results["incomplete_downloads"].params["first"] == "orphan.zim.part"
+
+
+def test_part_files_with_an_active_download_are_not_orphans(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    dest = root / "zim" / "active.zim"
+    dest.with_name(dest.name + ".part").write_bytes(b"partial")
+    connection = open_library_rw(library_db_path(root))
+    try:
+        connection.execute(
+            "INSERT INTO downloads (kind, ref, filename, dest_path, status) "
+            "VALUES ('zim', 'u1', 'active.zim', ?, 'paused')",
+            (str(dest),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    states = _states(root, ArcaConfig(), NOW)
+    assert states["incomplete_downloads"] is CheckState.OK
+
+
+def test_documentation_drift_degrades_the_lock_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    drifted_lock = tmp_path / "sources.lock"
+    drifted_lock.write_text(
+        '[{"key": "fastapi", "version": "0.1.0", "kind": "pypi", "url": "", '
+        '"commit": "", "sha256": "", "license": "MIT", "captured_at": "", "notes": ""}]',
+        "utf-8",
+    )
+    monkeypatch.setattr("arca.diagnostics.default_lock_path", lambda: drifted_lock)
+    results = {result.check_id: result for result in run_checks(root, ArcaConfig(), now=NOW)}
+    assert results["doc_drift"].state is CheckState.DEGRADED
+    assert "fastapi" in results["doc_drift"].params["detail"]
+    assert results["undocumented_dependency"].state is CheckState.DEGRADED
+    assert "numpy" in results["undocumented_dependency"].params["detail"]
+
+
+def test_unreadable_lock_degrades_both_lock_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    monkeypatch.setattr("arca.diagnostics.default_lock_path", lambda: tmp_path / "missing.lock")
+    states = _states(root, ArcaConfig(), NOW)
+    assert states["doc_drift"] is CheckState.DEGRADED
+    assert states["undocumented_dependency"] is CheckState.DEGRADED

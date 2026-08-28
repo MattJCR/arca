@@ -4,18 +4,351 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>$title</title>
+<link rel="stylesheet" href="/static/fonts/fonts.css">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header>
 <h1>ARCA</h1>
-<nav class="lang">$lang_links</nav>
+<nav class="tabs" role="tablist">
+<button type="button" role="tab" data-tab="status-section" aria-selected="true" data-i18n="admin.nav.status"></button>
+<button type="button" role="tab" data-tab="catalog-section" aria-selected="false" data-i18n="admin.nav.catalog"></button>
+<button type="button" role="tab" data-tab="downloads-section" aria-selected="false" data-i18n="admin.nav.downloads"></button>
+<button type="button" role="tab" data-tab="content-section" aria-selected="false" data-i18n="admin.nav.content"></button>
+<button type="button" role="tab" data-tab="documents-section" aria-selected="false" data-i18n="admin.nav.documents"></button>
+<button type="button" role="tab" data-tab="scope-section" aria-selected="false" data-i18n="admin.nav.scope"></button>
+<button type="button" role="tab" data-tab="models-section" aria-selected="false" data-i18n="admin.nav.models"></button>
+<button type="button" role="tab" data-tab="llama-section" aria-selected="false" data-i18n="admin.nav.llama"></button>
+<button type="button" role="tab" data-tab="chat-section" aria-selected="false" data-i18n="admin.nav.chat"></button>
+<button type="button" role="tab" data-tab="vendor-section" aria-selected="false" data-i18n="admin.nav.vendor"></button>
+<button type="button" role="tab" data-tab="search-section" aria-selected="false" data-i18n="admin.nav.search"></button>
+<button type="button" role="tab" data-tab="maintenance-section" aria-selected="false" data-i18n="admin.nav.maintenance"></button>
+<button type="button" role="tab" data-tab="diagnostics-section" aria-selected="false" data-i18n="admin.nav.diagnostics"></button>
+</nav>
+$lang_selector
 </header>
-<main>
-<section>
-<h2>$title</h2>
-<p>$placeholder</p>
+<main class="admin">
+<section id="status-section" role="tabpanel">
+<h2 data-i18n="admin.status.heading"></h2>
+<ul id="status-summary" class="status"></ul>
+<h3 data-i18n="admin.status.events_heading"></h3>
+<div class="table-scroll">
+<table class="data">
+<thead><tr>
+<th data-i18n="admin.events.col.ts"></th>
+<th data-i18n="admin.events.col.level"></th>
+<th data-i18n="admin.events.col.area"></th>
+<th data-i18n="admin.events.col.message"></th>
+</tr></thead>
+<tbody id="events-body"></tbody>
+</table>
+</div>
+</section>
+<section id="catalog-section" role="tabpanel">
+<h2 data-i18n="admin.catalog.heading"></h2>
+<form id="catalog-form">
+<div class="field field-wide">
+<label for="catalog-q" data-i18n="admin.catalog.query_label"></label>
+<input id="catalog-q" type="search" data-i18n-placeholder="admin.catalog.query_placeholder">
+</div>
+<div class="field">
+<label for="catalog-lang" data-i18n="admin.catalog.language_label"></label>
+<select id="catalog-lang">
+<option value="" data-i18n="admin.catalog.any_language"></option>
+</select>
+</div>
+<div class="field">
+<label for="catalog-category" data-i18n="admin.catalog.category_label"></label>
+<select id="catalog-category">
+<option value="" data-i18n="admin.catalog.any_category"></option>
+</select>
+</div>
+<div class="field">
+<label for="catalog-flavour" data-i18n="admin.catalog.flavour_label"></label>
+<select id="catalog-flavour">
+<option value="" data-i18n="admin.catalog.any_flavour"></option>
+</select>
+</div>
+<div class="field field-submit">
+<button type="submit" data-i18n="admin.catalog.search_button"></button>
+</div>
+</form>
+<p id="catalog-message" class="message" hidden></p>
+<p id="catalog-count" class="result-count" hidden></p>
+<div class="table-scroll" id="catalog-table-wrap" hidden>
+<table class="data" id="catalog-table">
+<thead><tr>
+<th data-sort="title" data-i18n="admin.catalog.col.title"></th>
+<th data-sort="language" data-i18n="admin.catalog.col.language"></th>
+<th data-sort="flavour" data-i18n="admin.catalog.col.flavour"></th>
+<th data-sort="size_bytes" class="num" data-i18n="admin.catalog.col.size"></th>
+<th data-sort="article_count" class="num" data-i18n="admin.catalog.col.articles"></th>
+<th data-sort="has_fulltext" data-i18n="admin.catalog.col.fulltext"></th>
+<th data-i18n="admin.catalog.col.actions"></th>
+</tr></thead>
+<tbody id="catalog-body"></tbody>
+</table>
+</div>
+</section>
+<section id="downloads-section" role="tabpanel">
+<h2 data-i18n="admin.downloads.heading"></h2>
+<p><button id="verify-button" data-i18n="admin.verify.button"></button></p>
+<p id="verify-message" class="message" hidden></p>
+<p id="downloads-message" class="message" hidden></p>
+<div class="table-scroll" id="downloads-table-wrap" hidden>
+<table class="data" id="downloads-table">
+<thead><tr>
+<th data-i18n="admin.downloads.col.file"></th>
+<th data-i18n="admin.downloads.col.progress"></th>
+<th data-i18n="admin.downloads.col.speed"></th>
+<th data-i18n="admin.downloads.col.mirror"></th>
+<th data-i18n="admin.downloads.col.status"></th>
+<th data-i18n="admin.downloads.col.actions"></th>
+</tr></thead>
+<tbody id="downloads-body"></tbody>
+</table>
+</div>
+</section>
+<section id="content-section" role="tabpanel">
+<h2 data-i18n="admin.content.heading"></h2>
+<p><button id="content-refresh-button" data-i18n="admin.content.refresh_button"></button></p>
+<p class="detail" data-i18n="admin.content.disabled_note"></p>
+<p id="content-message" class="message" hidden></p>
+<p id="content-count" class="result-count" hidden></p>
+<div class="table-scroll" id="content-table-wrap" hidden>
+<table class="data" id="content-table">
+<thead><tr>
+<th data-i18n="admin.content.col.title"></th>
+<th data-i18n="admin.content.col.language"></th>
+<th data-i18n="admin.content.col.flavour"></th>
+<th class="num" data-i18n="admin.content.col.articles"></th>
+<th class="num" data-i18n="admin.content.col.size"></th>
+<th data-i18n="admin.content.col.index"></th>
+<th data-i18n="admin.content.col.state"></th>
+<th data-i18n="admin.content.col.search"></th>
+<th data-i18n="admin.content.col.actions"></th>
+</tr></thead>
+<tbody id="content-body"></tbody>
+</table>
+</div>
+<div id="content-failures" hidden>
+<h3 data-i18n="admin.content.failures_heading"></h3>
+<ul id="content-failures-list" class="status"></ul>
+</div>
+</section>
+<section id="documents-section" role="tabpanel">
+<h2 data-i18n="admin.documents.heading"></h2>
+<p><button id="documents-refresh-button" data-i18n="admin.documents.refresh_button"></button></p>
+<p id="documents-message" class="message" hidden></p>
+<div class="table-scroll">
+<table class="data" id="documents-table">
+<thead><tr>
+<th data-i18n="admin.documents.col.title"></th>
+<th data-i18n="admin.documents.col.file"></th>
+<th class="num" data-i18n="admin.documents.col.pages"></th>
+<th data-i18n="admin.documents.col.gaps"></th>
+<th data-i18n="admin.documents.col.shard"></th>
+<th data-i18n="admin.documents.col.actions"></th>
+</tr></thead>
+<tbody id="documents-body"></tbody>
+</table>
+</div>
+<h3 data-i18n="admin.documents.shards_heading"></h3>
+<div class="table-scroll">
+<table class="data" id="shards-table">
+<thead><tr>
+<th data-i18n="admin.documents.shard.col.id"></th>
+<th data-i18n="admin.documents.shard.col.kind"></th>
+<th data-i18n="admin.documents.shard.col.state"></th>
+<th class="num" data-i18n="admin.documents.shard.col.docs"></th>
+<th class="num" data-i18n="admin.documents.shard.col.chunks"></th>
+<th data-i18n="admin.documents.shard.col.model"></th>
+</tr></thead>
+<tbody id="shards-body"></tbody>
+</table>
+</div>
+<h3 data-i18n="admin.documents.jobs_heading"></h3>
+<div class="table-scroll">
+<table class="data" id="jobs-table">
+<thead><tr>
+<th data-i18n="admin.documents.job.col.source"></th>
+<th data-i18n="admin.documents.job.col.status"></th>
+<th data-i18n="admin.documents.job.col.shard"></th>
+<th data-i18n="admin.documents.job.col.error"></th>
+</tr></thead>
+<tbody id="jobs-body"></tbody>
+</table>
+</div>
+</section>
+<section id="scope-section" role="tabpanel">
+<h2 data-i18n="admin.scope.heading"></h2>
+<p class="detail" data-i18n="admin.scope.explanation"></p>
+<p id="scope-message" class="message" hidden></p>
+<div id="scope-list"></div>
+</section>
+<section id="models-section" role="tabpanel">
+<h2 data-i18n="admin.models.heading"></h2>
+<p id="models-active" class="result-count"></p>
+<ul id="models-warnings" class="sources-note" hidden></ul>
+<div class="table-scroll">
+<table class="data" id="models-table">
+<thead><tr>
+<th data-i18n="admin.models.col.name"></th>
+<th data-i18n="admin.models.col.kind"></th>
+<th data-i18n="admin.models.col.architecture"></th>
+<th data-i18n="admin.models.col.quantization"></th>
+<th class="num" data-i18n="admin.models.col.context"></th>
+<th class="num" data-i18n="admin.models.col.size"></th>
+</tr></thead>
+<tbody id="models-body"></tbody>
+</table>
+</div>
+</section>
+<section id="llama-section" role="tabpanel">
+<h2 data-i18n="admin.llama.heading"></h2>
+<ul id="llama-summary" class="status"></ul>
+<p class="llama-panel">
+<button id="llama-start" data-i18n="admin.llama.start"></button>
+<button id="llama-stop" data-i18n="admin.llama.stop"></button>
+<button id="llama-restart" data-i18n="admin.llama.restart"></button>
+</p>
+<h3 data-i18n="admin.llama.command_line"></h3>
+<p id="llama-command" class="command-line"></p>
+<ul id="llama-preflight" class="sources-note" hidden></ul>
+<p id="llama-message" class="message" hidden></p>
+<h3 data-i18n="admin.llama.log_heading"></h3>
+<pre id="llama-log" class="llama-log"></pre>
+<h3 data-i18n="admin.llama.profiles_heading"></h3>
+<p class="detail" id="llama-help-source"></p>
+<p class="detail" data-i18n="admin.llama.sampling_note"></p>
+<form id="llama-new-profile">
+<div class="field field-wide">
+<label for="llama-profile-name" data-i18n="admin.llama.new_profile"></label>
+<input id="llama-profile-name" type="text" autocomplete="off">
+</div>
+<div class="field field-submit">
+<button type="submit" data-i18n="admin.llama.create"></button>
+</div>
+</form>
+<div id="llama-profiles"></div>
+</section>
+<section id="chat-section" role="tabpanel">
+<h2 data-i18n="admin.chat.heading"></h2>
+<p class="result-count" id="chat-limits"></p>
+<form id="chat-settings" class="settings-form">
+<label for="chat-max-chunks" data-i18n="admin.chat.max_chunks"></label>
+<input id="chat-max-chunks" type="number" min="1" step="1">
+<label for="chat-max-tokens" data-i18n="admin.chat.max_evidence_tokens"></label>
+<input id="chat-max-tokens" type="number" min="1" step="1">
+<label for="chat-max-calls" data-i18n="admin.chat.max_tool_calls"></label>
+<input id="chat-max-calls" type="number" min="0" step="1">
+<label for="chat-prompt" data-i18n="admin.chat.system_prompt"></label>
+<textarea id="chat-prompt" rows="6"></textarea>
+<p class="detail" data-i18n="admin.chat.system_prompt_hint"></p>
+<label for="chat-risk-topics" data-i18n="admin.chat.risk_topics"></label>
+<textarea id="chat-risk-topics" rows="3"></textarea>
+<p class="detail" data-i18n="admin.chat.risk_topics_hint"></p>
+<label for="chat-sampling" data-i18n="admin.chat.sampling"></label>
+<textarea id="chat-sampling" rows="3"></textarea>
+<p><button type="submit" data-i18n="admin.chat.save"></button></p>
+</form>
+<p id="chat-settings-message" class="message" hidden></p>
+</section>
+<section id="vendor-section" role="tabpanel">
+<h2 data-i18n="admin.vendor.heading"></h2>
+<p>
+<button id="vendor-download-button" data-i18n="admin.vendor.download_button"></button>
+<button id="vendor-verify-button" data-i18n="admin.vendor.verify_button"></button>
+<button id="vendor-index-button" data-i18n="admin.vendor.index_button"></button>
+</p>
+<p id="vendor-message" class="message" hidden></p>
+<div class="table-scroll">
+<table class="data" id="vendor-table">
+<thead><tr>
+<th data-i18n="admin.vendor.col.key"></th>
+<th data-i18n="admin.vendor.col.version"></th>
+<th data-i18n="admin.vendor.col.kind"></th>
+<th data-i18n="admin.vendor.col.license"></th>
+<th data-i18n="admin.vendor.col.file"></th>
+<th data-i18n="admin.vendor.col.state"></th>
+</tr></thead>
+<tbody id="vendor-body"></tbody>
+</table>
+</div>
+<h3 data-i18n="admin.vendor.drift_heading"></h3>
+<div class="table-scroll">
+<table class="data" id="drift-table">
+<thead><tr>
+<th data-i18n="admin.vendor.drift.col.package"></th>
+<th data-i18n="admin.vendor.drift.col.installed"></th>
+<th data-i18n="admin.vendor.drift.col.documented"></th>
+<th data-i18n="admin.vendor.drift.col.state"></th>
+</tr></thead>
+<tbody id="drift-body"></tbody>
+</table>
+</div>
+</section>
+<section id="search-section" role="tabpanel">
+<h2 data-i18n="admin.search.heading"></h2>
+<form id="search-settings" class="settings-form">
+<label for="search-per-source" data-i18n="admin.search.per_source"></label>
+<input id="search-per-source" type="number" min="1" step="1">
+<label for="search-zim-weight" data-i18n="admin.search.zim_weight"></label>
+<input id="search-zim-weight" type="number" min="1" max="5" step="1">
+<label for="search-doc-weight" data-i18n="admin.search.doc_weight"></label>
+<input id="search-doc-weight" type="number" min="1" max="5" step="1">
+<p class="detail" data-i18n="admin.search.weights_note"></p>
+<label for="search-snippet" data-i18n="admin.search.snippet_chars"></label>
+<input id="search-snippet" type="number" min="80" max="1000" step="10">
+<label for="search-chunk-min" data-i18n="admin.search.chunk_min_tokens"></label>
+<input id="search-chunk-min" type="number" min="100" max="900" step="10">
+<label for="search-chunk-max" data-i18n="admin.search.chunk_max_tokens"></label>
+<input id="search-chunk-max" type="number" min="100" max="900" step="10">
+<p class="detail" data-i18n="admin.search.chunk_note"></p>
+<p><button type="submit" data-i18n="admin.search.save"></button></p>
+</form>
+<p id="search-settings-message" class="message" hidden></p>
+</section>
+<section id="maintenance-section" role="tabpanel">
+<h2 data-i18n="admin.maintenance.heading"></h2>
+<h3 data-i18n="admin.maintenance.paths_heading"></h3>
+<ul id="maintenance-paths" class="status"></ul>
+<h3 data-i18n="admin.maintenance.logs_heading"></h3>
+<p class="detail" id="maintenance-rotation"></p>
+<ul id="maintenance-logs" class="status"></ul>
+<h3 data-i18n="admin.maintenance.verify_heading"></h3>
+<p class="detail" data-i18n="admin.maintenance.verify_note"></p>
+<p><button id="integrity-button" data-i18n="admin.maintenance.verify_button"></button></p>
+<p id="integrity-message" class="message" hidden></p>
+<div class="table-scroll">
+<table class="data" id="integrity-table">
+<thead><tr>
+<th data-i18n="admin.maintenance.col.kind"></th>
+<th data-i18n="admin.maintenance.col.name"></th>
+<th data-i18n="admin.maintenance.col.result"></th>
+<th data-i18n="admin.maintenance.col.detail"></th>
+</tr></thead>
+<tbody id="integrity-body"></tbody>
+</table>
+</div>
+<h3 data-i18n="admin.maintenance.config_heading"></h3>
+<p class="detail" data-i18n="admin.maintenance.export_note"></p>
+<p>
+<button id="config-export" data-i18n="admin.maintenance.export"></button>
+<button id="config-import" data-i18n="admin.maintenance.import"></button>
+</p>
+<label class="visually-hidden" for="config-text" data-i18n="admin.maintenance.import_label"></label>
+<textarea id="config-text" rows="8" class="command-line" data-i18n-placeholder="admin.maintenance.import_label"></textarea>
+<p id="config-message" class="message" hidden></p>
+</section>
+<section id="diagnostics-section" role="tabpanel">
+<h2 data-i18n="admin.diagnostics.heading"></h2>
+<p><button id="diagnostics-refresh-button" data-i18n="admin.diagnostics.refresh_button"></button></p>
+<ul id="diagnostics-list" class="diagnostics"></ul>
 </section>
 </main>
+<script id="i18n-data" type="application/json">$i18n_json</script>
+<script src="/static/admin.js"></script>
+<script src="/static/tabs.js"></script>
 </body>
 </html>

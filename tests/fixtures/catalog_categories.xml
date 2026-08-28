@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <id>category-feed</id>
+  <title>List of categories</title>
+  <entry>
+    <title>wikipedia</title>
+    <id>cat-wikipedia</id>
+  </entry>
+  <entry>
+    <title>devdocs</title>
+    <id>cat-devdocs</id>
+  </entry>
+  <entry>
+    <title>gutenberg</title>
+    <id>cat-gutenberg</id>
+  </entry>
+  <entry>
+    <id>cat-untitled</id>
+  </entry>
+</feed>
