@@ -25,6 +25,8 @@ Texto plano editable a mano, en la raíz. Claves reconocidas y valores por defec
 | `chat_url` | `"http://127.0.0.1:8081"` | dónde buscar el chat cuando el servidor no lo gestiona ARCA; si lo arranca ARCA, la URL sale del propio `argv` |
 | `chat_model` | `""` | nombre del GGUF de `models/chat/`; vacío = el primero legible |
 | `llama_bin` | `""` | ruta o nombre del binario `llama-server`; vacío = buscar en `vendor/llama.cpp/` y en el `PATH` (ver `llama.md`) |
+| `hub_url` | `"https://huggingface.co"` | hub de modelos que consulta el buscador de 12.6; admite un espejo propio |
+| `hub_token` | `""` | credencial para modelos cuya licencia hay que aceptar. **No sale en la exportación de configuración ni en el log** |
 
 Robustez deliberada: un `arca.json` ausente, corrupto o con tipos equivocados nunca impide arrancar — cada valor inválido cae a su defecto (invariante 5). Las claves desconocidas se ignoran.
 

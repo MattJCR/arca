@@ -25,6 +25,21 @@ Cada pieza descargada deja su sidecar `.sha256` al lado.
 
 El sellado del lote vendor indexado (§8.3, «sella un lote con el texto extraído e indexado») queda para la tarea H3.10, como fija el plan.
 
+## Fijar el commit de llama.cpp
+
+`arca vendor --llama-commit <sha>` (o el formulario de la pestaña Dependencias) escribe en
+`sources.lock` una entrada `llama.cpp` de tipo `git` con la URL del tarball de ese commit exacto,
+su licencia MIT y sin hash de origen; la descarga posterior guarda el hash calculado, que es el
+camino alternativo de la trampa 6. A partir de ahí, el código y la documentación del binario que
+tienes compilado se descargan, se verifican y se pueden indexar como cualquier otra pieza
+vendorizada.
+
+Junto a eso, `arca vendor` captura del binario su `--help` y su `--version` (que imprime el
+commit) con sus sidecars `.sha256`. Entre las tres piezas, la documentación de llama.cpp queda
+consultable sin red y ligada al binario concreto que se está usando.
+
+El commit lo pone el operador: ARCA no lo inventa ni lo adivina, porque el binario lo compila él.
+
 ## Regenerar el lote desde el dashboard
 
 `arca vendor` captura además, del binario de `llama-server` que encuentre (configurado, vendorizado o en el `PATH`), su `--help` **y su `--version`** —que imprime el commit exacto con el que se compiló— en `vendor/llama.cpp/`, cada uno con su sidecar `.sha256`. Eso es lo que hace consultable sin red la documentación del binario que se está usando de verdad, y lo que alimenta el formulario de arranque cuando el binario no está (ver `llama.md`).

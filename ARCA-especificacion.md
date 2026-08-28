@@ -38,7 +38,7 @@ Una biblioteca de conocimiento consultable sin conexión, con dos mitades: un bu
 | Hardware objetivo | GPU con 8-12 GB de VRAM |
 | Disco | Sin límite práctico |
 | Idiomas del corpus | Español e inglés |
-| Modelo de chat por defecto | Un 12-14B a Q4_K_M (~9 GB). Candidatos a evaluar: Qwen3-14B y Gemma-3-12B |
+| Modelo de chat por defecto | **Gemma 4 QAT**, decidido en F4 (2026-08-28): la variante densa de 12B o la MoE de 26B con 4B activos, según la VRAM de la máquina. La cuantización se elige al descargar desde el buscador de modelos del panel. Candidatos anteriores, ya descartados: Qwen3-14B y Gemma-3-12B |
 | Contexto inicial | 8192, con KV cache a Q8 |
 | Modelo de embeddings | `multilingual-e5-base`, 768 dimensiones, GGUF, servido por llama.cpp |
 | Prefijos de embedding | Obligatorios: `query: ` en consultas, `passage: ` en fragmentos |
@@ -523,7 +523,7 @@ Sin login. Una sección por área, con estado real y no supuesto.
 
 **12.5 Alcance del índice profundo.** La interfaz de `deep_index_scope`. Por cada fuente: fuera, completa, o lista curada. Para la lista curada, cargar un fichero de títulos. Muestra una estimación de fragmentos, tiempo de cómputo y espacio antes de lanzar. Esta pantalla determina qué preguntas se responden con precisión de párrafo y cuáles solo a nivel de artículo, así que explícalo con esas palabras en la propia pantalla.
 
-**12.6 Modelos.** GGUF presentes con arquitectura, cuantización, tamaño y `n_ctx_train` leídos de la cabecera del propio fichero. Selección del modelo de chat y del de embeddings. Aviso si el modelo de embeddings activo no coincide con el de algún lote sellado.
+**12.6 Modelos.** GGUF presentes con arquitectura, cuantización, tamaño y `n_ctx_train` leídos de la cabecera del propio fichero. Selección del modelo de chat y del de embeddings. Aviso si el modelo de embeddings activo no coincide con el de algún lote sellado. **Buscador de modelos:** con red, busca modelos GGUF en el hub configurado, muestra sus variantes con cuantización, tamaño y hash, y descarga la elegida por la misma cola reanudable y verificada que los ZIM. Un modelo con licencia que hay que aceptar se marca como tal y necesita un token en `hub_token`.
 
 **12.7 llama.cpp.** Sección 13, completa.
 
@@ -534,6 +534,8 @@ Sin login. Una sección por área, con estado real y no supuesto.
 **12.10 Vendorizado y documentación.** Contenido del `sources.lock`, versión capturada frente a versión instalada, botones para verificar sin red y para regenerar el lote.
 
 **12.11 Diagnóstico.** Sección 14.
+
+**12.13 Manual.** El manual del proyecto, servido desde la propia aplicación con un índice de páginas y su contenido renderizado. Sin red, como todo lo demás.
 
 **12.12 Mantenimiento.** Rutas, ubicación del temporal, rotación de logs, exportar e importar configuración, y un botón de verificación integral que recorre hashes de ZIM, manifiestos de lotes y consistencia de `library.db`.
 
@@ -645,6 +647,13 @@ GET  /api/admin/vendor
 POST /api/admin/vendor/verify
 GET  /api/admin/settings
 PUT  /api/admin/settings
+GET  /api/admin/hub?q=               búsqueda de modelos en el hub configurado
+GET  /api/admin/hub/{model_id}       variantes y cuantizaciones de un modelo
+POST /api/admin/hub/download         encolar una cuantización concreta
+GET  /api/admin/maintenance          rutas, registro y rotación
+POST /api/admin/maintenance/verify   verificación integral elemento a elemento
+GET  /api/manual                     índice del manual
+GET  /api/manual/{page}              página del manual renderizada
 ```
 
 ---

@@ -58,3 +58,7 @@ Recomprueba, **sin red**, el hash de cada ZIM registrado contra su `.sha256` gua
 ## Dónde vive
 
 `build_parser()` y `main()` en `arca/cli.py`; los textos, en `arca/locale/{es,en}.json`.
+
+## `arca vendor --llama-commit <sha>`
+
+Fija en `sources.lock` el commit de llama.cpp con el que has compilado `llama-server` y deja su tarball listo para descargar con `arca vendor` (ver `vendor.md`). Un valor que no sea de 7 a 40 caracteres hexadecimales se rechaza sin tocar el lock.

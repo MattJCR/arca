@@ -24,6 +24,7 @@ DEFAULT_EMBED_URL = "http://127.0.0.1:8080"
 DEFAULT_EMBED_MODEL = "multilingual-e5-base"
 DEFAULT_EMBED_DIMS = 768
 DEFAULT_CHAT_URL = "http://127.0.0.1:8081"
+DEFAULT_HUB_URL = "https://huggingface.co"
 LOG_MAX_BYTES = 5_000_000
 LOG_BACKUP_COUNT = 3
 
@@ -56,6 +57,8 @@ class ArcaConfig:
     chat_url: str = DEFAULT_CHAT_URL
     chat_model: str = ""
     llama_bin: str = ""
+    hub_url: str = DEFAULT_HUB_URL
+    hub_token: str = ""
 
 
 @dataclass(frozen=True)
@@ -117,6 +120,8 @@ def load_config(root: Path) -> ArcaConfig:
         chat_url=_read_str(parsed, "chat_url", defaults.chat_url) or defaults.chat_url,
         chat_model=_read_str(parsed, "chat_model", defaults.chat_model),
         llama_bin=_read_str(parsed, "llama_bin", defaults.llama_bin),
+        hub_url=_read_str(parsed, "hub_url", defaults.hub_url) or defaults.hub_url,
+        hub_token=_read_str(parsed, "hub_token", defaults.hub_token),
     )
 
 

@@ -14,11 +14,21 @@ Módulo: `arca/diagnostics.py`. Tres estados por comprobación: `ok`, `degraded`
 | `incomplete_downloads` | Ficheros `.part` bajo la raíz sin descarga activa (`queued`/`running`/`paused`/`verifying`) asociada | ok / degraded |
 | `doc_drift` | Versión instalada de cada dependencia directa contra `sources.lock`; lock ilegible también degrada | ok / degraded |
 | `undocumented_dependency` | Dependencia directa instalada sin entrada en el lock | ok / degraded |
+| `fulltext_index` | Cuáles de los ZIM traen índice de texto completo y cuáles solo títulos | ok / degraded |
+| `shard_manifests` | Estado real de cada lote: manifiesto presente y hashes de sus ficheros | ok / degraded |
+| `embedding_coherence` | `embed_model` y `embed_dims` de cada lote contra el modelo activo (trampa 1) | ok / degraded |
+| `provisional_shards` | Lotes sin sellar de una importación interrumpida | ok / degraded |
+| `embedding_server` | Responde, y **devuelve el número de dimensiones esperado**: si devuelve otro, es roto, no degradado | ok / degraded / broken |
+| `chat_model_memory` | Estimación de memoria del GGUF activo con un contexto de referencia de 4096 frente a la RAM del sistema | ok / degraded |
 | `llama_binary` | Presencia del binario `llama-server` (configurado, vendorizado o en el `PATH`); su ausencia degrada el chat, nunca el sistema | ok / degraded |
 | `llama_server` | `/health` del servidor en marcha, o de `chat_url` si lo gestiona otro | ok / degraded |
 | `chat_model` | GGUF de chat: **roto** si el modelo referido por `chat_model` o por el perfil activo no está o no se puede leer; **degradado** si no hay ninguno instalado | ok / degraded / broken |
 
 Con la raíz rota solo se evalúan `library_path` y la parte del reloj que no depende de la raíz: el resto no puede medirse honestamente.
+
+Matiz de `chat_model_memory`: §14 pide una sola fila para el modelo de chat («presente, cabeza legible, cabe en memoria»), pero presencia y holgura de memoria tienen impactos y acciones distintas, así que son dos comprobaciones. La estimación usa un contexto de referencia de 4096 y no el `n_ctx_train` del fichero: con modelos de contexto enorme, estimar sobre el máximo entrenado dispararía el aviso siempre y dejaría de significar nada.
+
+Matiz de `embedding_server`: la comprobación pide un embedding de una palabra para contar las dimensiones de verdad. Es una llamada corta al servidor local en cada diagnóstico; a cambio, la trampa 1 se detecta antes de indexar y no después.
 
 Matiz de `chat_model`: la diferencia entre rojo y ámbar es deliberada. Una biblioteca que nunca ha tenido modelo está degradada —falta algo opcional—; una biblioteca cuyo modelo elegido ha desaparecido está rota, porque el chat que estaba configurado ya no puede arrancar. Es el caso del criterio 4 de §11.4.
 

@@ -10,6 +10,7 @@
 <body>
 <header>
 <h1>ARCA</h1>
+<a class="header-link" href="/" data-i18n="admin.nav.home"></a>
 <nav class="tabs" role="tablist">
 <button type="button" role="tab" data-tab="status-section" aria-selected="true" data-i18n="admin.nav.status"></button>
 <button type="button" role="tab" data-tab="catalog-section" aria-selected="false" data-i18n="admin.nav.catalog"></button>
@@ -24,6 +25,7 @@
 <button type="button" role="tab" data-tab="search-section" aria-selected="false" data-i18n="admin.nav.search"></button>
 <button type="button" role="tab" data-tab="maintenance-section" aria-selected="false" data-i18n="admin.nav.maintenance"></button>
 <button type="button" role="tab" data-tab="diagnostics-section" aria-selected="false" data-i18n="admin.nav.diagnostics"></button>
+<button type="button" role="tab" data-tab="manual-section" aria-selected="false" data-i18n="admin.nav.manual"></button>
 </nav>
 $lang_selector
 </header>
@@ -188,6 +190,54 @@ $lang_selector
 </section>
 <section id="models-section" role="tabpanel">
 <h2 data-i18n="admin.models.heading"></h2>
+<h3 data-i18n="admin.hub.heading"></h3>
+<p class="detail" data-i18n="admin.hub.note"></p>
+<form id="hub-form">
+<div class="field field-wide">
+<label for="hub-q" data-i18n="admin.hub.query_label"></label>
+<input id="hub-q" type="search" autocomplete="off" data-i18n-placeholder="admin.hub.query_placeholder">
+</div>
+<div class="field">
+<label for="hub-kind" data-i18n="admin.hub.kind_label"></label>
+<select id="hub-kind">
+<option value="chat" data-i18n="admin.hub.kind_chat"></option>
+<option value="embed" data-i18n="admin.hub.kind_embed"></option>
+</select>
+</div>
+<div class="field field-submit">
+<button type="submit" data-i18n="admin.hub.search_button"></button>
+</div>
+</form>
+<p id="hub-message" class="message" hidden></p>
+<div class="table-scroll" id="hub-table-wrap" hidden>
+<table class="data" id="hub-table">
+<thead><tr>
+<th data-i18n="admin.hub.col.model"></th>
+<th class="num" data-i18n="admin.hub.col.downloads"></th>
+<th class="num" data-i18n="admin.hub.col.likes"></th>
+<th data-i18n="admin.hub.col.updated"></th>
+<th data-i18n="admin.hub.col.actions"></th>
+</tr></thead>
+<tbody id="hub-body"></tbody>
+</table>
+</div>
+<div id="hub-detail" hidden>
+<h4 id="hub-detail-title"></h4>
+<p id="hub-detail-tags" class="seal"></p>
+<div class="table-scroll">
+<table class="data" id="hub-files-table">
+<thead><tr>
+<th data-i18n="admin.hub.col.quantization"></th>
+<th data-i18n="admin.hub.col.file"></th>
+<th class="num" data-i18n="admin.hub.col.size"></th>
+<th data-i18n="admin.hub.col.hash"></th>
+<th data-i18n="admin.hub.col.actions"></th>
+</tr></thead>
+<tbody id="hub-files-body"></tbody>
+</table>
+</div>
+</div>
+<h3 data-i18n="admin.models.local_heading"></h3>
 <p id="models-active" class="result-count"></p>
 <ul id="models-warnings" class="sources-note" hidden></ul>
 <div class="table-scroll">
@@ -261,6 +311,17 @@ $lang_selector
 <button id="vendor-verify-button" data-i18n="admin.vendor.verify_button"></button>
 <button id="vendor-index-button" data-i18n="admin.vendor.index_button"></button>
 </p>
+<h3 data-i18n="admin.vendor.llama_heading"></h3>
+<p class="detail" data-i18n="admin.vendor.llama_note"></p>
+<form id="llama-commit-form">
+<div class="field field-wide">
+<label for="llama-commit" data-i18n="admin.vendor.llama_label"></label>
+<input id="llama-commit" type="text" autocomplete="off">
+</div>
+<div class="field field-submit">
+<button type="submit" data-i18n="admin.vendor.llama_button"></button>
+</div>
+</form>
 <p id="vendor-message" class="message" hidden></p>
 <div class="table-scroll">
 <table class="data" id="vendor-table">
@@ -345,6 +406,15 @@ $lang_selector
 <h2 data-i18n="admin.diagnostics.heading"></h2>
 <p><button id="diagnostics-refresh-button" data-i18n="admin.diagnostics.refresh_button"></button></p>
 <ul id="diagnostics-list" class="diagnostics"></ul>
+</section>
+<section id="manual-section" role="tabpanel">
+<h2 data-i18n="admin.manual.heading"></h2>
+<p class="detail" data-i18n="admin.manual.note"></p>
+<p id="manual-message" class="message" hidden></p>
+<div class="manual-browser">
+<ul id="manual-pages" class="manual-index"></ul>
+<iframe id="manual-frame" data-i18n-title="admin.manual.frame_title"></iframe>
+</div>
 </section>
 </main>
 <script id="i18n-data" type="application/json">$i18n_json</script>

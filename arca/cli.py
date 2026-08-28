@@ -49,10 +49,13 @@ from arca.vendor import (
     capture_llama_help,
     check_drift,
     default_lock_path,
+    is_commit,
+    llama_lock_entry,
     load_lock,
     vendor_download,
     vendor_sources,
     verify_offline,
+    write_lock_entry,
 )
 
 
@@ -82,6 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     vendor = subparsers.add_parser("vendor")
     vendor.add_argument("--verify", dest="vendor_verify", action="store_true")
     vendor.add_argument("--check-drift", dest="vendor_drift", action="store_true")
+    vendor.add_argument("--llama-commit", dest="llama_commit", default="")
     return parser
 
 
@@ -116,7 +120,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "import":
         return _run_import(root, catalog, args.paths)
     if args.command == "vendor":
-        return _run_vendor(root, config, catalog, args.vendor_verify, args.vendor_drift)
+        return _run_vendor(
+            root, config, catalog, args.vendor_verify, args.vendor_drift, args.llama_commit
+        )
     return _run_diagnostics(root, config, catalog)
 
 
@@ -338,8 +344,15 @@ def _run_import(root: Path, catalog: Catalog, paths: list[str]) -> int:
 
 
 def _run_vendor(
-    root: Path, config: ArcaConfig, catalog: Catalog, verify_only: bool, drift_only: bool
+    root: Path,
+    config: ArcaConfig,
+    catalog: Catalog,
+    verify_only: bool,
+    drift_only: bool,
+    llama_commit: str = "",
 ) -> int:
+    if llama_commit and not _pin_llama(catalog, llama_commit):
+        return 1
     try:
         entries = load_lock(default_lock_path())
     except VendorError as error:
@@ -350,6 +363,19 @@ def _run_vendor(
     if drift_only:
         return _vendor_drift(catalog, entries)
     return _vendor_fetch(root, config, catalog, entries)
+
+
+def _pin_llama(catalog: Catalog, commit: str) -> bool:
+    if not is_commit(commit):
+        print(catalog.text("cli.vendor.llama_bad_commit", commit=commit), file=sys.stderr)
+        return False
+    try:
+        write_lock_entry(default_lock_path(), llama_lock_entry(commit))
+    except (VendorError, OSError) as error:
+        print(catalog.text("cli.vendor.lock_error", error=str(error)), file=sys.stderr)
+        return False
+    print(catalog.text("cli.vendor.llama_pinned", commit=commit))
+    return True
 
 
 def _vendor_verify(root: Path, catalog: Catalog, entries: list[LockEntry]) -> int:

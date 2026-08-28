@@ -321,7 +321,7 @@ Ejecutar los 10 puntos de §18 como una sola sesión de aceptación, sobre bibli
 
 **Decisiones pendientes (ninguna bloquea F0–F2):**
 
-1. **Modelo de chat definitivo:** evaluar Qwen3-14B vs Gemma-3-12B (§2) — decidir en F4 con pruebas de citación en español.
+1. ~~**Modelo de chat definitivo:** evaluar Qwen3-14B vs Gemma-3-12B (§2).~~ **Decidido el 2026-08-28: Gemma 4 QAT**, densa de 12B o MoE de 26B-A4B según la VRAM. Queda por hacer la prueba de citación en español con el binario y el modelo reales.
 2. **Contador de tokens para el troceado** (300–500): aproximación por palabras o tokenizador del modelo de embeddings vía llama.cpp — decidir en H3.4, eligiendo lo más aburrido que cumpla el rango.
 3. **Ubicación de las escalas de cuantización:** manifiesto o tercer fichero (§7.4 admite ambas) — decidir en H3.6.
 4. **Lista curada de artículos de Wikipedia** para el índice profundo: la aporta el operador; el sistema solo necesita aceptar el fichero de títulos (H3.11).

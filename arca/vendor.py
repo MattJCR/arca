@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -9,6 +10,7 @@ from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
 
+from arca.db import utc_now_iso
 from arca.fetch import (
     ProgressCallback,
     QueueResult,
@@ -24,6 +26,10 @@ DIRECT_DEPENDENCIES: tuple[str, ...] = ("fastapi", "uvicorn", "libzim", "pymupdf
 LLAMA_BINARY = "llama-server"
 LLAMA_HELP_FILENAME = "llama-server-help.txt"
 LLAMA_VERSION_FILENAME = "llama-server-version.txt"
+LLAMA_KEY = "llama.cpp"
+LLAMA_TARBALL = "https://codeload.github.com/ggml-org/llama.cpp/tar.gz/"
+LLAMA_LICENSE = "MIT"
+COMMIT_PATTERN = re.compile(r"^[0-9a-f]{7,40}$")
 HELP_TIMEOUT_SECONDS = 30
 
 
@@ -274,3 +280,44 @@ def _field(item: dict[str, object], key: str) -> str:
     if isinstance(value, str):
         return value
     return str(value)
+
+
+def is_commit(value: str) -> bool:
+    return bool(COMMIT_PATTERN.match(value.strip().lower()))
+
+
+def llama_lock_entry(commit: str, now: str = "") -> LockEntry:
+    reference = commit.strip().lower()
+    return LockEntry(
+        key=LLAMA_KEY,
+        version=reference[:7],
+        kind="git",
+        url=f"{LLAMA_TARBALL}{reference}",
+        commit=reference,
+        sha256="",
+        license=LLAMA_LICENSE,
+        captured_at=now or utc_now_iso(),
+        notes="documentation and sources of the compiled llama.cpp commit",
+    )
+
+
+def write_lock_entry(path: Path, entry: LockEntry) -> list[LockEntry]:
+    entries = [item for item in load_lock(path) if item.key != entry.key]
+    entries.append(entry)
+    entries.sort(key=lambda item: item.key)
+    payload = [
+        {
+            "key": item.key,
+            "version": item.version,
+            "kind": item.kind,
+            "url": item.url,
+            "commit": item.commit,
+            "sha256": item.sha256,
+            "license": item.license,
+            "captured_at": item.captured_at,
+            "notes": item.notes,
+        }
+        for item in entries
+    ]
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", "utf-8")
+    return entries

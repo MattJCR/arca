@@ -1468,3 +1468,219 @@ document.getElementById("config-import").addEventListener("click", importConfig)
 document.getElementById("vendor-index-button").addEventListener("click", rebuildVendorBatch);
 loadSearchSettings();
 loadMaintenance();
+
+const manualState = { current: "" };
+
+function manualButton(page) {
+  const item = document.createElement("li");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = page.title;
+  button.title = page.name + ".md · " + page.size_human;
+  button.setAttribute("aria-current", String(page.name === manualState.current));
+  button.addEventListener("click", () => openManualPage(page.name));
+  item.append(button);
+  return item;
+}
+
+function openManualPage(name) {
+  manualState.current = name;
+  document.getElementById("manual-frame").src = "/api/manual/" + encodeURIComponent(name);
+  loadManual();
+}
+
+async function loadManual() {
+  let payload;
+  try {
+    payload = await fetchJson("/api/manual");
+  } catch (error) {
+    showMessage("manual-message", error.message);
+    return;
+  }
+  const list = document.getElementById("manual-pages");
+  list.replaceChildren();
+  if (!payload.pages.length) {
+    showMessage("manual-message", t("admin.manual.empty"));
+    return;
+  }
+  showMessage("manual-message", "");
+  if (!manualState.current) {
+    manualState.current = payload.pages[0].name;
+    document.getElementById("manual-frame").src =
+      "/api/manual/" + encodeURIComponent(manualState.current);
+  }
+  for (const page of payload.pages) {
+    list.append(manualButton(page));
+  }
+}
+
+loadManual();
+
+const hubState = { models: [], current: "", files: [] };
+
+function hubKind() {
+  return document.getElementById("hub-kind").value;
+}
+
+async function searchHub(event) {
+  event.preventDefault();
+  const query = document.getElementById("hub-q").value.trim();
+  if (!query) {
+    return;
+  }
+  showMessage("hub-message", t("admin.hub.searching"));
+  let payload;
+  try {
+    payload = await fetchJson("/api/admin/hub?q=" + encodeURIComponent(query));
+  } catch (error) {
+    showMessage("hub-message", t("admin.hub.error", { error: error.message }));
+    document.getElementById("hub-table-wrap").hidden = true;
+    return;
+  }
+  hubState.models = payload.models;
+  document.getElementById("hub-detail").hidden = true;
+  renderHubModels();
+}
+
+function renderHubModels() {
+  const body = document.getElementById("hub-body");
+  const wrap = document.getElementById("hub-table-wrap");
+  body.replaceChildren();
+  if (!hubState.models.length) {
+    wrap.hidden = true;
+    showMessage("hub-message", t("admin.hub.empty"));
+    return;
+  }
+  showMessage("hub-message", "");
+  wrap.hidden = false;
+  for (const model of hubState.models) {
+    const row = document.createElement("tr");
+    const name = cell(model.model_id);
+    if (model.gated) {
+      const badge = document.createElement("span");
+      badge.className = "badge badge-update";
+      badge.textContent = t("admin.hub.gated");
+      name.append(" ", badge);
+    }
+    const actions = document.createElement("td");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = t("admin.hub.inspect");
+    button.addEventListener("click", () => inspectHubModel(model.model_id, button));
+    actions.append(button);
+    row.append(
+      name,
+      cell(model.downloads.toLocaleString(), "num"),
+      cell(model.likes.toLocaleString(), "num"),
+      cell((model.updated_at || "").slice(0, 10)),
+      actions
+    );
+    body.append(row);
+  }
+}
+
+async function inspectHubModel(modelId, button) {
+  button.disabled = true;
+  let payload;
+  try {
+    payload = await fetchJson("/api/admin/hub/" + modelId);
+  } catch (error) {
+    showMessage("hub-message", t("admin.hub.error", { error: error.message }));
+    button.disabled = false;
+    return;
+  }
+  button.disabled = false;
+  hubState.current = payload.model_id;
+  hubState.files = payload.files;
+  document.getElementById("hub-detail-title").textContent = payload.model_id;
+  document.getElementById("hub-detail-tags").textContent = payload.tags.slice(0, 8).join(" · ");
+  const body = document.getElementById("hub-files-body");
+  body.replaceChildren();
+  if (!payload.files.length) {
+    body.append(emptyRow(t("admin.hub.no_files"), 5));
+  }
+  for (const file of payload.files) {
+    body.append(hubFileRow(payload.model_id, file, payload.local));
+  }
+  document.getElementById("hub-detail").hidden = false;
+}
+
+function hubFileRow(modelId, file, local) {
+  const row = document.createElement("tr");
+  const name = file.path.split("/").pop();
+  const quantization = cell(file.quantization || "-");
+  if (file.part) {
+    quantization.append(" ", document.createTextNode(t("admin.hub.part", { part: file.part })));
+  }
+  const hash = cell(file.sha256 ? file.sha256.slice(0, 12) : t("admin.hub.no_hash"));
+  if (!file.sha256) {
+    hash.className = "state state-degraded";
+  }
+  const actions = document.createElement("td");
+  if (local.includes(name)) {
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = t("admin.hub.in_library");
+    actions.append(badge);
+  } else {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = t("admin.hub.download");
+    button.addEventListener("click", () => downloadHubFile(modelId, file.path, button));
+    actions.append(button);
+  }
+  row.append(quantization, cell(name), cell(file.size_human, "num"), hash, actions);
+  return row;
+}
+
+async function downloadHubFile(modelId, path, button) {
+  button.disabled = true;
+  let payload;
+  try {
+    payload = await fetchJson("/api/admin/hub/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model_id: modelId, path: path, kind: hubKind() }),
+    });
+  } catch (error) {
+    showMessage("hub-message", t("admin.hub.error", { error: error.message }));
+    button.disabled = false;
+    return;
+  }
+  showMessage(
+    "hub-message",
+    payload.hash_missing
+      ? t("admin.hub.queued_no_hash", { filename: payload.filename })
+      : t("admin.hub.queued", { filename: payload.filename })
+  );
+  loadDownloads();
+}
+
+async function pinLlamaCommit(event) {
+  event.preventDefault();
+  const field = document.getElementById("llama-commit");
+  const commit = field.value.trim();
+  if (!commit) {
+    return;
+  }
+  let payload;
+  try {
+    payload = await fetchJson("/api/admin/vendor/llama", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commit: commit }),
+    });
+  } catch (error) {
+    showMessage("vendor-message", t("admin.vendor.llama_error", { error: error.message }));
+    return;
+  }
+  showMessage(
+    "vendor-message",
+    t("admin.vendor.llama_pinned", { commit: payload.commit, queued: payload.queued })
+  );
+  loadVendor(false);
+  loadDownloads();
+}
+
+document.getElementById("hub-form").addEventListener("submit", searchHub);
+document.getElementById("llama-commit-form").addEventListener("submit", pinLlamaCommit);

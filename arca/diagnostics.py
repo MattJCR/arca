@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -16,6 +17,7 @@ from arca.config import (
     library_db_path,
 )
 from arca.db import open_library_ro
+from arca.embed import EmbeddingClient, EmbeddingError
 from arca.fetch import PART_SUFFIX, SHA256_SUFFIX, verify_library
 from arca.i18n import Catalog
 from arca.ingest import PDF_MIME, original_path
@@ -25,17 +27,23 @@ from arca.llama import (
     Profile,
     chat_model_file,
     default_profile,
+    estimate_memory,
     find_binary,
     health_of,
     last_good_profile,
     referenced_model,
+    system_memory_bytes,
 )
 from arca.shards import (
+    STATE_CORRUPT,
     STATE_INCOMPATIBLE,
+    STATE_PROVISIONAL,
     STATE_SEALED,
     ShardLibrary,
+    ShardState,
 )
 from arca.vendor import VendorError, check_drift, default_lock_path, load_lock
+from arca.zim import ZimInfo, ZimLibrary, index_mode
 
 KIND_ZIM = "zim"
 KIND_SHARD = "shard"
@@ -44,6 +52,10 @@ KIND_DATABASE = "database"
 BUILD_EPOCH = datetime(2026, 8, 1, tzinfo=UTC)
 FUTURE_TOLERANCE_SECONDS = 48 * 3600
 GIB = 1024**3
+INDEX_FULLTEXT = "fulltext"
+REFERENCE_CONTEXT = 4096
+EMBEDDING_PROBE_SECONDS = 5.0
+EMBEDDING_PROBE_TEXT = "arca"
 
 
 class CheckState(StrEnum):
@@ -64,17 +76,25 @@ def run_checks(
     config: ArcaConfig,
     now: datetime | None = None,
     server: LlamaServer | None = None,
+    zim: ZimLibrary | None = None,
+    shards: ShardLibrary | None = None,
 ) -> list[CheckResult]:
     moment = now if now is not None else datetime.now(UTC)
     path_check = _check_library_path(root)
     if path_check.state is CheckState.BROKEN:
         return [path_check, _check_clock(None, moment)]
+    states = _shard_states(root, config, shards)
     return [
         path_check,
         _check_free_space(root, config),
         _check_write_access(root),
         _check_clock(root, moment),
         _check_zim_integrity(root),
+        _check_fulltext_index(root, zim),
+        _check_shard_manifests(states),
+        _check_embedding_coherence(states),
+        _check_provisional_shards(states),
+        _check_embedding_server(config),
         _check_incomplete_downloads(root),
         *_check_vendor_lock(),
         *_check_llama(root, config, server),
@@ -264,17 +284,28 @@ def _check_llama(root: Path, config: ArcaConfig, server: LlamaServer | None) -> 
         server_result = CheckResult("llama_server", CheckState.OK, {"url": url})
     else:
         server_result = CheckResult("llama_server", CheckState.DEGRADED, {"url": url})
-    return [binary_result, server_result, _check_chat_model(root, config)]
+    return [binary_result, server_result, *_check_chat_model(root, config)]
 
 
-def _check_chat_model(root: Path, config: ArcaConfig) -> CheckResult:
+def _check_chat_model(root: Path, config: ArcaConfig) -> list[CheckResult]:
     wanted = referenced_model(config.chat_model, _profile(root))
     model = chat_model_file(root, wanted)
-    if model is not None and not model.error:
-        return CheckResult("chat_model", CheckState.OK, {"name": model.name})
-    if wanted:
-        return CheckResult("chat_model", CheckState.BROKEN, {"name": wanted})
-    return CheckResult("chat_model", CheckState.DEGRADED, {"name": ""})
+    if model is None or model.error:
+        state = CheckState.BROKEN if wanted else CheckState.DEGRADED
+        return [CheckResult("chat_model", state, {"name": wanted})]
+    needed = estimate_memory(model, REFERENCE_CONTEXT, "f16", "f16")
+    available = system_memory_bytes()
+    params = {
+        "name": model.name,
+        "needed_gib": f"{needed / GIB:.1f}",
+        "available_gib": f"{available / GIB:.1f}",
+        "context": str(REFERENCE_CONTEXT),
+    }
+    memory = CheckState.DEGRADED if available and needed > available else CheckState.OK
+    return [
+        CheckResult("chat_model", CheckState.OK, {"name": model.name}),
+        CheckResult("chat_model_memory", memory, params),
+    ]
 
 
 def _profile(root: Path) -> Profile | None:
@@ -381,3 +412,90 @@ def _database_items(root: Path, connection: sqlite3.Connection) -> list[Integrit
         if shard_id not in known:
             items.append(IntegrityItem(KIND_DATABASE, shard_id, "orphan"))
     return items
+
+
+def _shard_states(root: Path, config: ArcaConfig, library: ShardLibrary | None) -> list[ShardState]:
+    if library is not None:
+        return library.refresh()
+    own = ShardLibrary(root, config.embed_model, config.embed_dims)
+    try:
+        return own.refresh()
+    finally:
+        own.close()
+
+
+def _zim_infos(root: Path, library: ZimLibrary | None) -> list[ZimInfo]:
+    if library is not None:
+        return library.refresh()
+    own = ZimLibrary(root)
+    try:
+        return own.refresh()
+    finally:
+        own.close()
+
+
+def _check_fulltext_index(root: Path, library: ZimLibrary | None) -> CheckResult:
+    infos = _zim_infos(root, library)
+    without = [info for info in infos if index_mode(info) != INDEX_FULLTEXT]
+    params = {
+        "count": str(len(infos)),
+        "without": str(len(without)),
+        "first": without[0].title if without else "",
+    }
+    if without:
+        return CheckResult("fulltext_index", CheckState.DEGRADED, params)
+    return CheckResult("fulltext_index", CheckState.OK, params)
+
+
+def _check_shard_manifests(states: Sequence[ShardState]) -> CheckResult:
+    sealed = [state for state in states if state.state == STATE_SEALED]
+    corrupt = [state for state in states if state.state == STATE_CORRUPT]
+    params = {
+        "count": str(len(sealed)),
+        "corrupt": str(len(corrupt)),
+        "detail": ", ".join(state.shard_id for state in corrupt),
+    }
+    if corrupt:
+        return CheckResult("shard_manifests", CheckState.DEGRADED, params)
+    return CheckResult("shard_manifests", CheckState.OK, params)
+
+
+def _check_embedding_coherence(states: Sequence[ShardState]) -> CheckResult:
+    mismatched = [state for state in states if state.state == STATE_INCOMPATIBLE]
+    params = {
+        "count": str(len(states)),
+        "mismatched": str(len(mismatched)),
+        "detail": ", ".join(state.shard_id for state in mismatched),
+    }
+    if mismatched:
+        return CheckResult("embedding_coherence", CheckState.DEGRADED, params)
+    return CheckResult("embedding_coherence", CheckState.OK, params)
+
+
+def _check_provisional_shards(states: Sequence[ShardState]) -> CheckResult:
+    pending = [state for state in states if state.state == STATE_PROVISIONAL]
+    params = {"count": str(len(pending)), "detail": ", ".join(s.shard_id for s in pending)}
+    if pending:
+        return CheckResult("provisional_shards", CheckState.DEGRADED, params)
+    return CheckResult("provisional_shards", CheckState.OK, params)
+
+
+def _check_embedding_server(config: ArcaConfig) -> CheckResult:
+    client = EmbeddingClient(
+        base_url=config.embed_url,
+        model=config.embed_model,
+        dims=config.embed_dims,
+        timeout=EMBEDDING_PROBE_SECONDS,
+    )
+    params = {"url": config.embed_url, "dims": str(config.embed_dims), "found": ""}
+    if not client.available():
+        return CheckResult("embedding_server", CheckState.DEGRADED, params)
+    try:
+        vector = client.embed_query(EMBEDDING_PROBE_TEXT)
+    except EmbeddingError as error:
+        params["found"] = str(error)
+        return CheckResult("embedding_server", CheckState.BROKEN, params)
+    params["found"] = str(len(vector))
+    if len(vector) != config.embed_dims:
+        return CheckResult("embedding_server", CheckState.BROKEN, params)
+    return CheckResult("embedding_server", CheckState.OK, params)

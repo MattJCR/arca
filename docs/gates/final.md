@@ -29,6 +29,18 @@ Suite en el momento del cierre: **423 tests en verde**, `mypy` estricto limpio (
 
 **Punto 4.** La reanudación se provoca con el servidor de embeddings, que es el fallo realista y el que rompe a mitad de lote. Matar el proceso a mitad está cubierto por la puerta del hito 3.
 
+## Añadido después de esta sesión, y vuelto a pasar
+
+El 2026-08-29, a petición explícita, se añadieron cinco cosas que §18 no cubre y que no estaban:
+las cinco comprobaciones de §14 que faltaban en el panel de diagnóstico (más la de holgura de
+memoria del modelo), el buscador y descargador de modelos GGUF con sus cuantizaciones, el fijado
+del commit de llama.cpp para vendorizar su código y su documentación, el manual consultable desde
+el propio panel, y la navegación (barra de pestañas que envuelve sin ocultar nada, enlaces en los
+dos sentidos entre archivo y administración).
+
+**Los diez puntos se volvieron a ejecutar enteros después de esos cambios y siguen ciertos a la
+vez**, con la suite en **456 tests verdes**, `mypy` estricto limpio (52 ficheros) y `ruff` limpio.
+
 ## Estado tras la sesión
 
 Los diez puntos de §18 son ciertos a la vez. Con eso, la definición de «terminado» del proyecto se cumple: quedan las deudas declaradas en las puertas de los hitos 3 y 4 (calidad de recuperación y de citación con los modelos reales) y la revisión de código pendiente de H2.2–H2.7.

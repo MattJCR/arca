@@ -6,7 +6,14 @@ import pytest
 
 from arca.config import ArcaConfig, config_path, init_library, library_db_path
 from arca.db import open_library_rw
-from arca.diagnostics import BUILD_EPOCH, CheckState, render, run_checks, worst_state
+from arca.diagnostics import (
+    BUILD_EPOCH,
+    CheckResult,
+    CheckState,
+    render,
+    run_checks,
+    worst_state,
+)
 from arca.fetch import write_sha256_sidecar
 from arca.i18n import load_catalog
 
@@ -187,3 +194,124 @@ def test_unreadable_lock_degrades_both_lock_checks(
     states = _states(root, ArcaConfig(), NOW)
     assert states["doc_drift"] is CheckState.DEGRADED
     assert states["undocumented_dependency"] is CheckState.DEGRADED
+
+
+def test_the_panel_covers_every_row_of_the_specification(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    reported = {check.check_id for check in run_checks(root, ArcaConfig())}
+    assert {
+        "library_path",
+        "free_space",
+        "write_access",
+        "clock",
+        "zim_integrity",
+        "fulltext_index",
+        "shard_manifests",
+        "embedding_coherence",
+        "provisional_shards",
+        "embedding_server",
+        "incomplete_downloads",
+        "doc_drift",
+        "undocumented_dependency",
+        "llama_binary",
+        "llama_server",
+        "chat_model",
+    } <= reported
+
+
+def test_a_collection_without_a_full_text_index_is_named(tmp_path: Path) -> None:
+    from tests.support import article, build_zim
+
+    root = tmp_path / "library"
+    init_library(root)
+    build_zim(
+        root / "zim" / "titles.zim",
+        [article("a.html", "Alpha", "<p>orogeny</p>")],
+        title="Only titles",
+        main_path="a.html",
+        fulltext=False,
+    )
+    checks = {check.check_id: check for check in run_checks(root, ArcaConfig())}
+    assert checks["fulltext_index"].state is CheckState.DEGRADED
+    assert checks["fulltext_index"].params["first"] == "Only titles"
+
+
+def test_an_unreachable_embedding_server_degrades_without_breaking(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    checks = {check.check_id: check for check in run_checks(root, ArcaConfig())}
+    assert checks["embedding_server"].state is CheckState.DEGRADED
+    rendered = render(checks["embedding_server"], load_catalog("es"))
+    assert rendered["impact"]
+    assert rendered["action"]
+
+
+def test_a_server_with_other_dimensions_is_broken(tmp_path: Path) -> None:
+    from tests.support import EmbeddingServer
+
+    root = tmp_path / "library"
+    init_library(root)
+    server = EmbeddingServer(dims=8)
+    server.start()
+    try:
+        good = run_checks(root, ArcaConfig(embed_url=server.url, embed_dims=8))
+        bad = run_checks(root, ArcaConfig(embed_url=server.url, embed_dims=768))
+    finally:
+        server.stop()
+    assert _by_id(good)["embedding_server"].state is CheckState.OK
+    assert _by_id(good)["embedding_server"].params["found"] == "8"
+    assert _by_id(bad)["embedding_server"].state is CheckState.BROKEN
+
+
+def test_a_batch_indexed_with_another_model_shows_as_incoherent(tmp_path: Path) -> None:
+    from arca.embed import EmbeddingClient
+    from arca.pipeline import ingest_documents
+    from tests.support import EmbeddingServer, build_pdf
+
+    root = tmp_path / "library"
+    init_library(root)
+    server = EmbeddingServer(dims=8)
+    server.start()
+    try:
+        source = build_pdf(tmp_path / "in" / "a.pdf", [["Pump priming " * 40]], title="Pump")
+        connection = open_library_rw(library_db_path(root))
+        try:
+            ingest_documents(
+                root,
+                connection,
+                [source],
+                EmbeddingClient(base_url=server.url, dims=8, timeout=5.0),
+            )
+        finally:
+            connection.close()
+        checks = _by_id(run_checks(root, ArcaConfig(embed_url=server.url, embed_dims=8)))
+        assert checks["embedding_coherence"].state is CheckState.OK
+        assert checks["shard_manifests"].params["count"] == "1"
+        other = _by_id(run_checks(root, ArcaConfig(embed_model="other-model", embed_dims=8)))
+        assert other["embedding_coherence"].state is CheckState.DEGRADED
+        assert other["embedding_coherence"].params["detail"]
+    finally:
+        server.stop()
+
+
+def test_a_chat_model_that_does_not_fit_is_reported_apart(tmp_path: Path) -> None:
+    from tests.support import write_gguf
+
+    root = tmp_path / "library"
+    init_library(root)
+    write_gguf(root / "models" / "chat" / "chat.gguf", context=4096, blocks=32, embedding=4096)
+    checks = _by_id(run_checks(root, ArcaConfig(chat_model="chat.gguf")))
+    assert checks["chat_model"].state is CheckState.OK
+    assert checks["chat_model_memory"].state is CheckState.OK
+    huge = write_gguf(
+        root / "models" / "chat" / "huge.gguf", context=4096, blocks=4000, embedding=16384
+    )
+    checks = _by_id(run_checks(root, ArcaConfig(chat_model=huge.name)))
+    assert checks["chat_model"].state is CheckState.OK
+    assert checks["chat_model_memory"].state is CheckState.DEGRADED
+    assert float(checks["chat_model_memory"].params["needed_gib"]) > 0
+
+
+def _by_id(results: list[CheckResult]) -> dict[str, CheckResult]:
+    return {result.check_id: result for result in results}

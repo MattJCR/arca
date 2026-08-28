@@ -28,6 +28,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["arca"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"docs/manual" = "arca/manual_pages"
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

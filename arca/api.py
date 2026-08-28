@@ -62,6 +62,7 @@ from arca.diagnostics import IntegrityItem, render, run_checks, verify_integrity
 from arca.embed import EmbeddingClient, EmbeddingError
 from arca.fetch import (
     QueueWorker,
+    enqueue,
     list_downloads,
     queue_zim_download,
     request_cancel,
@@ -70,6 +71,16 @@ from arca.fetch import (
     request_resume,
     request_retry,
     verify_library,
+)
+from arca.hub import (
+    HubError,
+    HubFile,
+    HubGatedError,
+    HubModel,
+    download_url,
+    is_model_id,
+    model_files,
+    search_models,
 )
 from arca.i18n import Catalog, load_catalog, normalize_language
 from arca.ingest import PDF_MIME, is_doc_id, original_path, render_readable
@@ -97,6 +108,7 @@ from arca.llama import (
     last_good_profile,
     list_models,
     list_profiles,
+    models_dir,
     parse_help,
     preflight,
     profile_argv,
@@ -104,6 +116,7 @@ from arca.llama import (
     save_profile,
     set_default_profile,
 )
+from arca.manual import list_pages, render_document
 from arca.pipeline import (
     DEFAULT_DOC_SCOPE,
     DEFAULT_ZIM_SCOPE,
@@ -138,9 +151,12 @@ from arca.vendor import (
     check_drift,
     default_lock_path,
     enqueue_vendor_downloads,
+    is_commit,
+    llama_lock_entry,
     load_lock,
     vendor_sources,
     verify_offline,
+    write_lock_entry,
 )
 from arca.zim import (
     DEFAULT_LIMIT,
@@ -172,6 +188,8 @@ ZIM_CONTENT_POLICY = (
     "frame-ancestors 'self'"
 )
 ZIM_ACTIONS = ("enable", "disable")
+MODEL_KINDS = ("chat", "embed")
+SECRET_KEYS = ("hub_token",)
 LLAMA_ACTIONS = ("start", "stop", "restart")
 DOC_CONTENT_POLICY = "default-src 'none'; style-src 'self'; font-src 'self'; script-src 'self'"
 DISABLED_ZIM_SETTING = "search.disabled_zim"
@@ -341,6 +359,81 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
     @app.get("/api/admin/models")
     def api_admin_models() -> JSONResponse:
         return JSONResponse(_admin_models(root, shard_library, config))
+
+    @app.get("/api/admin/hub")
+    def api_admin_hub(q: str = "", limit: int = 20) -> JSONResponse:
+        if not q.strip():
+            return JSONResponse({"models": [], "query": ""})
+        try:
+            found = search_models(config.hub_url, q.strip(), limit, config.hub_token)
+        except HubGatedError as error:
+            return JSONResponse({"error": str(error), "gated": True}, status_code=403)
+        except HubError as error:
+            return JSONResponse({"error": str(error)}, status_code=502)
+        return JSONResponse({"query": q.strip(), "models": [_hub_model(item) for item in found]})
+
+    @app.get("/api/admin/hub/{model_id:path}")
+    def api_admin_hub_model(model_id: str) -> JSONResponse:
+        if not is_model_id(model_id):
+            return JSONResponse({"error": f"not a model identifier: {model_id}"}, status_code=400)
+        try:
+            model, files = model_files(config.hub_url, model_id, config.hub_token)
+        except HubGatedError as error:
+            return JSONResponse({"error": str(error), "gated": True}, status_code=403)
+        except HubError as error:
+            return JSONResponse({"error": str(error)}, status_code=502)
+        payload = _hub_model(model)
+        payload["files"] = [_hub_file(item) for item in files]
+        payload["local"] = sorted(model.name for model in list_models(root))
+        return JSONResponse(payload)
+
+    @app.post("/api/admin/hub/download")
+    def api_admin_hub_download(payload: dict[str, Any] = JSON_BODY) -> JSONResponse:
+        model_id = str(payload.get("model_id", ""))
+        path = str(payload.get("path", ""))
+        kind = str(payload.get("kind", "chat"))
+        if not is_model_id(model_id):
+            return JSONResponse({"error": f"not a model identifier: {model_id}"}, status_code=400)
+        if kind not in MODEL_KINDS:
+            return JSONResponse({"error": f"unknown model kind: {kind}"}, status_code=400)
+        filename = Path(path).name
+        unsafe = ".." in path or path.startswith("/") or "\\" in path
+        if unsafe or not filename.endswith(".gguf") or filename != path.rsplit("/", 1)[-1]:
+            return JSONResponse({"error": f"not a model file: {path}"}, status_code=400)
+        try:
+            _, files = model_files(config.hub_url, model_id, config.hub_token)
+        except HubGatedError as error:
+            return JSONResponse({"error": str(error), "gated": True}, status_code=403)
+        except HubError as error:
+            return JSONResponse({"error": str(error)}, status_code=502)
+        wanted = next((item for item in files if item.path == path), None)
+        if wanted is None:
+            return JSONResponse({"error": f"unknown file: {path}"}, status_code=404)
+        dest = models_dir(root, kind) / filename
+        connection = open_library_rw(library_db_path(root))
+        try:
+            download_id = enqueue(
+                connection,
+                kind="model",
+                ref=f"{model_id}/{filename}",
+                filename=filename,
+                dest_path=dest,
+                size_bytes=wanted.size_bytes,
+                sha256=wanted.sha256,
+                mirrors=(download_url(config.hub_url, model_id, path),),
+            )
+            record_event(connection, "info", "models", f"queued {model_id}/{filename}")
+        finally:
+            connection.close()
+        worker.kick()
+        return JSONResponse(
+            {
+                "id": download_id,
+                "filename": filename,
+                "hash_missing": not wanted.sha256,
+                "dest": str(dest),
+            }
+        )
 
     @app.get("/api/admin/scope")
     def api_admin_scope() -> JSONResponse:
@@ -611,6 +704,25 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         llama.wait_healthy(HEALTH_WAIT_SECONDS)
         return JSONResponse(_llama_payload(root, config, llama, info))
 
+    @app.post("/api/admin/vendor/llama")
+    def api_admin_vendor_llama(payload: dict[str, Any] = JSON_BODY) -> JSONResponse:
+        commit = str(payload.get("commit", "")).strip().lower()
+        if not is_commit(commit):
+            return JSONResponse({"error": f"not a commit: {commit}"}, status_code=400)
+        try:
+            entries = write_lock_entry(default_lock_path(), llama_lock_entry(commit))
+        except (VendorError, OSError) as error:
+            return JSONResponse({"error": str(error)}, status_code=500)
+        connection = open_library_rw(library_db_path(root))
+        try:
+            queued = enqueue_vendor_downloads(connection, root, entries)
+            record_event(connection, "info", "vendor", f"llama.cpp pinned at {commit}")
+        finally:
+            connection.close()
+        if queued:
+            worker.kick()
+        return JSONResponse({"commit": commit, "queued": queued})
+
     @app.post("/api/admin/vendor/index")
     def api_admin_vendor_index() -> JSONResponse:
         try:
@@ -637,6 +749,29 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
                 "chunks": manifest.chunk_count if manifest else 0,
             }
         )
+
+    @app.get("/api/manual")
+    def api_manual() -> JSONResponse:
+        return JSONResponse(
+            {
+                "pages": [
+                    {
+                        "name": page.name,
+                        "title": page.title,
+                        "size_bytes": page.size_bytes,
+                        "size_human": format_size(page.size_bytes),
+                        "url": f"/api/manual/{page.name}",
+                    }
+                    for page in list_pages()
+                ]
+            }
+        )
+
+    @app.get("/api/manual/{name}", response_class=HTMLResponse)
+    def api_manual_page(name: str, lang: str | None = None) -> Response:
+        catalog = _catalog_for(config, lang)
+        document = render_document(name, catalog.language, catalog.text("manual.missing"))
+        return HTMLResponse(document, headers={"Content-Security-Policy": DOC_CONTENT_POLICY})
 
     @app.get("/api/admin/maintenance")
     def api_admin_maintenance() -> JSONResponse:
@@ -1427,9 +1562,10 @@ def _maintenance_payload(root: Path, config: ArcaConfig) -> dict[str, Any]:
 
 
 def _export_config(root: Path, config: ArcaConfig) -> dict[str, Any]:
+    public = {key: value for key, value in asdict(config).items() if key not in SECRET_KEYS}
     return {
         "config_file": CONFIG_FILENAME,
-        "config": asdict(config),
+        "config": public,
         "settings": {
             "chat": settings_payload(_chat_settings(root)),
             "search": _search_settings_payload(_search_settings(root)),
@@ -1575,4 +1711,28 @@ def _llama_payload(
             else []
         ),
         **_profiles_payload(root, info),
+    }
+
+
+def _hub_model(model: HubModel) -> dict[str, Any]:
+    return {
+        "model_id": model.model_id,
+        "author": model.author,
+        "name": model.name,
+        "downloads": model.downloads,
+        "likes": model.likes,
+        "gated": model.gated,
+        "updated_at": model.updated_at,
+        "tags": list(model.tags),
+    }
+
+
+def _hub_file(item: HubFile) -> dict[str, Any]:
+    return {
+        "path": item.path,
+        "quantization": item.quantization,
+        "part": item.part,
+        "size_bytes": item.size_bytes,
+        "size_human": format_size(item.size_bytes),
+        "sha256": item.sha256,
     }

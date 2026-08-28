@@ -362,3 +362,87 @@ class EmbeddingServer:
             if isinstance(value, list):
                 collected.extend(str(item) for item in value)
         return collected
+
+
+class ModelHubServer:
+    def __init__(self) -> None:
+        self.models: dict[str, dict[str, object]] = {}
+        self.files: dict[str, list[dict[str, object]]] = {}
+        self.gated: set[str] = set()
+        self.requests: list[str] = []
+        state = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                state.requests.append(self.path)
+                path = self.path.split("?")[0]
+                if path == "/api/models":
+                    self._reply(200, list(state.models.values()))
+                    return
+                if path.endswith("/tree/main"):
+                    model_id = path.removeprefix("/api/models/").removesuffix("/tree/main")
+                    if model_id in state.gated:
+                        self.send_error(401)
+                        return
+                    self._reply(200, state.files.get(model_id, []))
+                    return
+                if path.startswith("/api/models/"):
+                    model_id = path.removeprefix("/api/models/")
+                    if model_id in state.gated:
+                        self.send_error(401)
+                        return
+                    if model_id not in state.models:
+                        self.send_error(404)
+                        return
+                    self._reply(200, state.models[model_id])
+                    return
+                self.send_error(404)
+
+            def _reply(self, code: int, body: object) -> None:
+                encoded = json.dumps(body).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:
+                pass
+
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+
+    @property
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self._server.server_address[1]}"
+
+    def add(
+        self,
+        model_id: str,
+        files: list[tuple[str, int, str]],
+        downloads: int = 100,
+        gated: bool = False,
+    ) -> None:
+        self.models[model_id] = {
+            "id": model_id,
+            "downloads": downloads,
+            "likes": 7,
+            "gated": gated,
+            "lastModified": "2026-08-01T10:00:00.000Z",
+            "tags": ["gguf", "text-generation"],
+        }
+        self.files[model_id] = [
+            {"type": "file", "path": name, "size": size, "lfs": {"oid": oid, "size": size}}
+            if oid
+            else {"type": "file", "path": name, "size": size}
+            for name, size, oid in files
+        ]
+        if gated:
+            self.gated.add(model_id)

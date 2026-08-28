@@ -82,9 +82,10 @@ header h1::after {
 
 nav.tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.25rem;
-  overflow-x: auto;
-  scrollbar-width: none;
+  flex: 1 1 100%;
+  order: 3;
 }
 
 nav.tabs [role="tab"] {
@@ -95,7 +96,6 @@ nav.tabs [role="tab"] {
   font-weight: 500;
   background: transparent;
   color: var(--ink-soft);
-  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -1100,4 +1100,124 @@ section.band li.result {
 .settings-form textarea {
   font-family: var(--font-mono);
   font-size: 0.82rem;
+}
+
+
+.header-link {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--accent-dark);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0.3rem 0.8rem;
+}
+
+.header-link:hover {
+  background: var(--accent-soft);
+}
+
+@media (min-width: 60rem) {
+  nav.tabs {
+    flex: 1 1 auto;
+    order: 0;
+  }
+}
+
+.manual-browser {
+  display: grid;
+  grid-template-columns: minmax(12rem, 18rem) 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+.manual-index {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.manual-index li {
+  margin-bottom: 0.2rem;
+}
+
+.manual-index button {
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: var(--radius-small);
+  background: transparent;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.manual-index button:hover {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.manual-index button[aria-current="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+#manual-frame {
+  width: 100%;
+  height: 70vh;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--paper);
+}
+
+body.manual-page {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: var(--space);
+  font-family: var(--font-body);
+  line-height: 1.6;
+  background: var(--paper);
+}
+
+body.manual-page h2,
+body.manual-page h3,
+body.manual-page h4 {
+  font-family: var(--font-display);
+  margin-top: 1.6rem;
+}
+
+body.manual-page code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: rgba(23, 36, 43, 0.06);
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}
+
+body.manual-page pre {
+  overflow-x: auto;
+  padding: 0.8rem;
+  background: rgba(23, 36, 43, 0.06);
+  border-radius: var(--radius-small);
+}
+
+body.manual-page pre code {
+  background: transparent;
+  padding: 0;
+}
+
+@media (max-width: 52rem) {
+  .manual-browser {
+    grid-template-columns: 1fr;
+  }
+
+  .manual-index {
+    max-height: 14rem;
+  }
 }
