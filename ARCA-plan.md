@@ -367,6 +367,102 @@ tablas).
 Añadir `__main__.py` para que la invocación obvia funcione.
 · Dep: — · CA: `python -m arca --version` responde.
 
+### Fase 8 — Chat libre con el modelo
+
+Pantalla nueva entre Archivo y Administración: conversar con el modelo local sin el archivo de por
+medio, con historial persistente y con imágenes adjuntas. Nace de una constatación del operador: el
+asistente de §11 responde muy bien **sobre el archivo** y solo sobre él, porque está construido para
+negarse sin evidencia. Esta fase no lo toca; añade un segundo cliente del mismo motor.
+
+**Dos decisiones tomadas antes de empezar, y por qué:**
+
+- **El almacén vive fuera de la raíz.** Un historial persistente escribe en cada mensaje, desde el
+  camino de consulta, y el invariante 1 prohíbe escribir un byte bajo `<raiz>` — nombrando el chat
+  expresamente. Pero el propio §6 ya dice dónde va ese estado: «memoria o el temporal del sistema
+  operativo, **configurable**, nunca a la raíz». El almacén va entonces a `session_dir`, que ya
+  existe (`arca/config.py:141`) y **ya rechaza todo candidato que resuelva dentro de la raíz**,
+  cayendo al temporal del sistema. No hay excepción nueva que sancionar en §6: la fase usa la que ya
+  está escrita. `library.db` no se abre desde esta pantalla, ni siquiera para leer ajustes.
+- **Solo imágenes, ningún otro fichero.** El modelo no lee ficheros: un PDF habría que extraerlo a
+  texto e inyectarlo en el prompt, que es otra funcionalidad, con otro nombre y otros fallos. Las
+  imágenes sí viajan al modelo tal cual cuando hay `--mmproj`. Un clip que aceptara un `.docx` y no
+  hiciera nada con él sería peor que no tenerlo.
+
+**F8.1 — Almacén de conversaciones en `session_dir`** *(pendiente)*
+`arca/history.py`: `talk.sqlite` bajo `session_dir(root, config)`, con su propio `user_version`,
+independiente del `SCHEMA_VERSION` de `library.db`. Tres tablas —`conversations`, `messages`,
+`attachments`— y las imágenes como ficheros bajo `<session_dir>/talk/<conversación>/`, no como BLOB:
+así el borrado se verifica mirando el disco. Si el directorio no es escribible, la pantalla degrada
+a sesión en memoria y lo declara, como cualquier otro subsistema ausente (invariante 5).
+· Dep: F6.2 · CA: crear conversación → mensaje → imagen → borrar no deja ni fila ni fichero, y un
+test afirma que la ruta resuelta del almacén nunca cae dentro de la raíz, ni con `session_dir`
+apuntando a ella a propósito.
+· Loop: Ninguno.
+
+**F8.2 — Contenido multimodal en el transporte** *(pendiente)*
+`chat_completion` tipa hoy los mensajes como `Mapping[str, str]` (`arca/llama.py:1318`) y el
+contenido multimodal de la API es una **lista** de partes. Ensanchar la firma sin cambiar el
+comportamiento del asistente del archivo, y añadir la detección de capacidad: hay visión si el
+perfil activo lleva `--mmproj` —ya está entre los flags curados, `arca/llama.py:173`— y el fichero
+existe; si no, no la hay y se dice.
+· Dep: F8.1 · CA: `tests/test_chat.py` pasa sin tocarse, un perfil sin `--mmproj` declara que no hay
+visión, y un mensaje con imagen se serializa en partes con la imagen en `data:`.
+· Loop: Ninguno.
+
+**F8.3 — Motor de chat libre** *(pendiente)*
+`arca/talk.py`: llama a `chat_completion` y nada más. Sin evidencia, sin marcadores, sin
+`STATE_UNGROUNDED` — el `ChatEngine` de `arca/chat.py` no se reutiliza ni se parametriza, porque su
+trabajo es justo el contrario y doblarlo lo estropearía en el suyo. Ajustes propios (prompt de
+sistema y muestreo) en `talk.sqlite`, no en `settings` de `library.db`, para no abrirla en escritura
+desde la consulta. Recorte de ventana con `estimate_tokens`: se descartan los mensajes más viejos,
+nunca el prompt de sistema.
+· Dep: F8.2 · CA: una conversación de 60 mensajes se mantiene bajo el presupuesto de contexto
+descartando por el principio, y con el servidor caído responde «no disponible» sin perder ningún
+mensaje ya guardado.
+· Loop: Ninguno.
+
+**F8.4 — Endpoints y CRUD** *(pendiente)*
+Listar, crear, abrir, renombrar y borrar conversaciones; añadir mensaje; adjuntar imagen (bytes en
+crudo, como `POST /api/admin/documents/upload` en `arca/api.py:412`, sin dependencia de
+*multipart*); y un borrado total que se lleve conversaciones, mensajes e imágenes. Las imágenes se
+validan por número mágico y no por extensión, con lista blanca (PNG, JPEG, WebP) y tope de tamaño.
+Códigos de error estables de familia `talk.`, según F6.1.
+· Dep: F8.3 · CA: borrar una conversación deja inexistente el directorio de sus imágenes, un fichero
+que no es imagen se rechaza con código aunque se llame `.png`, y toda función pública nueva tiene
+llamador fuera de `tests/` (`tests/test_seams.py`).
+· Loop: Ninguno.
+
+**F8.5 — Pantalla `/talk`** *(pendiente)*
+Tercer enlace del `seg` de navegación, entre Archivo y Administración, coherente en las tres
+plantillas. `templates/talk.html` + `static/talk.js`, con la maquinaria de siempre: sin framework,
+iconos clonados de `#icon-set`, sin `innerHTML`, sin una sola llamada de red fuera del origen.
+Prefijo i18n `talk.` —no colisiona con el `chat.` del asistente del archivo, que ya tiene diez
+claves— con los catálogos `es` y `en` completos. Dos columnas: lista de conversaciones e hilo.
+Ningún color nuevo: solo los tokens de §16. El botón de imagen no existe si el modelo no tiene
+visión.
+· Dep: F8.4 · CA: la navegación es coherente en las tres pantallas, la pantalla sigue siendo
+navegable con el motor caído, `tests/test_frontend.py` pasa incluido su veto de red, y
+`docs/manual/` documenta la pantalla tal como quedó.
+· Loop: Ninguno.
+
+**F8.6 — El invariante 1, con la pantalla puesta** *(pendiente)*
+Extender `_query_session` de `tests/test_invariants.py` para que barra `/talk` y una conversación
+completa —crear, mensaje, imagen, borrar— y no solo la portada y el visor. Ejecutar la skill
+`verify-no-write` como puerta de la fase.
+· Dep: F8.5 · CA: los ocho tests actuales más el nuevo pasan a la vez, y la raíz queda idéntica
+salvo los dos sidecars sancionados.
+· Loop: **Turn-based** — la skill `verify-no-write`, que existe exactamente para esto.
+
+**F8.7 — Respuesta token a token** *(pendiente, aplazada a propósito)*
+La llamada actual es bloqueante (`stream=False`, `arca/llama.py:1324`). En local, esperar en blanco
+a que llegue la respuesta entera es la diferencia entre parecer un chat y no parecerlo. SSE en el
+endpoint y consumo incremental en `talk.js`, con vuelta al modo bloqueante si el servidor no lo
+soporta. Va la última porque F8.1–F8.6 ya entregan la pantalla usable, y es la tarea con más riesgo
+de la fase.
+· Dep: F8.6 · CA: el texto aparece a medida que se genera, cancelar la petición detiene la
+generación en el servidor, y sin *streaming* disponible la pantalla sigue respondiendo.
+· Loop: Ninguno.
+
 ---
 
 ## 7. Loops recomendados (resumen)
