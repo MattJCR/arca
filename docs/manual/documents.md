@@ -12,7 +12,24 @@ Módulos: `arca/ingest.py` (recepción, extracción, anclas, troceado), `arca/em
 6. **Embeddings** — `passage: ` delante de cada fragmento contra `multilingual-e5-base`.
 7. **Sellado** — `text.sqlite` a solo lectura, `vectors.i8`, `manifest.json` con los hashes y el modelo.
 
-`arca import <rutas>` acepta ficheros y carpetas (recursivo). Un PDF ilegible o protegido se rechaza con su motivo y **no detiene** al resto.
+## Las dos formas de importar, y el paso que no se puede olvidar
+
+`arca import <rutas>` acepta ficheros y carpetas (recursivo). Un PDF ilegible o protegido se
+rechaza con su motivo y **no detiene** al resto.
+
+Desde el panel (§12.4), la pestaña **Documentos** tiene un selector de ficheros que sube uno o
+varios PDF a `POST /api/admin/documents/upload`. La subida va en crudo, con el nombre en la query
+y los bytes como cuerpo: así no hace falta ninguna dependencia de *multipart* y el tope de 5
+dependencias directas sigue intacto. El fichero aterriza primero en el directorio de sesión —
+**fuera de la raíz**— y solo entra en la biblioteca a través de `receive_document`, que es quien
+verifica que es un PDF y lo copia por su sha256. El temporal se borra pase lo que pase.
+
+**Recibir no es indexar, y esta es la parte que se olvida.** Los pasos 1 y 2 de arriba dejan el
+documento guardado y verificado, pero hasta que no corren del 3 al 7 el documento **no se busca**.
+Quien dispara esos pasos es `POST /api/admin/documents/index` (botón «Indexar y sellar»), que toma
+los originales cuyo sidecar aún no tiene lote, los pasa por `ingest_documents` y sella. Sin
+servidor de embeddings lo dice y no toca nada: los documentos siguen guardados y se indexan cuando
+vuelva. El panel muestra en todo momento cuántos hay esperando.
 
 ## Reanudabilidad (§10.2)
 

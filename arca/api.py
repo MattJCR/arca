@@ -11,8 +11,9 @@ from pathlib import Path
 from string import Template
 from typing import Any
 from urllib.parse import quote
+from uuid import uuid4
 
-from fastapi import Body, FastAPI, Response
+from fastapi import Body, FastAPI, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -84,7 +85,15 @@ from arca.hub import (
     search_models,
 )
 from arca.i18n import Catalog, load_catalog, normalize_language
-from arca.ingest import PDF_MIME, is_doc_id, original_path, render_readable
+from arca.ingest import (
+    PDF_MIME,
+    IngestError,
+    is_doc_id,
+    list_originals,
+    original_path,
+    receive_document,
+    render_readable,
+)
 from arca.llama import (
     HEALTH_OK,
     HEALTH_WAIT_SECONDS,
@@ -127,7 +136,9 @@ from arca.pipeline import (
     SCOPE_KIND_ZIM,
     SCOPES,
     ScopeEstimate,
+    default_ocr,
     estimate_scope,
+    ingest_documents,
     ingest_vendor,
     provisional_shards,
     read_scope,
@@ -190,6 +201,9 @@ ZIM_CONTENT_POLICY = (
 )
 ZIM_ACTIONS = ("enable", "disable")
 MODEL_KINDS = ("chat", "embed")
+PDF_SUFFIX = ".pdf"
+UPLOAD_SUBDIR = "uploads"
+MAX_UPLOAD_BYTES = 2 * 1024**3
 SECRET_KEYS = ("hub_token",)
 LLAMA_ACTIONS = ("start", "stop", "restart")
 DOC_CONTENT_POLICY = "default-src 'none'; style-src 'self'; font-src 'self'; script-src 'self'"
@@ -359,6 +373,65 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
     @app.get("/api/admin/documents")
     def api_admin_documents() -> JSONResponse:
         return JSONResponse(_admin_documents(root, shard_library, embeddings))
+
+    @app.post("/api/admin/documents/upload")
+    async def api_admin_upload(request: Request, filename: str = "") -> JSONResponse:
+        name = Path(filename).name
+        if not name or not name.lower().endswith(PDF_SUFFIX) or name != filename:
+            return JSONResponse(
+                {"error": f"not a pdf: {filename}", "code": "bad_file"}, status_code=400
+            )
+        staging = session_dir(root, config) / UPLOAD_SUBDIR / uuid4().hex
+        staging.mkdir(parents=True, exist_ok=True)
+        temp = staging / name
+        try:
+            written = await _receive_upload(request, temp)
+            if written > MAX_UPLOAD_BYTES:
+                return JSONResponse(
+                    {"error": f"upload too large: {written}", "code": "too_large"},
+                    status_code=413,
+                )
+            connection = open_library_rw(library_db_path(root))
+            try:
+                outcome = receive_document(root, temp, connection)
+            finally:
+                connection.close()
+        except IngestError as error:
+            return JSONResponse({"error": str(error), "code": "bad_file"}, status_code=400)
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+        return JSONResponse(
+            {
+                "created": outcome.created,
+                "doc_id": outcome.record.doc_id,
+                "title": outcome.record.title,
+                "orig_name": outcome.record.orig_name,
+                "pages": outcome.record.pages,
+            }
+        )
+
+    @app.post("/api/admin/documents/index")
+    def api_admin_index_documents() -> JSONResponse:
+        pending = [record.path for record in list_originals(root) if not record.shard_id]
+        if not pending:
+            return JSONResponse({"sealed": False, "reason": "nothing_to_index"})
+        if not embeddings.available():
+            return JSONResponse({"sealed": False, "reason": "embeddings_down"})
+        connection = open_library_rw(library_db_path(root))
+        try:
+            report = ingest_documents(root, connection, pending, embeddings, default_ocr())
+        finally:
+            connection.close()
+        shard_library.refresh()
+        return JSONResponse(
+            {
+                "sealed": report.sealed,
+                "shard_id": report.shard_id,
+                "documents": len(report.results),
+                "chunks": sum(item.chunks for item in report.results),
+                "reason": "" if report.sealed else "seal_failed",
+            }
+        )
 
     @app.get("/api/admin/models")
     def api_admin_models() -> JSONResponse:
@@ -1171,6 +1244,16 @@ def _admin_documents(root: Path, library: ShardLibrary, client: EmbeddingClient)
     jobs, provisional = _ingest_state(root)
     return {
         "documents": documents,
+        "pending": [
+            {
+                "doc_id": record.doc_id,
+                "title": record.title,
+                "orig_name": record.orig_name,
+                "pages": record.pages,
+            }
+            for record in list_originals(root)
+            if not record.shard_id
+        ],
         "shards": [_shard_payload(state) for state in states],
         "jobs": jobs,
         "provisional": provisional,
@@ -1784,6 +1867,17 @@ def _hub_file(item: HubFile) -> dict[str, Any]:
         "size_human": format_size(item.size_bytes),
         "sha256": item.sha256,
     }
+
+
+async def _receive_upload(request: Request, destination: Path) -> int:
+    written = 0
+    with destination.open("wb") as handle:
+        async for chunk in request.stream():
+            written += len(chunk)
+            if written > MAX_UPLOAD_BYTES:
+                break
+            handle.write(chunk)
+    return written
 
 
 def _engine_payload(bringup: EngineBringup) -> dict[str, Any]:

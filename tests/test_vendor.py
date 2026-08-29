@@ -54,7 +54,8 @@ def test_load_lock_reads_the_repository_lock() -> None:
     entries = load_lock(default_lock_path())
     keys = {entry.key for entry in entries}
     assert set(DIRECT_DEPENDENCIES) <= keys
-    assert all(entry.sha256 for entry in entries)
+    assert all(entry.sha256 for entry in entries if entry.kind == "pypi")
+    assert all(entry.commit for entry in entries if entry.kind == "git")
     assert all(entry.license for entry in entries)
 
 

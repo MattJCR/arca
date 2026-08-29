@@ -126,12 +126,12 @@ def test_pinning_llama_writes_a_git_entry_with_its_licence(tmp_path: Path) -> No
     before = {entry.key for entry in load_lock(lock)}
     entries = write_lock_entry(lock, llama_lock_entry("a1b2c3d4e5f6"))
     after = {entry.key: entry for entry in entries}
-    assert "llama.cpp" not in before
     assert after["llama.cpp"].kind == "git"
     assert after["llama.cpp"].license == "MIT"
     assert after["llama.cpp"].commit == "a1b2c3d4e5f6"
     assert after["llama.cpp"].url.endswith("a1b2c3d4e5f6")
     assert set(before) <= set(after)
+    assert len(after) == len(before | {"llama.cpp"})
     again = {entry.key for entry in write_lock_entry(lock, llama_lock_entry("ffffffff"))}
     assert len(again) == len(after)
     assert load_lock(lock)[0].key <= load_lock(lock)[-1].key

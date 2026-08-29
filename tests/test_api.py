@@ -18,12 +18,17 @@ def http_request(
     path: str,
     query: str = "",
     json_body: dict[str, Any] | None = None,
+    raw_body: bytes | None = None,
+    content_type: str = "application/json",
 ) -> tuple[int, bytes]:
     messages: list[MutableMapping[str, Any]] = []
-    body = json.dumps(json_body).encode() if json_body is not None else b""
+    if raw_body is not None:
+        body = raw_body
+    else:
+        body = json.dumps(json_body).encode() if json_body is not None else b""
     headers = [(b"host", b"testserver")]
-    if json_body is not None:
-        headers.append((b"content-type", b"application/json"))
+    if body:
+        headers.append((b"content-type", content_type.encode()))
         headers.append((b"content-length", str(len(body)).encode()))
     scope: MutableMapping[str, Any] = {
         "type": "http",
@@ -345,14 +350,17 @@ def test_admin_verify_reports_results(tmp_path: Path) -> None:
 def test_admin_vendor_download_queues_missing_pieces(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from arca.vendor import default_lock_path, load_lock
+
     monkeypatch.setattr("arca.fetch.QueueWorker.kick", lambda self: None)
+    expected = len(load_lock(default_lock_path()))
     app = _app(tmp_path)
     status, body = http_request(app, "POST", "/api/admin/vendor/download")
     assert status == 200
-    assert json.loads(body)["queued"] == 5
+    assert json.loads(body)["queued"] == expected
     status, body = http_get(app, "/api/admin/downloads")
     downloads = json.loads(body)["downloads"]
-    assert len(downloads) == 5
+    assert len(downloads) == expected
     assert {item["kind"] for item in downloads} == {"vendor"}
     assert all(item["status"] == "queued" for item in downloads)
     status, body = http_request(app, "POST", "/api/admin/vendor/download")

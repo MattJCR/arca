@@ -140,7 +140,22 @@ $lang_selector
 </section>
 <section id="documents-section" role="tabpanel">
 <h2 data-i18n="admin.documents.heading"></h2>
-<p><button id="documents-refresh-button" data-i18n="admin.documents.refresh_button"></button></p>
+<h3 data-i18n="admin.documents.upload_heading"></h3>
+<p class="detail" data-i18n="admin.documents.upload_note"></p>
+<form id="documents-upload" class="settings-form">
+<div class="field field-wide">
+<label for="documents-file" data-i18n="admin.documents.upload_label"></label>
+<input id="documents-file" type="file" accept="application/pdf,.pdf" multiple>
+</div>
+<div class="field field-submit">
+<button type="submit" data-i18n="admin.documents.upload_button"></button>
+</div>
+</form>
+<p id="documents-pending" class="result-count"></p>
+<p>
+<button id="documents-index-button" data-i18n="admin.documents.index_button"></button>
+<button id="documents-refresh-button" data-i18n="admin.documents.refresh_button"></button>
+</p>
 <p id="documents-message" class="message" hidden></p>
 <div class="table-scroll">
 <table class="data" id="documents-table">

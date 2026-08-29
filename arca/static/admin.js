@@ -68,6 +68,11 @@ async function fetchJson(url, options) {
   return payload;
 }
 
+function errorDetail(family, error) {
+  const key = error.code ? family + "." + error.code : "";
+  return key && I18N[key] !== undefined ? t(key) : error.message;
+}
+
 function errorText(family, error) {
   const key = error.code ? family + "." + error.code : "";
   if (key && I18N[key] !== undefined) {
@@ -652,6 +657,81 @@ function emptyRow(text, columns) {
   return row;
 }
 
+async function uploadDocuments(event) {
+  event.preventDefault();
+  const input = document.getElementById("documents-file");
+  const files = Array.from(input.files || []);
+  if (!files.length) {
+    return;
+  }
+  const button = event.target.querySelector("button");
+  button.disabled = true;
+  let added = 0;
+  let duplicates = 0;
+  for (const file of files) {
+    showMessage("documents-message", t("admin.documents.uploading", { filename: file.name }));
+    let payload;
+    try {
+      payload = await fetchJson(
+        "/api/admin/documents/upload?filename=" + encodeURIComponent(file.name),
+        { method: "POST", headers: { "Content-Type": "application/pdf" }, body: file }
+      );
+    } catch (error) {
+      showMessage(
+        "documents-message",
+        t("admin.documents.upload_error", {
+          filename: file.name,
+          error: errorDetail("admin.documents.upload_error", error),
+        })
+      );
+      button.disabled = false;
+      return;
+    }
+    if (payload.created) {
+      added += 1;
+    } else {
+      duplicates += 1;
+    }
+  }
+  button.disabled = false;
+  input.value = "";
+  showMessage("documents-message", t("admin.documents.uploaded", { added, duplicates }));
+  loadDocuments();
+}
+
+async function indexDocuments() {
+  const button = document.getElementById("documents-index-button");
+  button.disabled = true;
+  showMessage("documents-message", t("admin.documents.indexing"));
+  let payload;
+  try {
+    payload = await fetchJson("/api/admin/documents/index", { method: "POST" });
+  } catch (error) {
+    showMessage("documents-message", error.message);
+    button.disabled = false;
+    return;
+  }
+  button.disabled = false;
+  if (payload.sealed) {
+    showMessage(
+      "documents-message",
+      t("admin.documents.indexed", {
+        shard: payload.shard_id,
+        documents: payload.documents,
+        chunks: payload.chunks,
+      })
+    );
+  } else {
+    const reasons = {
+      nothing_to_index: "admin.documents.index_nothing",
+      embeddings_down: "admin.documents.index_no_server",
+      seal_failed: "admin.documents.index_failed",
+    };
+    showMessage("documents-message", t(reasons[payload.reason] || "admin.documents.index_failed"));
+  }
+  loadDocuments();
+}
+
 async function loadDocuments() {
   const button = document.getElementById("documents-refresh-button");
   button.disabled = true;
@@ -664,6 +744,12 @@ async function loadDocuments() {
     return;
   }
   button.disabled = false;
+  const pending = payload.pending || [];
+  const summary = document.getElementById("documents-pending");
+  summary.textContent = pending.length
+    ? t("admin.documents.pending", { count: pending.length })
+    : t("admin.documents.pending_none");
+  document.getElementById("documents-index-button").disabled = !pending.length;
   const notes = [];
   if (payload.provisional.length) {
     notes.push(t("admin.documents.provisional", { shards: payload.provisional.join(", ") }));
@@ -887,6 +973,8 @@ async function loadModels() {
 }
 
 document.getElementById("documents-refresh-button").addEventListener("click", loadDocuments);
+document.getElementById("documents-upload").addEventListener("submit", uploadDocuments);
+document.getElementById("documents-index-button").addEventListener("click", indexDocuments);
 loadDocuments();
 loadScope();
 loadModels();

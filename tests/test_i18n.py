@@ -101,7 +101,7 @@ def _script_keys() -> set[str]:
         for key in re.findall(r'(?<![\w.])t\(\s*"([^"]+)"', text):
             if not key.endswith("."):
                 keys.add(key)
-        keys.update(re.findall(r'errorText\(\s*"([^"]+)"', text))
+        keys.update(re.findall(r'error(?:Text|Detail)\(\s*"([^"]+)"', text))
     return keys
 
 
@@ -151,6 +151,7 @@ ERROR_CODE_KEYS = {
         "unknown_file",
     ),
     "admin.vendor.llama_error": ("bad_commit",),
+    "admin.documents.upload_error": ("bad_file", "too_large"),
 }
 
 

@@ -493,7 +493,8 @@ def test_a_missing_chat_model_is_red_in_the_diagnostics(tmp_path: Path) -> None:
 def test_an_empty_library_reports_the_chat_as_degraded_not_broken(tmp_path: Path) -> None:
     root = tmp_path / "library"
     init_library(root)
-    payload = _json(create_app(root, ArcaConfig()), "/api/diagnostics")
+    config = ArcaConfig(llama_bin=str(root / "absent-llama-server"), chat_url="http://127.0.0.1:1")
+    payload = _json(create_app(root, config), "/api/diagnostics")
     checks = {check["id"]: check for check in payload["checks"]}
     assert checks["chat_model"]["state"] == "degraded"
     assert checks["llama_server"]["state"] == "degraded"

@@ -20,6 +20,8 @@ Módulos: `arca/api.py`, `arca/templates/`, `arca/static/`, `arca/i18n.py`.
 | `GET /api/doc/{doc_id}` | Versión consultable de un documento propio, con un ancla por bloque (ver `documents.md`); identificador que no sea sha256 → 404 |
 | `GET /api/doc/{doc_id}/original` | El PDF original intacto, servido `inline` para PDF.js |
 | `GET /api/admin/documents` | 12.4: documentos importados, lotes con su estado, cola de importación y estado del servidor de embeddings |
+| `POST /api/admin/documents/upload?filename=` | 12.4: sube un PDF en crudo (bytes en el cuerpo, sin *multipart*), lo recibe por su sha256 y lo deja pendiente de indexar; no es un PDF o el nombre no es seguro → 400 con su código |
+| `POST /api/admin/documents/index` | Indexa y sella los documentos recibidos que aún no tienen lote; sin servidor de embeddings lo declara y no toca nada (ver `documents.md`) |
 | `GET /api/admin/scope` · `PUT /api/admin/scope` | 12.5: alcance del índice profundo por fuente (`out` / `full` / `curated`) con estimación de coste antes de lanzar |
 | `GET /api/admin/models` | 12.6: GGUF presentes con arquitectura, cuantización y `n_ctx_train` leídos de la cabecera, más el aviso de lotes con embeddings desalineados |
 | `GET /api/admin/zim` | Colecciones ZIM presentes en `zim/`, leídas del fichero: idioma, artículos, tamaño, modo de índice real y estado según `library.db`; los ficheros ilegibles salen aparte en `failures` (ver `zim.md`) |

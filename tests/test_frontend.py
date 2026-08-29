@@ -98,3 +98,23 @@ def test_the_panel_carries_the_error_code_from_the_api_to_the_message() -> None:
     assert families
     for family in families:
         assert f't("{family}", {{ error: error.message }})' not in script
+
+
+def test_the_shared_fetch_helper_forwards_the_request_options() -> None:
+    definitions = 0
+    for script in STATIC.glob("*.js"):
+        text = script.read_text("utf-8")
+        for match in re.finditer(r"async function fetchJson\(([^)]*)\)\s*\{", text):
+            definitions += 1
+            assert match.group(1).replace(" ", "") == "url,options", script.name
+            body = text[match.end() : match.end() + 200]
+            assert "fetch(url, options)" in body, script.name
+    assert definitions == len(list(STATIC.glob("*.js"))) - _scripts_without_fetch()
+
+
+def _scripts_without_fetch() -> int:
+    return sum(
+        1
+        for script in STATIC.glob("*.js")
+        if "async function fetchJson(" not in script.read_text("utf-8")
+    )
