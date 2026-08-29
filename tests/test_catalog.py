@@ -61,20 +61,45 @@ def test_parse_entries_extracts_the_catalog_fields() -> None:
     assert wikipedia.meta4_url.endswith(".zim.meta4")
 
 
-def test_the_reader_url_points_at_the_book_on_the_kiwix_library() -> None:
+def test_the_reader_url_keeps_the_flavour_that_tells_two_editions_apart() -> None:
+    wikipedia, devdocs = parse_entries(_feed())[:2]
+    assert reader_url(wikipedia) == "https://library.kiwix.org/viewer#wikipedia_es_all_maxi"
+    assert reader_url(devdocs) == "https://library.kiwix.org/viewer#devdocs_en_python"
+
+
+def test_the_reader_url_drops_the_date_that_makes_a_file_name_expire() -> None:
     wikipedia = parse_entries(_feed())[0]
-    assert reader_url(wikipedia) == "https://library.kiwix.org/viewer#wikipedia_es_all"
+    assert "2026-06" not in reader_url(wikipedia)
+    monthly = replace(wikipedia, filename="handbook_es_all_2031-12.zim")
+    assert reader_url(monthly).endswith("#handbook_es_all")
+
+
+def test_the_reader_url_drops_a_date_that_carries_the_day_too() -> None:
+    wikipedia = parse_entries(_feed())[0]
+    daily = replace(wikipedia, filename="handbook_es_all_2031-12-24.zim")
+    assert reader_url(daily).endswith("#handbook_es_all")
+
+
+def test_a_file_name_without_a_date_is_left_alone() -> None:
+    wikipedia = parse_entries(_feed())[0]
+    undated = replace(wikipedia, filename="handbook_es_all.zim")
+    assert reader_url(undated).endswith("#handbook_es_all")
+
+
+def test_the_reader_url_falls_back_to_the_catalog_name_without_a_file() -> None:
+    wikipedia = parse_entries(_feed())[0]
+    assert reader_url(replace(wikipedia, filename="")).endswith("#wikipedia_es_all")
 
 
 def test_the_reader_url_escapes_the_book_name() -> None:
     wikipedia = parse_entries(_feed())[0]
-    odd = replace(wikipedia, book_name="two words/and more")
-    assert reader_url(odd).endswith("/viewer#two%20words/and%20more")
+    odd = replace(wikipedia, filename="two words.zim")
+    assert reader_url(odd).endswith("/viewer#two%20words")
 
 
-def test_a_book_without_a_name_gets_no_reader_url() -> None:
+def test_a_book_with_no_name_at_all_gets_no_reader_url() -> None:
     wikipedia = parse_entries(_feed())[0]
-    assert reader_url(replace(wikipedia, book_name="")) == ""
+    assert reader_url(replace(wikipedia, filename="", book_name="")) == ""
 
 
 def test_parse_entries_skips_entries_without_acquisition_link() -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 import urllib.error
 import urllib.parse
@@ -16,6 +17,8 @@ ENTRIES_PATH = "/catalog/v2/entries"
 CATEGORIES_PATH = "/catalog/v2/categories"
 LANGUAGES_PATH = "/catalog/v2/languages"
 VIEWER_PATH = "/viewer#"
+ZIM_SUFFIX = ".zim"
+DATED_SUFFIX = re.compile(r"_\d{4}-\d{2}(?:-\d{2})?$")
 MIRROR_COUNTRY = "ES"
 REQUEST_TIMEOUT_SECONDS = 30
 USER_AGENT = f"arca/{__version__}"
@@ -78,10 +81,17 @@ def http_get(url: str) -> bytes:
         return bytes(response.read())
 
 
+def book_slug(entry: CatalogEntry) -> str:
+    stem = entry.filename[: -len(ZIM_SUFFIX)] if entry.filename.endswith(ZIM_SUFFIX) else ""
+    without_date = DATED_SUFFIX.sub("", stem)
+    return without_date or entry.book_name
+
+
 def reader_url(entry: CatalogEntry, base_url: str = CATALOG_BASE_URL) -> str:
-    if not entry.book_name:
+    slug = book_slug(entry)
+    if not slug:
         return ""
-    return f"{base_url}{VIEWER_PATH}{urllib.parse.quote(entry.book_name)}"
+    return f"{base_url}{VIEWER_PATH}{urllib.parse.quote(slug)}"
 
 
 def entries_url(
