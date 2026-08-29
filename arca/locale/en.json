@@ -472,6 +472,7 @@
   "admin.llama.preflight.gpu_layers_over_blocks": "You ask for {layers} GPU layers and the model has {blocks}: accepted, it is the usual way of saying «all of them».",
   "admin.llama.preflight.gpu_layers_without_gpu": "You ask for {layers} GPU layers but the binary is built without GPU support: the symptom will be extreme slowness.",
   "admin.llama.preflight.model_missing": "The model given does not exist: {path}",
+  "admin.llama.preflight.port_taken": "This profile would listen on port {port}, where ARCA serves embeddings ({url}): one of the two will not start. Set «--port» in the profile or change «embed_url» in arca.json.",
   "admin.llama.error": "Error: {error}",
   "admin.llama.error.no_binary": "There is no llama-server engine yet. You do not have to get it: press «Bring the chat up» and ARCA downloads it, deploys it into vendor/llama.cpp and tests it on its own. If you prefer your own build, point «llama_bin» at it in arca.json. Meanwhile chat stays off and everything else works the same.",
   "admin.llama.error.no_profile": "No start-up profile is configured. Create one under «Profiles» with the .gguf model you want and save it: the first one saved becomes the default.",
@@ -640,6 +641,10 @@
   "admin.hub.col.quantization": "Quantization",
   "admin.hub.col.file": "File",
   "admin.hub.col.size": "Size",
+  "admin.hub.col.build": "Architecture",
+  "admin.hub.build": "{architecture} · {dims} dim",
+  "admin.hub.unknown_build": "unreadable",
+  "admin.hub.dims_mismatch": "This file gives {dims} dimensions and your batches use {expected}: they would not compare.",
   "admin.hub.col.hash": "Hash",
   "admin.hub.col.actions": "Actions",
   "admin.models.local_heading": "Models in the library"

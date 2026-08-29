@@ -100,3 +100,15 @@ Pestaña «llama.cpp» del dashboard: estado del binario y del proceso, botones 
 ## Diagnóstico
 
 Tres comprobaciones (ver `diagnostics.md`): `llama_binary`, `llama_server` y `chat_model`.
+
+## Dos servidores, un solo puerto libre
+
+Desde que ARCA levanta también el servidor de embeddings (ver `engine.md`), **dos procesos suyos
+compiten por los puertos**. Un perfil en modo crudo sin `--port` no es neutral: llama-server usa
+entonces su propio valor por defecto, 8080, que es justo donde vive el servidor de embeddings. Uno
+de los dos no arrancaría, y el diagnóstico apuntaría al sitio equivocado.
+
+Por eso `preflight()` recibe el puerto reservado y avisa antes de arrancar, con la misma forma que
+el resto de validaciones de §13.4: dice el puerto, dice quién lo ocupa y dice las dos salidas
+—fijar `--port` en el perfil o mover `embed_url`—. El perfil automático siempre fija el puerto, así
+que esto solo puede pasarle a un perfil escrito a mano.

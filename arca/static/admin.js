@@ -1704,6 +1704,16 @@ async function loadManual() {
 loadManual();
 
 const hubState = { models: [], current: "", files: [] };
+const EXPECTED_DIMS = 768;
+
+function buildLabel(file) {
+  if (!file.architecture) {
+    return t("admin.hub.unknown_build");
+  }
+  return file.dims
+    ? t("admin.hub.build", { architecture: file.architecture, dims: file.dims })
+    : file.architecture;
+}
 
 function hubKind() {
   return document.getElementById("hub-kind").value;
@@ -1816,7 +1826,12 @@ function hubFileRow(modelId, file, local) {
     button.addEventListener("click", () => downloadHubFile(modelId, file.path, button));
     actions.append(button);
   }
-  row.append(quantization, cell(name), cell(file.size_human, "num"), hash, actions);
+  const build = cell(buildLabel(file));
+  if (file.dims && file.dims !== EXPECTED_DIMS && hubKind() === "embed") {
+    build.className = "state state-degraded";
+    build.title = t("admin.hub.dims_mismatch", { dims: file.dims, expected: EXPECTED_DIMS });
+  }
+  row.append(quantization, cell(name), cell(file.size_human, "num"), build, hash, actions);
   return row;
 }
 

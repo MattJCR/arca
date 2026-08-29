@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import os
+import socket
 import sqlite3
+import subprocess
 import sys
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -199,8 +203,8 @@ def test_a_binary_that_refuses_to_start_is_reported_with_its_log(server: LlamaSe
 def test_an_unrunnable_command_degrades_instead_of_raising(
     server: LlamaServer, tmp_path: Path
 ) -> None:
-    dead = LlamaServer(default_url=f"http://127.0.0.1:{free_port()}")
-    status = dead.start([str(tmp_path / "missing-binary")])
+    dead = LlamaServer(default_url="http://127.0.0.1:1")
+    status = dead.start([str(tmp_path / "missing-binary"), "--port", "1"])
     assert not status.running
     assert status.error
     assert dead.health(timeout=1.0) == HEALTH_DOWN
@@ -527,3 +531,58 @@ def test_a_first_profile_that_fails_leaves_nothing_running(
     assert result.active == ""
     assert result.rolled_back_to == ""
     assert not server.status().running
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the job object is a Windows mechanism")
+def test_a_hard_kill_of_the_parent_takes_the_engine_with_it() -> None:
+    code = (
+        "import sys, time\n"
+        f"sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r})\n"
+        "from arca.llama import LlamaServer\n"
+        "from tests.support import stub_command\n"
+        "port = int(sys.argv[1])\n"
+        "server = LlamaServer(default_url=f'http://127.0.0.1:{port}')\n"
+        "print(server.start(stub_command(port)).pid, flush=True)\n"
+        "time.sleep(120)\n"
+    )
+    port = free_port()
+    parent = subprocess.Popen(
+        [sys.executable, "-c", code, str(port)], stdout=subprocess.PIPE, text=True
+    )
+    try:
+        assert parent.stdout is not None
+        parent.stdout.readline()
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and not _answers(port):
+            time.sleep(0.5)
+        assert _answers(port), "the child never came up"
+    finally:
+        parent.kill()
+        parent.wait(timeout=30)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline and _answers(port):
+        time.sleep(0.5)
+    assert not _answers(port), "the engine outlived the process that started it"
+
+
+def _answers(port: int) -> bool:
+    with socket.socket() as probe:
+        probe.settimeout(1.0)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+def test_a_profile_that_would_take_the_embedding_port_is_warned_about(tmp_path: Path) -> None:
+    model = write_gguf(tmp_path / "chat.gguf")
+    argv = ["llama-server", "--model", str(model), "--port", "8080"]
+    codes = {note.code for note in preflight(argv, BinaryInfo(None), "http://127.0.0.1:8080")}
+    assert "port_taken" in codes
+    elsewhere = {note.code for note in preflight(argv, BinaryInfo(None), "http://127.0.0.1:8099")}
+    assert "port_taken" not in elsewhere
+    assert not {note.code for note in preflight(argv, BinaryInfo(None))} & {"port_taken"}
+
+
+def test_a_profile_without_a_port_lands_on_the_default_and_is_warned(tmp_path: Path) -> None:
+    model = write_gguf(tmp_path / "chat.gguf")
+    argv = ["llama-server", "--model", str(model)]
+    codes = {note.code for note in preflight(argv, BinaryInfo(None), "http://127.0.0.1:8080")}
+    assert "port_taken" in codes

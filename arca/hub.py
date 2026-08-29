@@ -5,7 +5,9 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+
+from arca.llama import GgufError, header_of
 
 DEFAULT_HUB_URL = "https://huggingface.co"
 SEARCH_PATH = "/api/models"
@@ -17,6 +19,8 @@ DEFAULT_LIMIT = 20
 MAX_LIMIT = 50
 TIMEOUT_SECONDS = 20.0
 USER_AGENT = "arca"
+HEADER_BYTES = 262144
+PROBE_LIMIT = 12
 QUANT_PATTERN = re.compile(
     r"(IQ\d+[A-Z0-9_]*|Q\d+(?:_[A-Z0-9]+)*|BF16|F16|F32|MXFP4)(?:-\d{5}-of-\d{5})?$",
     re.IGNORECASE,
@@ -56,6 +60,8 @@ class HubFile:
     sha256: str
     quantization: str
     part: str
+    architecture: str = ""
+    dims: int = 0
 
 
 def is_model_id(value: str) -> bool:
@@ -119,7 +125,14 @@ def model_files(base_url: str, model_id: str, token: str = "") -> tuple[HubModel
         raise HubError("the model hub returned an unexpected file list")
     files = [_file(item) for item in tree if _is_gguf(item)]
     files.sort(key=lambda item: (item.quantization, item.path))
-    return model, files
+    return model, [_inspected(base_url, model_id, item, token) for item in files[:PROBE_LIMIT]]
+
+
+def _inspected(base_url: str, model_id: str, item: HubFile, token: str) -> HubFile:
+    if item.part:
+        return item
+    architecture, dims = probe_gguf(download_url(base_url, model_id, item.path), token)
+    return replace(item, architecture=architecture, dims=dims)
 
 
 def _is_gguf(item: object) -> bool:
@@ -161,6 +174,25 @@ def _file(item: object) -> HubFile:
         quantization=quantization_of(path),
         part=part_of(path),
     )
+
+
+def probe_gguf(url: str, token: str = "", window: int = HEADER_BYTES) -> tuple[str, int]:
+    headers = {"User-Agent": USER_AGENT, "Range": f"bytes=0-{window - 1}"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            raw: bytes = response.read(window)
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+        return "", 0
+    try:
+        header = header_of(raw)
+    except GgufError:
+        return "", 0
+    architecture = str(header.get("general.architecture") or "")
+    dims = header.get(f"{architecture}.embedding_length") if architecture else None
+    return architecture, int(dims) if isinstance(dims, int) else 0
 
 
 def _fetch(url: str, token: str) -> object:

@@ -748,7 +748,7 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
 
     @app.get("/api/admin/llama/profiles")
     def api_admin_llama_profiles() -> JSONResponse:
-        return JSONResponse(_profiles_payload(root, _binary(0)))
+        return JSONResponse(_profiles_payload(root, _binary(0), config.embed_url))
 
     @app.put("/api/admin/llama/profiles/{name}")
     def api_admin_llama_save_profile(
@@ -783,7 +783,7 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
             record_event(connection, "info", "llama", f"profile saved: {name}")
         finally:
             connection.close()
-        return JSONResponse(_profile_payload(stored, _binary(0)))
+        return JSONResponse(_profile_payload(stored, _binary(0), config.embed_url))
 
     @app.delete("/api/admin/llama/profiles/{name}")
     def api_admin_llama_delete_profile(name: str) -> JSONResponse:
@@ -1764,7 +1764,7 @@ def _option_payload(option: HelpOption) -> dict[str, Any]:
     }
 
 
-def _profile_payload(profile: Profile, info: BinaryInfo) -> dict[str, Any]:
+def _profile_payload(profile: Profile, info: BinaryInfo, reserved: str = "") -> dict[str, Any]:
     command = effective_command(info.path, profile) if info.path else profile_argv(profile)
     return {
         "name": profile.name,
@@ -1776,15 +1776,16 @@ def _profile_payload(profile: Profile, info: BinaryInfo) -> dict[str, Any]:
         "created_at": profile.created_at,
         "command_line": format_command(command),
         "preflight": [
-            {"code": note.code, "params": note.params} for note in preflight(command, info)
+            {"code": note.code, "params": note.params}
+            for note in preflight(command, info, reserved)
         ],
     }
 
 
-def _profiles_payload(root: Path, info: BinaryInfo) -> dict[str, Any]:
+def _profiles_payload(root: Path, info: BinaryInfo, reserved: str = "") -> dict[str, Any]:
     profiles, active, good = _profiles(root)
     return {
-        "profiles": [_profile_payload(profile, info) for profile in profiles],
+        "profiles": [_profile_payload(profile, info, reserved) for profile in profiles],
         "active": active.name if active else "",
         "last_good": good.name if good else "",
     }
@@ -1876,11 +1877,14 @@ def _llama_payload(
         "chat_model": _model_payload(chat_model_file(root, config.chat_model)),
         "command_line": format_command(command),
         "preflight": (
-            [{"code": note.code, "params": note.params} for note in preflight(command, info)]
+            [
+                {"code": note.code, "params": note.params}
+                for note in preflight(command, info, config.embed_url)
+            ]
             if command
             else []
         ),
-        **_profiles_payload(root, info),
+        **_profiles_payload(root, info, config.embed_url),
     }
 
 
@@ -1905,6 +1909,8 @@ def _hub_file(item: HubFile) -> dict[str, Any]:
         "size_bytes": item.size_bytes,
         "size_human": format_size(item.size_bytes),
         "sha256": item.sha256,
+        "architecture": item.architecture,
+        "dims": item.dims,
     }
 
 

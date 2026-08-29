@@ -39,3 +39,24 @@ El identificador del modelo se valida contra `autor/nombre` (letras, dígitos, p
 ## Elegir el modelo activo
 
 `chat_model` de `arca.json` nombra el GGUF de chat que se usa; vacío significa «el primero legible». El diagnóstico distingue los dos casos que importan: **no hay ningún modelo** (degradado, falta algo opcional) y **el modelo elegido ha desaparecido** (roto, el chat configurado ya no puede arrancar). Ver `diagnostics.md`.
+
+## Qué estás a punto de descargar
+
+La tabla de variantes muestra **la arquitectura y las dimensiones leídas del propio fichero**, no
+las que promete el nombre del repositorio. Se obtienen con una petición parcial de 256 KiB: la
+cabecera GGUF cabe de sobra ahí, así que inspeccionar cinco variantes cuesta un megabyte y unos
+segundos, no un gigabyte.
+
+Existe porque falló en la práctica. Dos repositorios del mismo `multilingual-e5-base` publican
+GGUF distintos: uno convertido como `bert`, que llama.cpp carga, y otro como `xlmr`, que responde
+`unknown model architecture` y no arranca. Por el nombre son indistinguibles; por la cabecera, no.
+Para un modelo de embeddings, además, se marca en ámbar el fichero cuyas dimensiones no coincidan
+con las de tus lotes: descargarlo sería tirar 300 MB para sellar algo incomparable (trampa 1).
+
+## Los procesos que ARCA arranca se van con ella
+
+En Windows, cada `llama-server` que ARCA lanza se asigna a un *job object* con
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Con un cierre normal ya los paraba el *lifespan*; con un
+`Stop-Process` sobre el proceso de ARCA quedaban **huérfanos ocupando la VRAM** hasta que alguien
+se diera cuenta. Ahora mueren con quien los arrancó. Si el mecanismo no está disponible, el
+arranque sigue adelante sin él: nunca se interpone entre tú y el chat.

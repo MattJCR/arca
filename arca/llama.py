@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import io
 import json
 import os
 import re
@@ -18,6 +19,7 @@ from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import BinaryIO
 
@@ -104,6 +106,10 @@ HEALTH_DOWN = "down"
 HEALTH_TIMEOUT_SECONDS = 3.0
 PROBE_TIMEOUT_SECONDS = 20.0
 STOP_TIMEOUT_SECONDS = 10.0
+JOB_EXTENDED_LIMIT_INFORMATION = 9
+JOB_LIMIT_KILL_ON_CLOSE = 0x00002000
+PROCESS_SET_QUOTA = 0x0100
+PROCESS_TERMINATE = 0x0001
 POLL_INTERVAL_SECONDS = 0.5
 LOG_CAPACITY = 400
 GPU_MARKERS = ("cuda", "rocm", "hip", "vulkan", "metal", "sycl", "musa", "cann")
@@ -268,6 +274,7 @@ NOTE_MEMORY_OVER_AVAILABLE = "memory_over_available"
 NOTE_GPU_LAYERS_OVER_BLOCKS = "gpu_layers_over_blocks"
 NOTE_GPU_LAYERS_WITHOUT_GPU = "gpu_layers_without_gpu"
 NOTE_MODEL_MISSING = "model_missing"
+NOTE_PORT_TAKEN = "port_taken"
 
 
 class GgufError(RuntimeError):
@@ -328,26 +335,37 @@ def read_model(path: Path, kind: str) -> ModelFile:
     )
 
 
+def header_of(raw: bytes) -> dict[str, object]:
+    return _read_header(io.BytesIO(raw), "the header")
+
+
 def read_gguf_header(path: Path) -> dict[str, object]:
     with path.open("rb") as handle:
-        if handle.read(4) != GGUF_MAGIC:
-            raise GgufError(f"{path.name} is not a gguf file")
-        version = _scalar(handle, TYPE_UINT32)
-        if not isinstance(version, int) or not 1 <= version <= GGUF_MAX_VERSION:
-            raise GgufError(f"{path.name} declares an unsupported gguf version: {version}")
-        tensor_count = _scalar(handle, TYPE_UINT64)
-        pairs = _scalar(handle, TYPE_UINT64)
-        if not isinstance(pairs, int) or pairs > MAX_KEY_VALUES:
-            raise GgufError(f"{path.name} declares an implausible metadata count: {pairs}")
-        header: dict[str, object] = {
-            "__version__": version,
-            "__tensor_count__": tensor_count,
-        }
-        for _ in range(pairs):
+        return _read_header(handle, path.name)
+
+
+def _read_header(handle: BinaryIO, name: str) -> dict[str, object]:
+    if handle.read(4) != GGUF_MAGIC:
+        raise GgufError(f"{name} is not a gguf file")
+    version = _scalar(handle, TYPE_UINT32)
+    if not isinstance(version, int) or not 1 <= version <= GGUF_MAX_VERSION:
+        raise GgufError(f"{name} declares an unsupported gguf version: {version}")
+    tensor_count = _scalar(handle, TYPE_UINT64)
+    pairs = _scalar(handle, TYPE_UINT64)
+    if not isinstance(pairs, int) or pairs > MAX_KEY_VALUES:
+        raise GgufError(f"{name} declares an implausible metadata count: {pairs}")
+    header: dict[str, object] = {
+        "__version__": version,
+        "__tensor_count__": tensor_count,
+    }
+    for _ in range(pairs):
+        try:
             key = _string(handle)
             value_type = int(_scalar(handle, TYPE_UINT32))
             header[key] = _value(handle, value_type)
-        return header
+        except GgufError:
+            break
+    return header
 
 
 def _value(handle: BinaryIO, value_type: int) -> object:
@@ -481,6 +499,74 @@ def inspect_binary(root: Path, configured: str = "") -> BinaryInfo:
         gpu=has_gpu(devices, f"{version_output}\n{devices_output}"),
         error=version_error or devices_error,
     )
+
+
+def _tie_to_this_process(pid: int) -> None:
+    job = _shared_job()
+    if job is None:
+        return
+    handle = ctypes.windll.kernel32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, False, pid)
+    if not handle:
+        return
+    try:
+        ctypes.windll.kernel32.AssignProcessToJobObject(job, handle)
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
+@lru_cache(maxsize=1)
+def _shared_job() -> int | None:
+    if os.name != "nt":
+        return None
+    kernel = ctypes.windll.kernel32
+    job = kernel.CreateJobObjectW(None, None)
+    if not job:
+        return None
+    limits = _JobLimits()
+    limits.BasicLimitInformation.LimitFlags = JOB_LIMIT_KILL_ON_CLOSE
+    ok = kernel.SetInformationJobObject(
+        job, JOB_EXTENDED_LIMIT_INFORMATION, ctypes.byref(limits), ctypes.sizeof(limits)
+    )
+    if not ok:
+        kernel.CloseHandle(job)
+        return None
+    return int(job)
+
+
+class _JobBasicLimits(ctypes.Structure):
+    _fields_ = [
+        ("PerProcessUserTimeLimit", ctypes.c_int64),
+        ("PerJobUserTimeLimit", ctypes.c_int64),
+        ("LimitFlags", ctypes.c_uint32),
+        ("MinimumWorkingSetSize", ctypes.c_size_t),
+        ("MaximumWorkingSetSize", ctypes.c_size_t),
+        ("ActiveProcessLimit", ctypes.c_uint32),
+        ("Affinity", ctypes.c_size_t),
+        ("PriorityClass", ctypes.c_uint32),
+        ("SchedulingClass", ctypes.c_uint32),
+    ]
+
+
+class _IoCounters(ctypes.Structure):
+    _fields_ = [
+        ("ReadOperationCount", ctypes.c_uint64),
+        ("WriteOperationCount", ctypes.c_uint64),
+        ("OtherOperationCount", ctypes.c_uint64),
+        ("ReadTransferCount", ctypes.c_uint64),
+        ("WriteTransferCount", ctypes.c_uint64),
+        ("OtherTransferCount", ctypes.c_uint64),
+    ]
+
+
+class _JobLimits(ctypes.Structure):
+    _fields_ = [
+        ("BasicLimitInformation", _JobBasicLimits),
+        ("IoInfo", _IoCounters),
+        ("ProcessMemoryLimit", ctypes.c_size_t),
+        ("JobMemoryLimit", ctypes.c_size_t),
+        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+        ("PeakJobMemoryUsed", ctypes.c_size_t),
+    ]
 
 
 def run_probe(command: Sequence[str], timeout: float = PROBE_TIMEOUT_SECONDS) -> tuple[str, str]:
@@ -623,6 +709,7 @@ class LlamaServer:
                 self._process = None
                 return self.status()
             self._process = process
+            _tie_to_this_process(process.pid)
             self._started_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
             self._reader = threading.Thread(target=self._drain, args=(process,), daemon=True)
             self._reader.start()
@@ -1065,7 +1152,7 @@ def argv_value(argv: Sequence[str], names: Sequence[str], default: str = "") -> 
     return default
 
 
-def preflight(argv: Sequence[str], binary: BinaryInfo) -> list[PreflightNote]:
+def preflight(argv: Sequence[str], binary: BinaryInfo, reserved: str = "") -> list[PreflightNote]:
     notes: list[PreflightNote] = []
     model = _model_for(argv, notes)
     context = _as_positive(argv_value(argv, CTX_FLAGS))
@@ -1087,7 +1174,18 @@ def preflight(argv: Sequence[str], binary: BinaryInfo) -> list[PreflightNote]:
     if layers > 0 and binary.present and not binary.gpu:
         notes.append(PreflightNote(NOTE_GPU_LAYERS_WITHOUT_GPU, {"layers": str(layers)}))
     notes.extend(_memory_notes(model, argv, binary, context, layers))
+    notes.extend(_port_notes(argv, reserved))
     return notes
+
+
+def _port_notes(argv: Sequence[str], reserved: str) -> list[PreflightNote]:
+    if not reserved:
+        return []
+    taken = urllib.parse.urlsplit(reserved).port
+    chosen = base_url_for(argv)
+    if taken is None or urllib.parse.urlsplit(chosen).port != taken:
+        return []
+    return [PreflightNote(NOTE_PORT_TAKEN, {"port": str(taken), "url": reserved})]
 
 
 def estimate_memory(model: ModelFile, context: int, cache_k: str, cache_v: str) -> int:

@@ -472,6 +472,7 @@
   "admin.llama.preflight.gpu_layers_over_blocks": "Pides {layers} capas en GPU y el modelo tiene {blocks}: se acepta, es la forma habitual de decir «todas».",
   "admin.llama.preflight.gpu_layers_without_gpu": "Pides {layers} capas en GPU pero el binario está compilado sin soporte de GPU: el síntoma será lentitud extrema.",
   "admin.llama.preflight.model_missing": "El modelo indicado no existe: {path}",
+  "admin.llama.preflight.port_taken": "Este perfil escucharía en el puerto {port}, que es donde ARCA sirve los embeddings ({url}): uno de los dos no arrancará. Fija «--port» en el perfil o cambia «embed_url» en arca.json.",
   "admin.llama.error": "Error: {error}",
   "admin.llama.error.no_binary": "Todavía no hay motor llama-server. No tienes que conseguirlo tú: pulsa «Poner el chat en marcha» y ARCA lo descarga, lo despliega en vendor/llama.cpp y lo prueba solo. Si prefieres uno propio, apunta «llama_bin» en arca.json. Mientras tanto el chat queda apagado y todo lo demás funciona igual.",
   "admin.llama.error.no_profile": "No hay ningún perfil de arranque configurado. Crea uno en «Perfiles» con el modelo .gguf que quieras usar y guárdalo: el primero que guardes queda como predeterminado.",
@@ -640,6 +641,10 @@
   "admin.hub.col.quantization": "Cuantización",
   "admin.hub.col.file": "Fichero",
   "admin.hub.col.size": "Tamaño",
+  "admin.hub.col.build": "Arquitectura",
+  "admin.hub.build": "{architecture} · {dims} dim",
+  "admin.hub.unknown_build": "no legible",
+  "admin.hub.dims_mismatch": "Este fichero da {dims} dimensiones y tus lotes usan {expected}: no podrías compararlos.",
   "admin.hub.col.hash": "Hash",
   "admin.hub.col.actions": "Acciones",
   "admin.models.local_heading": "Modelos en la biblioteca"
