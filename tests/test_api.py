@@ -65,6 +65,39 @@ def http_get(app: FastAPI, path: str, query: str = "") -> tuple[int, bytes]:
     return http_request(app, "GET", path, query=query)
 
 
+def http_full(app: FastAPI, path: str, query: str = "") -> tuple[dict[str, str], bytes]:
+    messages: list[MutableMapping[str, Any]] = []
+
+    async def receive() -> MutableMapping[str, Any]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        messages.append(message)
+
+    scope: MutableMapping[str, Any] = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": unquote(path),
+        "raw_path": path.encode(),
+        "query_string": query.encode(),
+        "headers": [(b"host", b"testserver")],
+        "client": ("testclient", 50000),
+        "server": ("testserver", 80),
+        "root_path": "",
+        "state": {},
+    }
+    asyncio.run(app(scope, receive, send))
+    start = next(m for m in messages if m["type"] == "http.response.start")
+    headers = {bytes(k).decode().lower(): bytes(v).decode() for k, v in start["headers"]}
+    body = b"".join(
+        bytes(m.get("body", b"")) for m in messages if m["type"] == "http.response.body"
+    )
+    return headers, body
+
+
 def http_headers(app: FastAPI, path: str, query: str = "") -> dict[str, str]:
     captured: dict[str, str] = {}
 
@@ -719,9 +752,27 @@ def test_zim_content_carries_a_policy_that_neutralises_its_own_scripts(tmp_path:
     assert "img-src 'self' data:" in policy
     assert "base-uri 'self'" in policy
     assert "frame-ancestors 'self'" in policy
-    assert "script-src" not in policy
     assert headers["x-content-type-options"] == "nosniff"
     assert headers["cache-control"].startswith("private")
+    directive = next(part for part in policy.split("; ") if part.startswith("script-src"))
+    assert directive.startswith("script-src 'nonce-")
+    assert "'unsafe-inline'" not in directive
+    assert "'self'" not in directive
+
+
+def test_only_the_reader_we_inject_may_run_inside_a_zim_article(tmp_path: Path) -> None:
+    root, uuid = _viewer_library(tmp_path)
+    app = create_app(root, ArcaConfig())
+    headers, raw = http_full(app, "/zim/" + uuid + "/plants.html")
+    again = http_headers(app, "/zim/" + uuid + "/plants.html")["content-security-policy"]
+    policy = headers["content-security-policy"]
+    assert policy != again
+    nonce = policy.split("script-src 'nonce-")[1].split("'")[0]
+    body = raw.decode()
+    assert f'<script src="/static/selection.js" nonce="{nonce}"' in body
+    assert f'data-source-id="{uuid}"' in body
+    assert 'data-path="plants.html"' in body
+    assert body.count("nonce=") == 1
 
 
 def test_zim_error_pages_carry_the_same_policy(tmp_path: Path) -> None:

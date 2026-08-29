@@ -24,6 +24,9 @@ function screenState() {
   if (state.current) {
     payload.open_document = {
       doc_id: state.current.doc_id || "",
+      source_kind: state.current.source_kind || "",
+      source_id: state.current.source_id || "",
+      path: state.current.path || "",
       title: state.current.title || "",
       page: state.current.page || 0,
     };
@@ -149,6 +152,12 @@ function renderReply(payload) {
   who.className = "chat-role";
   who.textContent = t("home.chat.assistant");
   item.append(who, citedAnswer(payload));
+  if (payload.state === "ungrounded") {
+    const note = document.createElement("p");
+    note.className = "detail chat-ungrounded";
+    note.textContent = t("chat.ungrounded");
+    item.append(note);
+  }
   if (payload.warning === "risk_without_citation") {
     const warning = document.createElement("p");
     warning.className = "state state-degraded chat-warning";

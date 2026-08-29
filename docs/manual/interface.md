@@ -23,7 +23,23 @@ La posición lleva un `title` que explica que es el rango **dentro de su fuente*
 
 ## Visor
 
-`<iframe>` con **el sandbox que corresponda a lo que muestra**, y esa distinción importa: con un artículo de ZIM el marco lleva `sandbox="allow-same-origin"`, que bloquea el JavaScript que traiga la colección — los artículos se leen con sus estilos e imágenes, pero ningún script del ZIM puede tocar la aplicación ni llamar a la API. Con **nuestras propias páginas** (el consultable de un documento y el visor de PDF) lleva además `allow-scripts`, porque las genera ARCA y **necesitan ejecutar**: `selection.js`, que es lo que hace llegar el texto señalado al asistente, y PDF.js. Un único sandbox para las tres fuentes dejaba muertas las dos cosas. La segunda barrera, y la que de verdad manda, es la `Content-Security-Policy` que acompaña a cada respuesta de `/zim/...` (ver `zim.md`): protege también cuando un artículo se abre en una pestaña suelta, fuera de este marco. Los enlaces internos se resuelven contra el `<base>` que inyecta `/zim/...` y navegan dentro del propio marco, sin salir de la aplicación.
+`<iframe sandbox="allow-same-origin allow-scripts">`. Y ese `allow-scripts` es deliberado, con su
+razón y su coste. Sin él **no se ejecuta ningún script dentro del marco, tampoco los nuestros**: con
+un solo sandbox para las tres fuentes que el visor muestra, `selection.js` nunca corría —el texto
+señalado no llegaba al asistente— y PDF.js tampoco, así que «ver el original» abría un marco en
+blanco. Ambas cosas estaban muertas.
+
+Lo que separa ahora al ZIM de nuestras páginas **no es el sandbox, es la CSP**, que es la barrera
+que el proyecto siempre dijo que mandaba. Cada respuesta de `/zim/...` lleva
+`script-src 'nonce-…'` con un nonce nuevo, y **solo el lector que ARCA inyecta lleva ese nonce**:
+ningún script del ZIM se ejecuta, ni en línea, ni por `src`, ni desde nuestro propio origen —la
+directiva no incluye `'self'`—. La CSP protege además cuando un artículo se abre en una pestaña
+suelta, fuera de este marco.
+
+**El coste, dicho claro:** antes el ZIM tenía dos barreras (sandbox y CSP) y ahora tiene una, la
+CSP. A cambio, el asistente puede leer y hablar de lo que tienes delante, que es la mitad del
+producto. `tests/test_api.py` fija la propiedad que sostiene el trato: la directiva es solo un
+nonce, cambia en cada respuesta, y en el cuerpo hay exactamente un `nonce=`. Los enlaces internos se resuelven contra el `<base>` que inyecta `/zim/...` y navegan dentro del propio marco, sin salir de la aplicación.
 
 ## Estados honestos
 

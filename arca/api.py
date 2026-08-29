@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
+from secrets import token_urlsafe
 from string import Template
 from typing import Any
 from urllib.parse import quote
@@ -147,6 +148,7 @@ from arca.pipeline import (
 from arca.search import (
     MODE_BOTH,
     MODE_KEYWORD,
+    SOURCE_ZIM,
     SearchOutcome,
     SearchResult,
     SearchSettings,
@@ -180,8 +182,10 @@ from arca.zim import (
     entry_directory,
     index_mode,
     inject_base,
+    inject_reader,
     is_html,
     media_type,
+    plain_text,
 )
 
 PACKAGE_DIR = Path(__file__).parent
@@ -199,9 +203,13 @@ ZIM_CONTENT_POLICY = (
     "form-action 'none'; "
     "frame-ancestors 'self'"
 )
+ZIM_READER_POLICY = ZIM_CONTENT_POLICY.replace(
+    "default-src 'none'; ", "default-src 'none'; script-src 'nonce-{nonce}'; "
+)
 ZIM_ACTIONS = ("enable", "disable")
 MODEL_KINDS = ("chat", "embed")
 PDF_SUFFIX = ".pdf"
+NONCE_BYTES = 16
 UPLOAD_SUBDIR = "uploads"
 MAX_UPLOAD_BYTES = 2 * 1024**3
 SECRET_KEYS = ("hub_token",)
@@ -271,10 +279,24 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         )
         return [*outcome.semantic, *outcome.keyword]
 
+    def read_page(source_kind: str, source_id: str, path: str) -> str:
+        if source_kind == SOURCE_ZIM:
+            try:
+                content = zim_library.content(source_id, path)
+            except ZimError as error:
+                raise LookupError(str(error)) from error
+            return plain_text(content.data) if is_html(content.mimetype) else ""
+        found = shard_library.document_location(source_id)
+        if found is None:
+            raise LookupError(f"unknown document: {source_id}")
+        shard, _document = found
+        return " ".join(text for _page, _ord, _anchor, text in shard.blocks(source_id))
+
     engine = ChatEngine(
         searcher=chat_search,
         base_url=lambda: llama.base_url,
         available=lambda: llama.health() == HEALTH_OK,
+        reader=read_page,
     )
 
     @app.get("/api/diagnostics")
@@ -1476,14 +1498,18 @@ def _serve_zim(library: ZimLibrary, catalog: Catalog, uuid: str, path: str) -> R
     except ZimError:
         return _zim_error(catalog, "zim.error.unreadable", 503, title=info.title)
     body = content.data
+    policy = ZIM_CONTENT_POLICY
     if is_html(content.mimetype):
+        nonce = token_urlsafe(NONCE_BYTES)
         body = inject_base(body, _zim_base_href(uuid, content.path))
+        body = inject_reader(body, nonce, uuid, content.path)
+        policy = ZIM_READER_POLICY.format(nonce=nonce)
     return Response(
         content=body,
         media_type=media_type(content.mimetype),
         headers={
             "Cache-Control": ZIM_CACHE_CONTROL,
-            "Content-Security-Policy": ZIM_CONTENT_POLICY,
+            "Content-Security-Policy": policy,
             "X-Content-Type-Options": "nosniff",
         },
     )

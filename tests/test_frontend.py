@@ -83,11 +83,10 @@ def test_the_viewer_frame_is_sandboxed() -> None:
     assert "allow-scripts" not in frame.group(0)
 
 
-def test_only_our_own_pages_get_scripts_inside_the_viewer() -> None:
+def test_the_viewer_runs_scripts_and_leans_on_the_policy_to_separate_sources() -> None:
     script = (STATIC / "archive.js").read_text("utf-8")
-    assert 'const ZIM_SANDBOX = "allow-same-origin";' in script
-    assert 'const OWN_SANDBOX = "allow-same-origin allow-scripts";' in script
-    assert 'url.startsWith("/zim/") ? ZIM_SANDBOX : OWN_SANDBOX' in script
+    assert 'const VIEWER_SANDBOX = "allow-same-origin allow-scripts";' in script
+    assert 'frame.setAttribute("sandbox", VIEWER_SANDBOX)' in script
 
 
 def test_the_pages_we_frame_ourselves_do_need_scripts() -> None:

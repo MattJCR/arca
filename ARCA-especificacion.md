@@ -485,10 +485,12 @@ El estado de la pantalla, en forma estructurada y compacta, nunca como HTML crud
 {
   "query": "…",
   "results": [{"title": "…", "source": "…", "snippet": "…"}],
-  "open_document": {"doc_id": "…", "title": "…", "page": 7},
-  "selection": {"text": "…", "doc_id": "…", "anchor": "p:0007:03"}
+  "open_document": {"doc_id": "…", "source_kind": "zim|doc", "source_id": "…", "path": "…", "title": "…", "page": 7},
+  "selection": {"text": "…", "source_kind": "zim|doc", "source_id": "…", "path": "…", "doc_id": "…", "anchor": "p:0007:03"}
 }
 ```
+
+La procedencia va en ambos porque **lo señalado y lo abierto pueden ser un artículo de ZIM, no solo un documento importado**: sin `source_kind` y `source_id` el asistente no puede hablar de lo que tienes delante. Cuando hay una página abierta, su texto entra como evidencia con su procedencia, acotado; es lo que permite preguntar «¿de qué va esto?» sin señalar nada.
 
 ### 11.2 Política de contexto
 
@@ -500,12 +502,21 @@ El modelo puede buscar por su cuenta si le falta información, mediante una herr
 
 Cada fragmento entra al contexto etiquetado con su procedencia (fuente, documento, ancla). La respuesta cita con marcadores que la interfaz convierte en enlaces al párrafo exacto.
 
-**En temas de riesgo, salud y química señaladamente, la regla es citar la fuente o decir que no la tiene. Nunca improvisar.** Si no hay evidencia recuperada que sostenga la respuesta, el modelo lo dice y ofrece buscar de otra manera. Esto se refuerza en el prompt de sistema y además se comprueba en la interfaz: una respuesta sin ninguna cita en un tema marcado como de riesgo se muestra con un aviso visible.
+**En temas de riesgo, salud y química señaladamente, la regla es citar la fuente o decir que no la tiene. Nunca improvisar.** Esto se refuerza en el prompt de sistema y además se comprueba en la interfaz: una respuesta sin ninguna cita en un tema marcado como de riesgo se muestra con un aviso visible.
+
+**Fuera de esos temas, el asistente sigue siendo un asistente.** Decidido el 2026-08-29, corrigiendo una implementación que se había pasado de estricta: cuando la biblioteca no devuelve nada, el modelo **responde igual con su propio conocimiento** en vez de callarse. Perder eso era perder la mitad de la herramienta: ayuda aunque el archivo no cubra el tema. Lo que no puede hacer, nunca, es presentar lo que sabe él como si viniera del archivo. Por eso hay dos modos visibles:
+
+| Modo | Cuándo | Cómo se ve |
+|---|---|---|
+| Con respaldo | La evidencia sostiene la respuesta | Citas `[n]` que enlazan al párrafo exacto |
+| Sin respaldo | La biblioteca no tenía nada | La respuesta se marca **«sin respaldo del archivo»** |
+
+La distinción la hace el propio sistema, no el modelo: una respuesta sin ninguna cita se marca como sin respaldo, la diga el modelo o no.
 
 ### 11.4 Criterios de aceptación del hito 4
 
 - Preguntar algo que está en el corpus: responde citando, y las citas llevan al párrafo correcto.
-- Preguntar algo que no está: dice que no lo tiene, en vez de inventar.
+- Preguntar algo que no está: responde con su propio conocimiento **marcado como sin respaldo del archivo**, sin inventar una cita ni atribuirle nada a la biblioteca.
 - Apagar `llama-server` a mitad de conversación: la interfaz lo indica, la búsqueda sigue funcionando.
 - Borrar el GGUF y reiniciar: el sistema arranca, el panel de diagnóstico lo marca en rojo, todo lo demás funciona.
 

@@ -84,3 +84,33 @@ Apagar `llama-server` a mitad de conversación cae en `unavailable` en la petici
 ## Interfaz
 
 Panel derecho de la portada (`static/chat.js`): insignia de estado del modelo alimentada por el diagnóstico, aviso cuando no hay modelo, franja con la selección del visor y botón para quitarla, historial de la conversación, respuestas con las citas ya enlazadas, lista de fuentes citadas, las búsquedas realizadas y el aviso de riesgo cuando toca. Hacer clic en una cita abre el visor en ese párrafo, igual que un resultado de búsqueda.
+
+## Los dos modos de responder
+
+Hasta el 2026-08-29 el asistente **no llegaba a llamarse** si la biblioteca no devolvía evidencia:
+respondía «no lo tengo» y ahí acababa. Se comportaba como un buscador con conversación, y eso
+tiraba a la basura la mitad de lo que un modelo sabe hacer. Corregido:
+
+| Modo | Cuándo | Estado | Qué ve el usuario |
+|---|---|---|---|
+| Con respaldo | La evidencia sostiene la respuesta | `ok` | Citas `[n]` enlazadas al párrafo |
+| Sin respaldo | La biblioteca no tenía nada | `ungrounded` | «Respuesta del modelo, sin respaldo del archivo» |
+| Sin modelo | `llama-server` no responde | `unavailable` | El archivo sigue funcionando |
+
+La marca **no la pone el modelo, la pone el sistema**: si la respuesta no contiene ninguna cita
+válida, se marca como sin respaldo, lo diga el modelo o no. Así se conserva entera la regla de §11.3
+—en temas de riesgo, citar o declarar que no hay fuente— sin sacrificar la utilidad del asistente
+para todo lo demás. El aviso de riesgo sin cita sigue exactamente donde estaba.
+
+## Leer lo que hay en pantalla
+
+Dos caminos, y los dos exigían que `selection.js` pudiera ejecutarse dentro del visor (ver
+`interface.md`):
+
+- **Lo señalado.** Seleccionar texto en el visor manda al panel el fragmento con su procedencia:
+  documento y ancla si es un documento importado, colección y ruta si es un artículo de ZIM. Esa
+  selección se usa además como **primera consulta de recuperación** del turno.
+- **La página abierta.** Cuando hay algo abierto, ARCA lee su texto **en el servidor** —de la
+  colección ZIM o del lote sellado— y lo entrega acotado como una evidencia más, con su procedencia.
+  Es lo que permite preguntar «¿de qué va esto?» sin señalar nada. Si la página no se puede leer,
+  el turno sigue sin ella.

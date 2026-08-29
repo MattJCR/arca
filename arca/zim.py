@@ -4,6 +4,7 @@ import re
 import threading
 from dataclasses import dataclass
 from html import escape
+from html.parser import HTMLParser
 from pathlib import Path
 
 from libzim.reader import Archive, Entry
@@ -28,6 +29,9 @@ TEXT_MIMETYPES = (
     "application/json",
     "image/svg+xml",
 )
+
+SELECTION_SCRIPT = "/static/selection.js"
+MUTED_TAGS = ("script", "style", "noscript", "template")
 
 _HEAD_PATTERN = re.compile(rb"<head[^>]*>", re.IGNORECASE)
 _BASE_PATTERN = re.compile(rb"<base(?:\s[^>]*)?>", re.IGNORECASE)
@@ -285,7 +289,20 @@ def entry_directory(path: str) -> str:
 
 def inject_base(data: bytes, href: str) -> bytes:
     tag = b'<base href="' + escape(href, quote=True).encode("utf-8") + b'">'
-    without_base = _BASE_PATTERN.sub(b"", data, count=1)
+    return _inject(data, tag)
+
+
+def inject_reader(data: bytes, nonce: str, uuid: str, path: str) -> bytes:
+    tag = (
+        f'<script src="{SELECTION_SCRIPT}" nonce="{escape(nonce, quote=True)}" '
+        f'data-source-kind="zim" data-source-id="{escape(uuid, quote=True)}" '
+        f'data-path="{escape(path, quote=True)}"></script>'
+    ).encode()
+    return _inject(data, tag)
+
+
+def _inject(data: bytes, tag: bytes) -> bytes:
+    without_base = _BASE_PATTERN.sub(b"", data, count=1) if b"<base" in tag else data
     head = _HEAD_PATTERN.search(without_base)
     if head is None:
         return tag + without_base
@@ -401,3 +418,32 @@ def _signature(path: Path) -> tuple[int, int] | None:
     except OSError:
         return None
     return (stat.st_mtime_ns, stat.st_size)
+
+
+class _TextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._muted = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in MUTED_TAGS:
+            self._muted += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in MUTED_TAGS and self._muted:
+            self._muted -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not self._muted:
+            self.parts.append(data)
+
+
+def plain_text(data: bytes) -> str:
+    parser = _TextExtractor()
+    try:
+        parser.feed(data.decode("utf-8", "replace"))
+        parser.close()
+    except (ValueError, AssertionError):
+        return ""
+    return " ".join(" ".join(parser.parts).split())

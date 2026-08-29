@@ -21,6 +21,7 @@ MAX_TOOL_CALLS = 2
 MAX_MESSAGE_CHARS = 4000
 MAX_SCREEN_RESULTS = 5
 MAX_SNIPPET_CHARS = 320
+MAX_PAGE_CHARS = 3000
 SEARCH_PREFIX = "SEARCH:"
 MARKER_PATTERN = re.compile(r"\[(\d{1,2})\]")
 TERM_PATTERN = re.compile(r"[a-z0-9]+")
@@ -32,6 +33,7 @@ RISK_TOPICS_KEY = "chat.risk_topics"
 STATE_OK = "ok"
 STATE_UNAVAILABLE = "unavailable"
 STATE_NO_EVIDENCE = "no_evidence"
+STATE_UNGROUNDED = "ungrounded"
 STATE_ERROR = "error"
 WARNING_RISK_WITHOUT_CITATION = "risk_without_citation"
 
@@ -60,6 +62,9 @@ class Selection:
     doc_id: str = ""
     anchor: str = ""
     page: int = 0
+    source_kind: str = ""
+    source_id: str = ""
+    path: str = ""
 
 
 @dataclass(frozen=True)
@@ -67,6 +72,13 @@ class OpenDocument:
     doc_id: str = ""
     title: str = ""
     page: int = 0
+    source_kind: str = ""
+    source_id: str = ""
+    path: str = ""
+
+    @property
+    def readable(self) -> bool:
+        return bool(self.source_kind and self.source_id)
 
 
 @dataclass(frozen=True)
@@ -111,6 +123,7 @@ class ChatReply:
 
 
 Searcher = Callable[[str, str], list[SearchResult]]
+PageReader = Callable[[str, str, str], str]
 
 
 def read_settings(connection: sqlite3.Connection) -> ChatSettings:
@@ -179,12 +192,18 @@ def screen_state(screen: Screen) -> dict[str, Any]:
     if screen.open_document is not None:
         state["open_document"] = {
             "doc_id": screen.open_document.doc_id,
+            "source_kind": screen.open_document.source_kind,
+            "source_id": screen.open_document.source_id,
+            "path": screen.open_document.path,
             "title": screen.open_document.title,
             "page": screen.open_document.page,
         }
     if screen.selection is not None:
         state["selection"] = {
             "text": screen.selection.text,
+            "source_kind": screen.selection.source_kind,
+            "source_id": screen.selection.source_id,
+            "path": screen.selection.path,
             "doc_id": screen.selection.doc_id,
             "anchor": screen.selection.anchor,
         }
@@ -280,11 +299,13 @@ class ChatEngine:
         base_url: Callable[[], str],
         available: Callable[[], bool],
         completer: Callable[..., Completion] = chat_completion,
+        reader: PageReader | None = None,
     ) -> None:
         self._search = searcher
         self._base_url = base_url
         self._available = available
         self._complete = completer
+        self._reader = reader
 
     def reply(
         self,
@@ -301,13 +322,6 @@ class ChatEngine:
             return ChatReply(catalog.text("chat.unavailable"), STATE_UNAVAILABLE, risk=risk)
         searches: list[str] = []
         evidence = self._gather(question, screen, settings, searches)
-        if not evidence:
-            return ChatReply(
-                catalog.text("chat.no_evidence"),
-                STATE_NO_EVIDENCE,
-                searches=tuple(searches),
-                risk=risk,
-            )
         return self._answer(question, screen, settings, catalog, evidence, searches, risk)
 
     def _gather(
@@ -322,13 +336,39 @@ class ChatEngine:
             queries.insert(0, screen.selection.text.strip()[:MAX_SNIPPET_CHARS])
         elif screen.query.strip() and screen.query.strip() != question:
             queries.append(screen.query.strip())
-        evidence: list[Evidence] = []
+        evidence: list[Evidence] = self._open_page(screen)
         for query in queries:
             if len(evidence) >= settings.max_chunks:
                 break
             searches.append(query)
             evidence = select_evidence(self._search(query, ""), settings, evidence, query)
         return evidence
+
+    def _open_page(self, screen: Screen) -> list[Evidence]:
+        page = screen.open_document
+        if self._reader is None or page is None or not page.readable:
+            return []
+        try:
+            text = self._reader(page.source_kind, page.source_id, page.path)
+        except LookupError:
+            return []
+        text = " ".join(text.split())[:MAX_PAGE_CHARS]
+        if not text:
+            return []
+        return [
+            Evidence(
+                marker=1,
+                source_kind=page.source_kind,
+                source_title=page.title or page.path,
+                title=page.title or page.path,
+                doc_id=page.doc_id,
+                anchor=page.path,
+                page=page.page,
+                text=text,
+                url="",
+                original_url="",
+            )
+        ]
 
     def _answer(
         self,
@@ -378,9 +418,15 @@ class ChatEngine:
     ) -> ChatReply:
         citations = citations_in(text, evidence)
         warning = WARNING_RISK_WITHOUT_CITATION if risk and not citations else ""
+        if not text:
+            state = STATE_NO_EVIDENCE
+        elif citations:
+            state = STATE_OK
+        else:
+            state = STATE_UNGROUNDED
         return ChatReply(
             text=text or catalog.text("chat.no_evidence"),
-            state=STATE_OK if text else STATE_NO_EVIDENCE,
+            state=state,
             evidence=tuple(evidence),
             citations=citations,
             searches=tuple(searches),
@@ -399,7 +445,7 @@ class ChatEngine:
         context = catalog.text(
             "chat.prompt.context",
             screen=json.dumps(screen_state(screen), ensure_ascii=False),
-            evidence=evidence_block(evidence),
+            evidence=evidence_block(evidence) or catalog.text("chat.prompt.no_evidence"),
             question=question,
         )
         return [
@@ -480,7 +526,14 @@ def _open_document(value: object) -> OpenDocument | None:
     title = _text(value.get("title"))
     if not doc_id and not title:
         return None
-    return OpenDocument(doc_id=doc_id[:128], title=title[:200], page=_page(value.get("page")))
+    return OpenDocument(
+        doc_id=doc_id[:128],
+        title=title[:200],
+        page=_page(value.get("page")),
+        source_kind=_text(value.get("source_kind"))[:16],
+        source_id=_text(value.get("source_id"))[:128],
+        path=_text(value.get("path"))[:512],
+    )
 
 
 def _selection(value: object) -> Selection | None:
@@ -494,6 +547,9 @@ def _selection(value: object) -> Selection | None:
         doc_id=_text(value.get("doc_id"))[:128],
         anchor=_text(value.get("anchor"))[:64],
         page=_page(value.get("page")),
+        source_kind=_text(value.get("source_kind"))[:16],
+        source_id=_text(value.get("source_id"))[:128],
+        path=_text(value.get("path"))[:512],
     )
 
 

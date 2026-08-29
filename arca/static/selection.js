@@ -1,8 +1,13 @@
 "use strict";
 
 (function () {
-  const docId = document.body.dataset.doc || "";
-  if (!docId) {
+  const own = document.currentScript;
+  const source = {
+    kind: (own && own.dataset.sourceKind) || (document.body.dataset.doc ? "doc" : ""),
+    id: (own && own.dataset.sourceId) || document.body.dataset.doc || "",
+    path: (own && own.dataset.path) || "",
+  };
+  if (!source.id) {
     return;
   }
 
@@ -15,7 +20,7 @@
       }
       element = element.parentElement;
     }
-    return null;
+    return { anchor: "", page: 0 };
   }
 
   document.addEventListener("selectionchange", () => {
@@ -24,11 +29,14 @@
       return;
     }
     const found = provenance(selection.getRangeAt(0).startContainer);
-    if (!found) {
+    if (source.kind === "doc" && !found.anchor) {
       return;
     }
     const detail = {
-      doc_id: docId,
+      source_kind: source.kind,
+      source_id: source.id,
+      path: source.path,
+      doc_id: source.kind === "doc" ? source.id : "",
       anchor: found.anchor,
       page: found.page,
       text: selection.toString(),

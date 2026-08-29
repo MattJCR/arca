@@ -11,9 +11,9 @@ from fastapi import FastAPI
 
 from arca.api import create_app
 from arca.chat import (
-    STATE_NO_EVIDENCE,
     STATE_OK,
     STATE_UNAVAILABLE,
+    STATE_UNGROUNDED,
     WARNING_RISK_WITHOUT_CITATION,
     ChatEngine,
     ChatSettings,
@@ -106,15 +106,26 @@ def test_an_answer_cites_the_paragraph_it_came_from() -> None:
     assert model.calls
 
 
-def test_a_question_outside_the_corpus_is_answered_with_i_do_not_have_it() -> None:
-    engine, model, asked = engine_for([], ["invented answer"])
+def test_a_question_outside_the_corpus_is_answered_and_marked_as_unbacked() -> None:
+    engine, model, asked = engine_for([], ["Kepler-22b takes about 290 days."])
     reply = engine.reply(
         "What is the orbit of Kepler-22b?", read_screen({}), ChatSettings(), CATALOG
     )
-    assert reply.state == STATE_NO_EVIDENCE
-    assert reply.text == CATALOG.text("chat.no_evidence")
-    assert not model.calls
+    assert reply.state == STATE_UNGROUNDED
+    assert reply.text == "Kepler-22b takes about 290 days."
+    assert reply.evidence == ()
+    assert reply.citations == ()
+    assert model.calls
     assert asked
+
+
+def test_the_prompt_tells_the_model_it_may_answer_without_evidence() -> None:
+    engine, model, _ = engine_for([], ["anything"])
+    engine.reply("hola", read_screen({}), ChatSettings(), CATALOG)
+    system = model.calls[0][0]["content"]
+    context = model.calls[0][1]["content"]
+    assert CATALOG.text("chat.prompt.no_evidence") in context
+    assert "propio conocimiento" in system
 
 
 def test_without_a_model_the_chat_says_so_and_search_is_untouched() -> None:
@@ -443,7 +454,7 @@ def test_chat_answers_over_a_running_stub_and_stops_when_it_dies(
     http_request(app, "POST", "/api/admin/llama/profiles/good/test")
     status, body = http_request(app, "POST", "/api/chat", json_body={"message": "hola"})
     assert status == 200
-    assert json.loads(body)["state"] == STATE_NO_EVIDENCE
+    assert json.loads(body)["state"] == STATE_UNGROUNDED
     http_request(app, "POST", "/api/admin/llama/stop")
     status, body = http_request(app, "POST", "/api/chat", json_body={"message": "hola"})
     payload = json.loads(body)
@@ -508,8 +519,9 @@ def test_evidence_that_shares_nothing_with_the_question_is_not_evidence() -> Non
     reply = engine.reply(
         "What is the orbital period of Kepler-22b?", read_screen({}), ChatSettings(), CATALOG
     )
-    assert reply.state == STATE_NO_EVIDENCE
-    assert not model.calls
+    assert reply.evidence == ()
+    assert reply.state == STATE_UNGROUNDED
+    assert model.calls
 
 
 def test_a_strong_semantic_score_keeps_evidence_without_any_shared_word() -> None:
@@ -517,3 +529,75 @@ def test_a_strong_semantic_score_keeps_evidence_without_any_shared_word() -> Non
     far = result(2, "Se ceba la bomba por el tapon de la carcasa", score=0.1)
     assert len(select_evidence([close], ChatSettings(), query="How is the pump primed?")) == 1
     assert select_evidence([far], ChatSettings(), query="How is the pump primed?") == []
+
+
+def test_the_open_page_is_read_and_offered_as_evidence() -> None:
+    model = FakeModel(["The page says photosynthesis needs light [1]."])
+    pages: list[tuple[str, str, str]] = []
+
+    def reader(kind: str, source_id: str, path: str) -> str:
+        pages.append((kind, source_id, path))
+        return "<p>Photosynthesis needs light.</p>"
+
+    engine = ChatEngine(
+        searcher=lambda query, scope: [],
+        base_url=lambda: "http://127.0.0.1:9",
+        available=lambda: True,
+        completer=model,
+        reader=reader,
+    )
+    screen = read_screen(
+        {
+            "open_document": {
+                "title": "Plants",
+                "source_kind": "zim",
+                "source_id": "uuid-1",
+                "path": "plants.html",
+            }
+        }
+    )
+    reply = engine.reply("¿de qué va esta página?", screen, ChatSettings(), CATALOG)
+    assert pages == [("zim", "uuid-1", "plants.html")]
+    assert reply.evidence[0].text.startswith("<p>Photosynthesis")
+    assert reply.state == STATE_OK
+    assert reply.citations == (1,)
+
+
+def test_a_page_that_cannot_be_read_does_not_break_the_turn() -> None:
+    model = FakeModel(["I could not read it, so from my own knowledge…"])
+
+    def reader(kind: str, source_id: str, path: str) -> str:
+        raise LookupError("gone")
+
+    engine = ChatEngine(
+        searcher=lambda query, scope: [],
+        base_url=lambda: "http://127.0.0.1:9",
+        available=lambda: True,
+        completer=model,
+        reader=reader,
+    )
+    screen = read_screen(
+        {"open_document": {"title": "Plants", "source_kind": "zim", "source_id": "gone"}}
+    )
+    reply = engine.reply("¿de qué va?", screen, ChatSettings(), CATALOG)
+    assert reply.evidence == ()
+    assert reply.state == STATE_UNGROUNDED
+
+
+def test_a_selection_inside_a_zim_article_keeps_its_provenance() -> None:
+    screen = read_screen(
+        {
+            "selection": {
+                "text": "photosynthesis",
+                "source_kind": "zim",
+                "source_id": "uuid-1",
+                "path": "plants.html",
+            }
+        }
+    )
+    assert screen.selection is not None
+    assert screen.selection.source_kind == "zim"
+    assert screen.selection.source_id == "uuid-1"
+    assert screen.selection.doc_id == ""
+    state = screen_state(screen)
+    assert state["selection"]["path"] == "plants.html"
