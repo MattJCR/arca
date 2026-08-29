@@ -60,9 +60,19 @@ async function fetchJson(url, options) {
   const response = await fetch(url, options);
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(payload.error || response.statusText);
+    const failure = new Error(payload.error || response.statusText);
+    failure.code = payload.code || "";
+    throw failure;
   }
   return payload;
+}
+
+function errorText(family, error) {
+  const key = error.code ? family + "." + error.code : "";
+  if (key && I18N[key] !== undefined) {
+    return t(key);
+  }
+  return t(family, { error: error.message });
 }
 
 async function loadStatus() {
@@ -118,7 +128,7 @@ async function loadCatalogFilters() {
   try {
     payload = await fetchJson("/api/admin/catalog/filters");
   } catch (error) {
-    showMessage("catalog-message", t("admin.catalog.filters_error", { error: error.message }));
+    showMessage("catalog-message", errorText("admin.catalog.filters_error", error));
     return;
   }
   const languageSelect = document.getElementById("catalog-lang");
@@ -152,7 +162,7 @@ async function searchCatalog(event) {
   try {
     payload = await fetchJson("/api/admin/catalog?" + params.toString());
   } catch (error) {
-    showMessage("catalog-message", t("admin.catalog.error", { error: error.message }));
+    showMessage("catalog-message", errorText("admin.catalog.error", error));
     return;
   }
   showMessage("catalog-message", "");
@@ -284,7 +294,7 @@ async function addDownload(uuid, button) {
     });
     showMessage("downloads-message", t("admin.catalog.added", { id: payload.id }));
   } catch (error) {
-    showMessage("downloads-message", t("admin.catalog.add_error", { error: error.message }));
+    showMessage("downloads-message", errorText("admin.catalog.add_error", error));
     button.disabled = false;
     return;
   }
@@ -931,7 +941,7 @@ async function loadLlama(refresh) {
   try {
     payload = await fetchJson("/api/admin/llama" + (refresh ? "?refresh=1" : ""));
   } catch (error) {
-    showMessage("llama-message", t("admin.llama.error", { error: error.message }));
+    showMessage("llama-message", errorText("admin.llama.error", error));
     return;
   }
   llamaSummary(payload);
@@ -1127,7 +1137,7 @@ async function saveProfile(name, mode, args, raw) {
       body: JSON.stringify({ mode: mode, args: args, raw_cmd: raw }),
     });
   } catch (error) {
-    showMessage("llama-message", t("admin.llama.error", { error: error.message }));
+    showMessage("llama-message", errorText("admin.llama.error", error));
     return;
   }
   showMessage("llama-message", "");
@@ -1141,7 +1151,7 @@ async function deleteProfile(name) {
   try {
     await fetchJson("/api/admin/llama/profiles/" + encodeURIComponent(name), { method: "DELETE" });
   } catch (error) {
-    showMessage("llama-message", t("admin.llama.error", { error: error.message }));
+    showMessage("llama-message", errorText("admin.llama.error", error));
     return;
   }
   loadLlama(0);
@@ -1155,7 +1165,7 @@ async function testProfile(name, button) {
       method: "POST",
     });
   } catch (error) {
-    showMessage("llama-message", t("admin.llama.error", { error: error.message }));
+    showMessage("llama-message", errorText("admin.llama.error", error));
     button.disabled = false;
     return;
   }
@@ -1188,7 +1198,7 @@ async function llamaAction(action) {
   try {
     await fetchJson("/api/admin/llama/" + action, { method: "POST" });
   } catch (error) {
-    showMessage("llama-message", t("admin.llama.error", { error: error.message }));
+    showMessage("llama-message", errorText("admin.llama.error", error));
     return;
   }
   showMessage("llama-message", "");
@@ -1533,7 +1543,7 @@ async function searchHub(event) {
   try {
     payload = await fetchJson("/api/admin/hub?q=" + encodeURIComponent(query));
   } catch (error) {
-    showMessage("hub-message", t("admin.hub.error", { error: error.message }));
+    showMessage("hub-message", errorText("admin.hub.error", error));
     document.getElementById("hub-table-wrap").hidden = true;
     return;
   }
@@ -1585,7 +1595,7 @@ async function inspectHubModel(modelId, button) {
   try {
     payload = await fetchJson("/api/admin/hub/" + modelId);
   } catch (error) {
-    showMessage("hub-message", t("admin.hub.error", { error: error.message }));
+    showMessage("hub-message", errorText("admin.hub.error", error));
     button.disabled = false;
     return;
   }
@@ -1643,7 +1653,7 @@ async function downloadHubFile(modelId, path, button) {
       body: JSON.stringify({ model_id: modelId, path: path, kind: hubKind() }),
     });
   } catch (error) {
-    showMessage("hub-message", t("admin.hub.error", { error: error.message }));
+    showMessage("hub-message", errorText("admin.hub.error", error));
     button.disabled = false;
     return;
   }
@@ -1671,7 +1681,7 @@ async function pinLlamaCommit(event) {
       body: JSON.stringify({ commit: commit }),
     });
   } catch (error) {
-    showMessage("vendor-message", t("admin.vendor.llama_error", { error: error.message }));
+    showMessage("vendor-message", errorText("admin.vendor.llama_error", error));
     return;
   }
   showMessage(

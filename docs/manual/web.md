@@ -47,6 +47,31 @@ Módulos: `arca/api.py`, `arca/templates/`, `arca/static/`, `arca/i18n.py`.
 
 `/docs`, `/redoc` y `/openapi.json` están desactivados: la API no expone esquemas.
 
+## Errores con código
+
+Cada respuesta de error que el panel puede provocar lleva, además del campo `error`
+en inglés para el log, un campo `code` estable que nombra **la causa**, no el texto:
+
+| `code` | Dónde sale | Estado |
+|---|---|---|
+| `unreachable` | Catálogo Kiwix y hub de modelos sin respuesta | 502 |
+| `gated` | Modelo del hub con licencia por aceptar | 403 |
+| `bad_model_id` · `bad_kind` · `bad_file` | Entrada forjada en la descarga del hub | 400 |
+| `unknown_file` | La variante ya no está publicada | 404 |
+| `no_binary` | No hay `llama-server` en ninguno de los tres sitios donde se busca | 409 |
+| `no_profile` | No hay perfil de arranque configurado | 409 |
+| `unknown_profile` | El perfil se borró desde otra sesión | 404 |
+| `invalid_name` · `unknown_mode` | Nombre o modo de perfil no válidos | 400 |
+| `bad_commit` | El commit de llama.cpp no es un SHA | 400 |
+
+`fetchJson` conserva el código en el error que lanza y `errorText(familia, error)`
+traduce la clave `familia.code` si existe en el catálogo activo; si no existe, cae al
+mensaje crudo dentro del texto de la familia. Las claves de código son mensajes
+completos: dicen qué pasó **y qué hacer** (§16), y ningún `{error}` en crudo se cuela
+en ellas — lo verifica `tests/test_i18n.py`. El juego de códigos que emite `api.py` y
+el juego que tiene mensaje se comparan en ese mismo test: añadir un código sin su
+mensaje en `es` y en `en` rompe la suite.
+
 ## Dashboard (`/admin`)
 
 `templates/admin.html` + `static/admin.js` (JavaScript sin framework, cero peticiones externas). El servidor inyecta las cadenas `admin.*` del catálogo activo como JSON embebido (`<script id="i18n-data">`); el JS las aplica a los elementos `data-i18n` y compone los textos dinámicos. Las catorce secciones — estado general (12.1 inicial, refresco cada 15 s), buscador del catálogo, cola de descargas con progreso, velocidad calculada en cliente, espejo en uso y acciones (sondeo cada 3 s) más reverificación local, contenido local (una fila por colección ZIM con su modo de índice real y su estado, más los ficheros que no se han podido abrir, con botón para volver a explorar la carpeta), vendorizado con verificación sin red y tabla de deriva, documentos (12.4), alcance del índice profundo (12.5), modelos GGUF (12.6), llama.cpp (§13 completa: estado del binario, control del proceso, línea efectiva, log en vivo y perfiles con su formulario generado), chat (12.8: topes, prompt de sistema editable, temas de riesgo y muestreo por petición), búsqueda (12.9: resultados por fuente, pesos de intercalado, longitud del extracto y troceado para futuras importaciones), mantenimiento (12.12: rutas, registro, verificación integral y configuración), manual (12.13), y diagnóstico (§12.11) con las dieciséis comprobaciones y su botón de recomprobar — se navegan con pestañas en la barra superior (patrón ARIA `tablist`/`tab`/`tabpanel`, sin depender de anclas de URL; sin JavaScript, las secciones se muestran apiladas). La barra **envuelve en varias líneas** en vez de desplazarse: ninguna sección queda oculta por estrecha que sea la ventana, y la cabecera lleva enlace al archivo, igual que la portada lo lleva a la administración. La lógica de pestañas vive en `static/tabs.js`. En la interfaz la sección de vendorizado se etiqueta «Dependencias» — el término técnico se reserva para código y documentación. El idioma se cambia con un combo en la cabecera (formulario GET con `?lang=`), presente también en la portada.

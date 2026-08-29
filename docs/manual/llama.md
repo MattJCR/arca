@@ -12,6 +12,11 @@ Módulo: `arca/llama.py`. Sección 13 de la especificación. `llama-server` se g
 
 Sin binario no hay excepción: `inspect_binary()` devuelve `present = False` y el resto del sistema sigue igual.
 
+Cuando el panel intenta arrancar o probar sin binario, la respuesta no es solo un 409:
+lleva `code = no_binary`, y el panel lo traduce por un mensaje que enumera esos tres
+sitios y dice cómo colocarlo (ver «Errores con código» en `web.md`). Lo mismo con
+`no_profile`, `unknown_profile`, `invalid_name` y `unknown_mode`.
+
 `inspect_binary()` ejecuta además dos sondas cortas sobre el propio binario —`--version` y `--list-devices`— y de ahí saca la versión, la lista de dispositivos y si el build trae soporte de GPU (`has_gpu`: algún dispositivo que no empiece por `CPU`, o un marcador conocido —CUDA, ROCm, HIP, Vulkan, Metal, SYCL, MUSA, CANN— en la salida). Ese dato es lo que sostiene el aviso de la trampa 9. Las sondas son caras (dos procesos), así que la API las cachea por aplicación y solo las repite con `?refresh=1`.
 
 ## El proceso

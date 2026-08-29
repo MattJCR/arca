@@ -100,6 +100,7 @@ def _script_keys() -> set[str]:
         for key in re.findall(r'(?<![\w.])t\(\s*"([^"]+)"', text):
             if not key.endswith("."):
                 keys.add(key)
+        keys.update(re.findall(r'errorText\(\s*"([^"]+)"', text))
     return keys
 
 
@@ -126,3 +127,41 @@ def test_the_interface_never_hardcodes_a_user_facing_string_from_a_catalog() -> 
         text = script.read_text("utf-8")
         for value in long_strings:
             assert value not in text, f"{script.name}: {value}"
+
+
+API_SOURCE = Path(__file__).resolve().parents[1] / "arca" / "api.py"
+ERROR_CODE_KEYS = {
+    "admin.catalog.error": ("unreachable",),
+    "admin.catalog.filters_error": ("unreachable",),
+    "admin.catalog.add_error": ("unreachable",),
+    "admin.llama.error": (
+        "no_binary",
+        "no_profile",
+        "unknown_profile",
+        "invalid_name",
+        "unknown_mode",
+    ),
+    "admin.hub.error": (
+        "gated",
+        "unreachable",
+        "bad_model_id",
+        "bad_kind",
+        "bad_file",
+        "unknown_file",
+    ),
+    "admin.vendor.llama_error": ("bad_commit",),
+}
+
+
+def test_every_error_code_the_api_returns_has_an_actionable_message() -> None:
+    emitted = set(re.findall(r'"code": "([a-z_]+)"', API_SOURCE.read_text("utf-8")))
+    covered = {code for codes in ERROR_CODE_KEYS.values() for code in codes}
+    assert emitted == covered
+    for lang in SUPPORTED_LANGUAGES:
+        catalog = load_catalog(lang)
+        for family, codes in ERROR_CODE_KEYS.items():
+            assert catalog.has(family), f"{lang}:{family}"
+            for code in codes:
+                key = f"{family}.{code}"
+                assert catalog.has(key), f"{lang}:{key}"
+                assert "{error}" not in catalog.messages[key], f"{lang}:{key}"

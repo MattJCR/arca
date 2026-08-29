@@ -88,3 +88,13 @@ def test_scripts_never_write_html_directly() -> None:
         assert "innerHTML" not in text, script.name
         assert "outerHTML" not in text, script.name
         assert "document.write" not in text, script.name
+
+
+def test_the_panel_carries_the_error_code_from_the_api_to_the_message() -> None:
+    script = (STATIC / "admin.js").read_text("utf-8")
+    assert "failure.code = payload.code" in script
+    assert "function errorText(family, error)" in script
+    families = set(re.findall(r'errorText\(\s*"([^"]+)"', script))
+    assert families
+    for family in families:
+        assert f't("{family}", {{ error: error.message }})' not in script

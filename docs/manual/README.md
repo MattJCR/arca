@@ -14,7 +14,7 @@ Manual vivo del proyecto. Documenta **únicamente la realidad actual**: lo que e
 
 **Fase 5 (cierre) completada.** Funciona hoy: ajustes de búsqueda (resultados por fuente, pesos de intercalado, longitud del extracto y troceado para futuras importaciones), mantenimiento con rutas en uso, registro y rotación, verificación integral elemento a elemento, exportar e importar configuración, regeneración del lote de documentación desde el panel, y los contadores reales de lotes, documentos y fragmentos en el estado general. **Los 10 puntos de §18 son ciertos a la vez**: registro en `docs/gates/final.md`.
 
-**Añadido después del cierre**, a petición explícita: las once comprobaciones de §14 completas en el panel de diagnóstico, buscador y descargador de modelos GGUF con sus cuantizaciones (12.6), fijado del commit de llama.cpp para vendorizar su código y su documentación, manual consultable desde el propio panel (12.13), barra de pestañas que envuelve sin ocultar opciones y navegación en los dos sentidos entre el archivo y la administración.
+**Añadido después del cierre**, a petición explícita: las dieciséis comprobaciones de §14 completas en el panel de diagnóstico, buscador y descargador de modelos GGUF con sus cuantizaciones (12.6), fijado del commit de llama.cpp para vendorizar su código y su documentación, manual consultable desde el propio panel (12.13), barra de pestañas que envuelve sin ocultar opciones y navegación en los dos sentidos entre el archivo y la administración.
 
 ## Índice de funcionalidades
 
@@ -33,5 +33,5 @@ Manual vivo del proyecto. Documenta **únicamente la realidad actual**: lo que e
 - [Chat con citación](chat.md) — estado de pantalla, política de contexto, suelo de relevancia, citación al párrafo y temas de riesgo.
 - [Manual en la aplicación](manual-browser.md) — el manual servido desde la propia ARCA, con su renderizador de Markdown acotado.
 - [Mantenimiento](maintenance.md) — rutas en uso, registro y rotación, verificación integral elemento a elemento, exportar e importar configuración.
-- [Diagnóstico](diagnostics.md) — las once comprobaciones, estados y dónde se consumen.
+- [Diagnóstico](diagnostics.md) — las dieciséis comprobaciones, estados y dónde se consumen.
 - [Interfaz web y API](web.md) — rutas, API de administración, dashboard, bilingüe es/en.

@@ -20,7 +20,7 @@ from arca.vendor import (
     load_lock,
     write_lock_entry,
 )
-from tests.test_api import http_get
+from tests.test_api import http_get, http_request
 
 SAMPLE = """# Heading
 
@@ -107,6 +107,17 @@ def test_a_llama_commit_is_validated_before_it_reaches_the_lock() -> None:
     assert is_commit("0123456789abcdef0123456789abcdef01234567")
     assert not is_commit("main")
     assert not is_commit("../../etc")
+
+
+def test_pinning_a_forged_commit_is_refused_with_a_code(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    app = create_app(root, ArcaConfig())
+    status, body = http_request(
+        app, "POST", "/api/admin/vendor/llama", json_body={"commit": "main"}
+    )
+    assert status == 400
+    assert json.loads(body)["code"] == "bad_commit"
 
 
 def test_pinning_llama_writes_a_git_entry_with_its_licence(tmp_path: Path) -> None:

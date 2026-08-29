@@ -146,7 +146,9 @@ def test_a_gated_model_answers_with_its_own_code(library: tuple[Path, FastAPI]) 
     _, app = library
     status, body = http_get(app, "/api/admin/hub/google/gemma-4-26b-a4b-qat")
     assert status == 403
-    assert json.loads(body)["gated"] is True
+    payload = json.loads(body)
+    assert payload["gated"] is True
+    assert payload["code"] == "gated"
 
 
 def test_an_unreachable_hub_answers_502(tmp_path: Path) -> None:
@@ -155,7 +157,9 @@ def test_an_unreachable_hub_answers_502(tmp_path: Path) -> None:
     app = create_app(root, ArcaConfig(hub_url="http://127.0.0.1:1"))
     status, body = http_get(app, "/api/admin/hub", query="q=gemma")
     assert status == 502
-    assert json.loads(body)["error"]
+    payload = json.loads(body)
+    assert payload["error"]
+    assert payload["code"] == "unreachable"
 
 
 def test_downloading_a_variant_queues_it_with_its_hash(library: tuple[Path, FastAPI]) -> None:
@@ -245,3 +249,7 @@ def test_the_download_endpoint_refuses_forged_input(library: tuple[Path, FastAPI
     assert bad_kind[0] == 400
     assert traversal[0] == 400
     assert unknown[0] == 404
+    assert json.loads(bad_id[1])["code"] == "bad_model_id"
+    assert json.loads(bad_kind[1])["code"] == "bad_kind"
+    assert json.loads(traversal[1])["code"] == "bad_file"
+    assert json.loads(unknown[1])["code"] == "unknown_file"

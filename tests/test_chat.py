@@ -344,6 +344,38 @@ def test_a_forged_profile_name_is_refused(library: tuple[Path, FastAPI]) -> None
     assert status == 400
 
 
+def test_the_llama_endpoints_name_every_refusal_with_a_code(
+    library: tuple[Path, FastAPI],
+) -> None:
+    _, app = library
+    forged = http_request(
+        app, "PUT", "/api/admin/llama/profiles/bad$name", json_body={"mode": "form"}
+    )
+    mode = http_request(
+        app, "PUT", "/api/admin/llama/profiles/cpu", json_body={"mode": "telepathy"}
+    )
+    absent = http_request(app, "DELETE", "/api/admin/llama/profiles/ghost")
+    trial = http_request(app, "POST", "/api/admin/llama/profiles/ghost/test")
+    start = http_request(app, "POST", "/api/admin/llama/start")
+    assert json.loads(forged[1])["code"] == "invalid_name"
+    assert json.loads(mode[1])["code"] == "unknown_mode"
+    assert json.loads(absent[1])["code"] == "unknown_profile"
+    assert json.loads(trial[1])["code"] == "unknown_profile"
+    assert json.loads(start[1])["code"] == "no_profile"
+
+
+def test_a_missing_binary_is_reported_with_its_own_code(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    app = create_app(root, ArcaConfig(llama_bin=str(root / "absent")))
+    trial = http_request(app, "POST", "/api/admin/llama/profiles/any/test")
+    start = http_request(app, "POST", "/api/admin/llama/start")
+    assert trial[0] == 409
+    assert json.loads(trial[1])["code"] == "no_binary"
+    assert start[0] == 409
+    assert json.loads(start[1])["code"] == "no_binary"
+
+
 def test_a_working_profile_starts_and_a_broken_one_rolls_back(
     library: tuple[Path, FastAPI],
 ) -> None:

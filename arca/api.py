@@ -367,21 +367,28 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         try:
             found = search_models(config.hub_url, q.strip(), limit, config.hub_token)
         except HubGatedError as error:
-            return JSONResponse({"error": str(error), "gated": True}, status_code=403)
+            return JSONResponse(
+                {"error": str(error), "gated": True, "code": "gated"}, status_code=403
+            )
         except HubError as error:
-            return JSONResponse({"error": str(error)}, status_code=502)
+            return JSONResponse({"error": str(error), "code": "unreachable"}, status_code=502)
         return JSONResponse({"query": q.strip(), "models": [_hub_model(item) for item in found]})
 
     @app.get("/api/admin/hub/{model_id:path}")
     def api_admin_hub_model(model_id: str) -> JSONResponse:
         if not is_model_id(model_id):
-            return JSONResponse({"error": f"not a model identifier: {model_id}"}, status_code=400)
+            return JSONResponse(
+                {"error": f"not a model identifier: {model_id}", "code": "bad_model_id"},
+                status_code=400,
+            )
         try:
             model, files = model_files(config.hub_url, model_id, config.hub_token)
         except HubGatedError as error:
-            return JSONResponse({"error": str(error), "gated": True}, status_code=403)
+            return JSONResponse(
+                {"error": str(error), "gated": True, "code": "gated"}, status_code=403
+            )
         except HubError as error:
-            return JSONResponse({"error": str(error)}, status_code=502)
+            return JSONResponse({"error": str(error), "code": "unreachable"}, status_code=502)
         payload = _hub_model(model)
         payload["files"] = [_hub_file(item) for item in files]
         payload["local"] = sorted(model.name for model in list_models(root))
@@ -393,22 +400,33 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         path = str(payload.get("path", ""))
         kind = str(payload.get("kind", "chat"))
         if not is_model_id(model_id):
-            return JSONResponse({"error": f"not a model identifier: {model_id}"}, status_code=400)
+            return JSONResponse(
+                {"error": f"not a model identifier: {model_id}", "code": "bad_model_id"},
+                status_code=400,
+            )
         if kind not in MODEL_KINDS:
-            return JSONResponse({"error": f"unknown model kind: {kind}"}, status_code=400)
+            return JSONResponse(
+                {"error": f"unknown model kind: {kind}", "code": "bad_kind"}, status_code=400
+            )
         filename = Path(path).name
         unsafe = ".." in path or path.startswith("/") or "\\" in path
         if unsafe or not filename.endswith(".gguf") or filename != path.rsplit("/", 1)[-1]:
-            return JSONResponse({"error": f"not a model file: {path}"}, status_code=400)
+            return JSONResponse(
+                {"error": f"not a model file: {path}", "code": "bad_file"}, status_code=400
+            )
         try:
             _, files = model_files(config.hub_url, model_id, config.hub_token)
         except HubGatedError as error:
-            return JSONResponse({"error": str(error), "gated": True}, status_code=403)
+            return JSONResponse(
+                {"error": str(error), "gated": True, "code": "gated"}, status_code=403
+            )
         except HubError as error:
-            return JSONResponse({"error": str(error)}, status_code=502)
+            return JSONResponse({"error": str(error), "code": "unreachable"}, status_code=502)
         wanted = next((item for item in files if item.path == path), None)
         if wanted is None:
-            return JSONResponse({"error": f"unknown file: {path}"}, status_code=404)
+            return JSONResponse(
+                {"error": f"unknown file: {path}", "code": "unknown_file"}, status_code=404
+            )
         dest = models_dir(root, kind) / filename
         connection = open_library_rw(library_db_path(root))
         try:
@@ -472,7 +490,7 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         try:
             entries = fetch_entries(entries_url(query=q, lang=lang, category=category, name=name))
         except CatalogError as error:
-            return JSONResponse({"error": str(error)}, status_code=502)
+            return JSONResponse({"error": str(error), "code": "unreachable"}, status_code=502)
         local = _local_zim_filenames(root)
         return JSONResponse({"entries": [_entry_payload(entry, local) for entry in entries]})
 
@@ -482,7 +500,7 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
             categories = fetch_categories()
             languages = fetch_languages()
         except CatalogError as error:
-            return JSONResponse({"error": str(error)}, status_code=502)
+            return JSONResponse({"error": str(error), "code": "unreachable"}, status_code=502)
         return JSONResponse(
             {
                 "categories": categories,
@@ -522,7 +540,7 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         try:
             entry, resolution = resolve_entry(uuid)
         except CatalogError as error:
-            return JSONResponse({"error": str(error)}, status_code=502)
+            return JSONResponse({"error": str(error), "code": "unreachable"}, status_code=502)
         connection = open_library_rw(library_db_path(root))
         try:
             download_id = queue_zim_download(connection, root, entry, resolution)
@@ -626,10 +644,14 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         name: str, payload: dict[str, Any] = JSON_BODY
     ) -> JSONResponse:
         if not is_profile_name(name):
-            return JSONResponse({"error": f"invalid profile name: {name}"}, status_code=400)
+            return JSONResponse(
+                {"error": f"invalid profile name: {name}", "code": "invalid_name"}, status_code=400
+            )
         mode = str(payload.get("mode", MODE_FORM))
         if mode not in (MODE_FORM, MODE_RAW):
-            return JSONResponse({"error": f"unknown mode: {mode}"}, status_code=400)
+            return JSONResponse(
+                {"error": f"unknown mode: {mode}", "code": "unknown_mode"}, status_code=400
+            )
         raw_args = payload.get("args")
         profile = Profile(
             name=name,
@@ -662,19 +684,26 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         finally:
             connection.close()
         if not removed:
-            return JSONResponse({"error": f"unknown profile: {name}"}, status_code=404)
+            return JSONResponse(
+                {"error": f"unknown profile: {name}", "code": "unknown_profile"}, status_code=404
+            )
         return JSONResponse({"ok": True})
 
     @app.post("/api/admin/llama/profiles/{name}/test")
     def api_admin_llama_test_profile(name: str) -> JSONResponse:
         info = _binary(0)
         if info.path is None:
-            return JSONResponse({"error": "llama-server is not available"}, status_code=409)
+            return JSONResponse(
+                {"error": "llama-server is not available", "code": "no_binary"}, status_code=409
+            )
         connection = open_library_rw(library_db_path(root))
         try:
             profile = read_profile(connection, name)
             if profile is None:
-                return JSONResponse({"error": f"unknown profile: {name}"}, status_code=404)
+                return JSONResponse(
+                    {"error": f"unknown profile: {name}", "code": "unknown_profile"},
+                    status_code=404,
+                )
             outcome = apply_profile(connection, llama, info.path, profile)
             record_event(
                 connection,
@@ -696,10 +725,14 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
             llama.stop()
             return JSONResponse(_llama_payload(root, config, llama, info))
         if info.path is None:
-            return JSONResponse({"error": "llama-server is not available"}, status_code=409)
+            return JSONResponse(
+                {"error": "llama-server is not available", "code": "no_binary"}, status_code=409
+            )
         profile = _active_profile(root)
         if profile is None:
-            return JSONResponse({"error": "no llama profile is configured"}, status_code=409)
+            return JSONResponse(
+                {"error": "no llama profile is configured", "code": "no_profile"}, status_code=409
+            )
         llama.start(effective_command(info.path, profile))
         llama.wait_healthy(HEALTH_WAIT_SECONDS)
         return JSONResponse(_llama_payload(root, config, llama, info))
@@ -708,7 +741,9 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
     def api_admin_vendor_llama(payload: dict[str, Any] = JSON_BODY) -> JSONResponse:
         commit = str(payload.get("commit", "")).strip().lower()
         if not is_commit(commit):
-            return JSONResponse({"error": f"not a commit: {commit}"}, status_code=400)
+            return JSONResponse(
+                {"error": f"not a commit: {commit}", "code": "bad_commit"}, status_code=400
+            )
         try:
             entries = write_lock_entry(default_lock_path(), llama_lock_entry(commit))
         except (VendorError, OSError) as error:

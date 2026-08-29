@@ -245,7 +245,9 @@ def test_admin_catalog_filters_report_network_errors(
     monkeypatch.setattr("arca.api.fetch_categories", failing)
     status, body = http_get(_app(tmp_path), "/api/admin/catalog/filters")
     assert status == 502
-    assert json.loads(body)["error"] == "offline"
+    payload = json.loads(body)
+    assert payload["error"] == "offline"
+    assert payload["code"] == "unreachable"
 
 
 def test_admin_catalog_reports_network_errors(
@@ -259,7 +261,9 @@ def test_admin_catalog_reports_network_errors(
     monkeypatch.setattr("arca.api.fetch_entries", failing)
     status, body = http_get(_app(tmp_path), "/api/admin/catalog")
     assert status == 502
-    assert json.loads(body)["error"] == "offline"
+    payload = json.loads(body)
+    assert payload["error"] == "offline"
+    assert payload["code"] == "unreachable"
 
 
 def _patch_resolve_entry(monkeypatch: pytest.MonkeyPatch, uuid: str) -> None:
