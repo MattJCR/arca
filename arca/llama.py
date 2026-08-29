@@ -112,6 +112,7 @@ GIB = 1024**3
 CHAT_PATH = "/v1/chat/completions"
 HEALTH_WAIT_SECONDS = 60.0
 GENERATION_TIMEOUT_SECONDS = 120.0
+FINISH_LENGTH = "length"
 TEST_MESSAGES: tuple[dict[str, str], ...] = (
     {"role": "user", "content": "Reply with one word: ready"},
 )
@@ -1202,6 +1203,11 @@ class Completion:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     error: str = ""
+    reasoning: str = ""
+
+    @property
+    def out_of_room(self) -> bool:
+        return self.finish_reason == FINISH_LENGTH and not self.text.strip()
 
 
 def chat_completion(
@@ -1242,8 +1248,10 @@ def _completion(raw: bytes) -> Completion:
     first = choices[0]
     if not isinstance(first, dict):
         return Completion(error="llama-server returned an unexpected choice")
-    message = first.get("message")
-    content = message.get("content") if isinstance(message, dict) else None
+    raw_message = first.get("message")
+    message: dict[str, object] = raw_message if isinstance(raw_message, dict) else {}
+    content = message.get("content")
+    reasoning = message.get("reasoning_content")
     usage = parsed.get("usage")
     counts = usage if isinstance(usage, dict) else {}
     return Completion(
@@ -1251,6 +1259,7 @@ def _completion(raw: bytes) -> Completion:
         finish_reason=str(first.get("finish_reason") or ""),
         prompt_tokens=_as_int(counts.get("prompt_tokens")),
         completion_tokens=_as_int(counts.get("completion_tokens")),
+        reasoning=str(reasoning or ""),
     )
 
 

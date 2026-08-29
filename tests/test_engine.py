@@ -463,7 +463,7 @@ def test_an_existing_binary_is_used_without_asking_the_network(
     assert releases.requests == []
 
 
-def test_a_settled_chat_is_left_exactly_as_the_operator_left_it(
+def test_a_settled_chat_is_resumed_with_its_own_profile_and_never_retested(
     tmp_path: Path, releases: ReleaseServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "library"
@@ -483,9 +483,28 @@ def test_a_settled_chat_is_left_exactly_as_the_operator_left_it(
         "arca.engine.apply_profile",
         lambda *args, **kwargs: calls.append("applied"),
     )
-    status = _bringup(root, ArcaConfig(), api_url=releases.url).run()
+    port = free_port()
+    server = LlamaServer(default_url=f"http://127.0.0.1:{port}")
+    bringup = EngineBringup(
+        root,
+        ArcaConfig(chat_url=f"http://127.0.0.1:{port}"),
+        server,
+        QueueWorker(library_db_path(root), concurrency=1, max_attempts=1),
+        api_url=releases.url,
+        nvidia=False,
+        health_timeout=20.0,
+    )
+    monkeypatch.setattr("arca.engine.effective_command", lambda binary, profile: stub_command(port))
+    try:
+        status = bringup.run()
+        running = server.status().running
+        healthy = server.health()
+    finally:
+        server.stop()
     assert status.state == STATE_READY
     assert status.profile == "mine"
+    assert running, "a settled chat must be started, not just declared ready"
+    assert healthy == "ok"
     assert calls == []
     assert releases.requests == []
     connection = open_library_ro(library_db_path(root))

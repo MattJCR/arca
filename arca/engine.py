@@ -22,6 +22,7 @@ from arca.embed import EmbeddingClient, EmbeddingError
 from arca.fetch import QueueWorker, enqueue, file_sha256, get_download
 from arca.llama import (
     BINARY_NAMES,
+    HEALTH_OK,
     HEALTH_WAIT_SECONDS,
     MODE_FORM,
     LlamaServer,
@@ -29,6 +30,7 @@ from arca.llama import (
     Profile,
     apply_profile,
     chat_model_file,
+    effective_command,
     embed_model_file,
     embedding_command,
     find_binary,
@@ -408,7 +410,7 @@ class EngineBringup:
         if present is not None:
             settled = self._settled()
             if chat is not None and settled is not None:
-                return self._set(STATE_READY, binary=str(present), profile=settled)
+                return self._resume(present, settled)
             gpu = inspect_binary(self._root, self._config.llama_bin).gpu
             if chat is None:
                 return self._set(STATE_READY, binary=str(present))
@@ -597,13 +599,32 @@ class EngineBringup:
             tag=tag,
         )
 
-    def _settled(self) -> str | None:
+    def _settled(self) -> Profile | None:
         connection = open_library_rw(library_db_path(self._root))
         try:
-            profile = last_good_profile(connection)
+            return last_good_profile(connection)
         finally:
             connection.close()
-        return profile.name if profile is not None else None
+
+    def _resume(self, binary: Path, profile: Profile) -> EngineStatus:
+        if self._server.health() == HEALTH_OK:
+            return self._set(STATE_READY, binary=str(binary), profile=profile.name)
+        self._set(STATE_TESTING, candidate=binary.name, profile=profile.name)
+        status = self._server.start(effective_command(binary, profile))
+        if status.error:
+            self._record("warning", f"chat server failed to start: {profile.name}", status.error)
+            return self._set(STATE_FAILED, detail=status.error, profile=profile.name)
+        if not self._server.wait_healthy(self._health_timeout or HEALTH_WAIT_SECONDS):
+            log = " ".join(self._server.log(EMBEDDING_LOG_LINES))
+            self._server.stop()
+            self._record("warning", f"chat server never became healthy: {profile.name}", log)
+            return self._set(
+                STATE_FAILED,
+                detail="the chat server did not answer its health check",
+                profile=profile.name,
+            )
+        self._record("info", f"chat server resumed with {profile.name}")
+        return self._set(STATE_READY, binary=str(binary), profile=profile.name)
 
     def _timeouts(self) -> dict[str, float]:
         chosen: dict[str, float] = {}

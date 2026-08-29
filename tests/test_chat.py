@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from arca.api import create_app
 from arca.chat import (
     STATE_OK,
+    STATE_TRUNCATED,
     STATE_UNAVAILABLE,
     STATE_UNGROUNDED,
     WARNING_RISK_WITHOUT_CITATION,
@@ -601,3 +602,42 @@ def test_a_selection_inside_a_zim_article_keeps_its_provenance() -> None:
     assert screen.selection.doc_id == ""
     state = screen_state(screen)
     assert state["selection"]["path"] == "plants.html"
+
+
+def test_a_model_that_runs_out_of_room_says_so_instead_of_blaming_the_library() -> None:
+    def starved(base_url, messages, sampling=None, timeout=0.0):  # type: ignore[no-untyped-def]
+        return Completion(text="", finish_reason="length", reasoning="thinking " * 200)
+
+    engine = ChatEngine(
+        searcher=lambda query, scope: [],
+        base_url=lambda: "http://127.0.0.1:9",
+        available=lambda: True,
+        completer=starved,
+    )
+    reply = engine.reply("anything", read_screen({}), ChatSettings(), CATALOG)
+    assert reply.state == STATE_TRUNCATED
+    assert reply.text == CATALOG.text("chat.truncated")
+    assert reply.text != CATALOG.text("chat.no_evidence")
+
+
+def test_the_reasoning_of_a_thinking_model_is_read_but_never_shown_as_the_answer() -> None:
+    from arca.llama import _completion
+
+    raw = json.dumps(
+        {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {"content": "", "reasoning_content": "let me think"},
+                }
+            ]
+        }
+    ).encode()
+    completion = _completion(raw)
+    assert completion.reasoning == "let me think"
+    assert completion.text == ""
+    assert completion.out_of_room
+
+
+def test_the_default_token_budget_leaves_room_for_a_thinking_model() -> None:
+    assert ChatSettings().sampling["n_predict"] >= 2048

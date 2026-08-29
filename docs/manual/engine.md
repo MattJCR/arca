@@ -101,8 +101,11 @@ El perfil se llama `auto` y pasa por `apply_profile()`, así que hereda el `last
 reversión de los perfiles hechos a mano. Se puede editar después como cualquier otro.
 
 **Y no se vuelve a escribir.** Si al arrancar ya hay binario y ya hay un perfil `last_good`, la
-puesta en marcha se declara `ready` y no toca la base de datos ni reinicia el proceso: lo que el
-operador dejó configurado a mano manda sobre lo que este módulo habría elegido.
+puesta en marcha **lo reanuda**: no repite el arranque de prueba ni toca la base de datos, pero sí
+comprueba la salud y **arranca el proceso si no está en marcha**. Lo que el operador dejó
+configurado manda sobre lo que este módulo habría elegido; lo que no puede pasar es declarar
+`ready` con el chat muerto, que es lo que ocurría hasta el 2026-08-29: tras reiniciar el servidor
+el panel decía «listo» y no había ningún proceso detrás.
 
 ## Que nunca bloquee el arranque
 

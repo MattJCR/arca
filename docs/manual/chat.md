@@ -96,6 +96,7 @@ tiraba a la basura la mitad de lo que un modelo sabe hacer. Corregido:
 | Con respaldo | La evidencia sostiene la respuesta | `ok` | Citas `[n]` enlazadas al párrafo |
 | Sin respaldo | La biblioteca no tenía nada | `ungrounded` | «Respuesta del modelo, sin respaldo del archivo» |
 | Sin modelo | `llama-server` no responde | `unavailable` | El archivo sigue funcionando |
+| Sin espacio | El modelo agotó sus tokens antes de escribir | `truncated` | Dice que le faltó presupuesto y dónde subirlo |
 
 La marca **no la pone el modelo, la pone el sistema**: si la respuesta no contiene ninguna cita
 válida, se marca como sin respaldo, lo diga el modelo o no. Así se conserva entera la regla de §11.3
@@ -114,3 +115,21 @@ Dos caminos, y los dos exigían que `selection.js` pudiera ejecutarse dentro del
   colección ZIM o del lote sellado— y lo entrega acotado como una evidencia más, con su procedencia.
   Es lo que permite preguntar «¿de qué va esto?» sin señalar nada. Si la página no se puede leer,
   el turno sigue sin ella.
+
+## Modelos que razonan antes de responder
+
+Gemma 4 QAT —el modelo por defecto de §2— devuelve dos campos: `content` y `reasoning_content`.
+Con el contexto real de ARCA, su razonamiento puede consumir **el presupuesto entero** y dejar
+`content` vacío. Medido contra el modelo real el 2026-08-29:
+
+| `n_predict` | `finish_reason` | Respuesta | Razonamiento |
+|---|---|---|---|
+| 512 | `length` | **0 caracteres** | 2.139 |
+| 1024 | `length` | **0 caracteres** | 4.369 |
+| 2048 | `stop` | 197 caracteres | 4.912 |
+
+De ahí dos cambios. El presupuesto por defecto sube a **2048**, que es lo que hace falta para que
+un modelo que razona llegue a escribir. Y, más importante, **un texto vacío ya no se traduce como
+«no hay nada en la biblioteca»**: eso era culpar al archivo de que al modelo le faltara sitio.
+`Completion.out_of_room` distingue el caso —`finish_reason` de longitud y respuesta vacía— y el
+asistente dice lo que pasó y dónde subir el tope.

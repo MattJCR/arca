@@ -27,13 +27,14 @@ MARKER_PATTERN = re.compile(r"\[(\d{1,2})\]")
 TERM_PATTERN = re.compile(r"[a-z0-9]+")
 MIN_TERM_LENGTH = 4
 MIN_SEMANTIC_SCORE = 0.75
-DEFAULT_SAMPLING: dict[str, Any] = {"temperature": 0.2, "top_p": 0.9, "n_predict": 512}
+DEFAULT_SAMPLING: dict[str, Any] = {"temperature": 0.2, "top_p": 0.9, "n_predict": 2048}
 RISK_TOPICS_KEY = "chat.risk_topics"
 
 STATE_OK = "ok"
 STATE_UNAVAILABLE = "unavailable"
 STATE_NO_EVIDENCE = "no_evidence"
 STATE_UNGROUNDED = "ungrounded"
+STATE_TRUNCATED = "truncated"
 STATE_ERROR = "error"
 WARNING_RISK_WITHOUT_CITATION = "risk_without_citation"
 
@@ -397,6 +398,14 @@ class ChatEngine:
                     error=completion.error,
                 )
             text = completion.text.strip()
+            if completion.out_of_room:
+                return ChatReply(
+                    catalog.text("chat.truncated"),
+                    STATE_TRUNCATED,
+                    evidence=tuple(evidence),
+                    searches=tuple(searches),
+                    risk=risk,
+                )
             request = _search_request(text)
             if request and calls < settings.max_tool_calls:
                 calls += 1
