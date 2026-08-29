@@ -80,6 +80,22 @@ def test_the_viewer_frame_is_sandboxed() -> None:
     frame = re.search(r"<iframe[^>]*>", page)
     assert frame is not None
     assert 'sandbox="allow-same-origin"' in frame.group(0)
+    assert "allow-scripts" not in frame.group(0)
+
+
+def test_only_our_own_pages_get_scripts_inside_the_viewer() -> None:
+    script = (STATIC / "archive.js").read_text("utf-8")
+    assert 'const ZIM_SANDBOX = "allow-same-origin";' in script
+    assert 'const OWN_SANDBOX = "allow-same-origin allow-scripts";' in script
+    assert 'url.startsWith("/zim/") ? ZIM_SANDBOX : OWN_SANDBOX' in script
+
+
+def test_the_pages_we_frame_ourselves_do_need_scripts() -> None:
+    from arca.ingest import render_readable
+
+    assert "<script" in (STATIC / "pdf.html").read_text("utf-8")
+    readable = render_readable("t", "o.pdf", "a" * 64, [(1, 0, "p:0001:00", "text")])
+    assert "/static/selection.js" in readable
 
 
 def test_scripts_never_write_html_directly() -> None:

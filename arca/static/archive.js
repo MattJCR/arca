@@ -2,6 +2,8 @@
 
 const I18N = JSON.parse(document.getElementById("i18n-data").textContent);
 const state = { collections: [], current: null, query: "", results: [] };
+const ZIM_SANDBOX = "allow-same-origin";
+const OWN_SANDBOX = "allow-same-origin allow-scripts";
 
 function t(key, params) {
   let template = I18N[key];
@@ -286,6 +288,7 @@ function showViewer(result, url) {
   const strip = document.getElementById("viewer-seal");
   strip.replaceChildren(...seal(result).childNodes);
   const frame = document.getElementById("viewer-frame");
+  frame.setAttribute("sandbox", url.startsWith("/zim/") ? ZIM_SANDBOX : OWN_SANDBOX);
   document.getElementById("viewer-loading").hidden = false;
   frame.src = url;
   frame.focus();

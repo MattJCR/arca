@@ -23,7 +23,7 @@ La posición lleva un `title` que explica que es el rango **dentro de su fuente*
 
 ## Visor
 
-`<iframe sandbox="allow-same-origin">`. El sandbox bloquea el JavaScript que traiga el ZIM: los artículos se leen con sus estilos e imágenes, pero ningún script de la colección puede tocar la aplicación ni llamar a la API. La segunda barrera, y la que de verdad manda, es la `Content-Security-Policy` que acompaña a cada respuesta de `/zim/...` (ver `zim.md`): protege también cuando un artículo se abre en una pestaña suelta, fuera de este marco. Los enlaces internos se resuelven contra el `<base>` que inyecta `/zim/...` y navegan dentro del propio marco, sin salir de la aplicación.
+`<iframe>` con **el sandbox que corresponda a lo que muestra**, y esa distinción importa: con un artículo de ZIM el marco lleva `sandbox="allow-same-origin"`, que bloquea el JavaScript que traiga la colección — los artículos se leen con sus estilos e imágenes, pero ningún script del ZIM puede tocar la aplicación ni llamar a la API. Con **nuestras propias páginas** (el consultable de un documento y el visor de PDF) lleva además `allow-scripts`, porque las genera ARCA y **necesitan ejecutar**: `selection.js`, que es lo que hace llegar el texto señalado al asistente, y PDF.js. Un único sandbox para las tres fuentes dejaba muertas las dos cosas. La segunda barrera, y la que de verdad manda, es la `Content-Security-Policy` que acompaña a cada respuesta de `/zim/...` (ver `zim.md`): protege también cuando un artículo se abre en una pestaña suelta, fuera de este marco. Los enlaces internos se resuelven contra el `<base>` que inyecta `/zim/...` y navegan dentro del propio marco, sin salir de la aplicación.
 
 ## Estados honestos
 
