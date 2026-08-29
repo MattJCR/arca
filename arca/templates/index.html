@@ -17,7 +17,7 @@ $lang_selector
 <main class="archive">
 <section class="pane pane-archive" aria-labelledby="archive-heading">
 <h2 id="archive-heading" data-i18n="home.archive.heading"></h2>
-<p id="health-strip" class="message" hidden></p>
+<p id="health-strip" class="message" hidden aria-live="polite"></p>
 <form id="search-form" role="search">
 <div class="field field-wide">
 <label for="search-q" data-i18n="home.search.label"></label>
@@ -33,8 +33,8 @@ $lang_selector
 <button type="submit" data-i18n="home.search.button"></button>
 </div>
 </form>
-<p id="search-message" class="message" hidden></p>
-<p id="search-count" class="result-count" hidden></p>
+<p id="search-message" class="message" hidden aria-live="polite"></p>
+<p id="search-count" class="result-count" hidden aria-live="polite"></p>
 <ol id="search-results" class="results"></ol>
 <ul id="search-sources" class="sources-note" hidden></ul>
 <section id="semantic-band" class="band" hidden>
@@ -56,8 +56,8 @@ $lang_selector
 <p class="assistant-state"><span class="state state-degraded" id="chat-state" data-i18n="home.chat.state.unavailable"></span></p>
 <p id="chat-unavailable" class="detail" data-i18n="home.chat.unavailable"></p>
 <p id="chat-selection" class="seal" hidden></p>
-<ol id="chat-log" class="chat-log"></ol>
-<p id="chat-message" class="message" hidden></p>
+<ol id="chat-log" class="chat-log" aria-live="polite"></ol>
+<p id="chat-message" class="message" hidden aria-live="polite"></p>
 <form id="chat-form">
 <div class="field field-wide">
 <label class="visually-hidden" for="chat-input" data-i18n="home.chat.placeholder"></label>
@@ -69,7 +69,7 @@ $lang_selector
 </form>
 </aside>
 </main>
-<noscript><p class="message" data-noscript>$noscript</p></noscript>
+<noscript><p class="message" data-noscript aria-live="polite">$noscript</p></noscript>
 <script id="i18n-data" type="application/json">$i18n_json</script>
 <script src="/static/archive.js"></script>
 <script src="/static/chat.js"></script>

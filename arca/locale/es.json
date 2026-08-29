@@ -113,7 +113,7 @@
   "admin.documents.upload_error.bad_file": "Ese fichero no es un PDF legible. ARCA solo importa PDF: si tienes otro formato, conviértelo antes.",
   "admin.documents.upload_error.too_large": "El fichero pasa del tope de subida de 2 GiB. Déjalo a mano en la carpeta de la biblioteca e impórtalo con «arca import».",
   "admin.documents.refresh_button": "Volver a leer",
-  "admin.documents.empty": "Todavía no hay documentos importados. Usa «arca import» para añadirlos.",
+  "admin.documents.empty": "Todavía no hay documentos indexados. Súbelos aquí arriba con «Importar» y luego pulsa «Indexar y sellar»; también sirve «arca import» desde la línea de comandos.",
   "admin.documents.col.title": "Documento",
   "admin.documents.col.file": "Fichero original",
   "admin.documents.col.pages": "Páginas",

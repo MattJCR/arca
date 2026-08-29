@@ -32,7 +32,7 @@ $lang_selector
 <main class="admin">
 <section id="status-section" role="tabpanel">
 <h2 data-i18n="admin.status.heading"></h2>
-<ul id="status-summary" class="status"></ul>
+<ul id="status-summary" class="status" aria-live="polite"></ul>
 <h3 data-i18n="admin.status.events_heading"></h3>
 <div class="table-scroll">
 <table class="data">
@@ -75,7 +75,7 @@ $lang_selector
 <button type="submit" data-i18n="admin.catalog.search_button"></button>
 </div>
 </form>
-<p id="catalog-message" class="message" hidden></p>
+<p id="catalog-message" class="message" hidden aria-live="polite"></p>
 <p id="catalog-count" class="result-count" hidden></p>
 <div class="table-scroll" id="catalog-table-wrap" hidden>
 <table class="data" id="catalog-table">
@@ -95,8 +95,8 @@ $lang_selector
 <section id="downloads-section" role="tabpanel">
 <h2 data-i18n="admin.downloads.heading"></h2>
 <p><button id="verify-button" data-i18n="admin.verify.button"></button></p>
-<p id="verify-message" class="message" hidden></p>
-<p id="downloads-message" class="message" hidden></p>
+<p id="verify-message" class="message" hidden aria-live="polite"></p>
+<p id="downloads-message" class="message" hidden aria-live="polite"></p>
 <div class="table-scroll" id="downloads-table-wrap" hidden>
 <table class="data" id="downloads-table">
 <thead><tr>
@@ -115,7 +115,7 @@ $lang_selector
 <h2 data-i18n="admin.content.heading"></h2>
 <p><button id="content-refresh-button" data-i18n="admin.content.refresh_button"></button></p>
 <p class="detail" data-i18n="admin.content.disabled_note"></p>
-<p id="content-message" class="message" hidden></p>
+<p id="content-message" class="message" hidden aria-live="polite"></p>
 <p id="content-count" class="result-count" hidden></p>
 <div class="table-scroll" id="content-table-wrap" hidden>
 <table class="data" id="content-table">
@@ -151,12 +151,12 @@ $lang_selector
 <button type="submit" data-i18n="admin.documents.upload_button"></button>
 </div>
 </form>
-<p id="documents-pending" class="result-count"></p>
+<p id="documents-pending" class="result-count" aria-live="polite"></p>
 <p>
 <button id="documents-index-button" data-i18n="admin.documents.index_button"></button>
 <button id="documents-refresh-button" data-i18n="admin.documents.refresh_button"></button>
 </p>
-<p id="documents-message" class="message" hidden></p>
+<p id="documents-message" class="message" hidden aria-live="polite"></p>
 <div class="table-scroll">
 <table class="data" id="documents-table">
 <thead><tr>
@@ -200,7 +200,7 @@ $lang_selector
 <section id="scope-section" role="tabpanel">
 <h2 data-i18n="admin.scope.heading"></h2>
 <p class="detail" data-i18n="admin.scope.explanation"></p>
-<p id="scope-message" class="message" hidden></p>
+<p id="scope-message" class="message" hidden aria-live="polite"></p>
 <div id="scope-list"></div>
 </section>
 <section id="models-section" role="tabpanel">
@@ -223,7 +223,7 @@ $lang_selector
 <button type="submit" data-i18n="admin.hub.search_button"></button>
 </div>
 </form>
-<p id="hub-message" class="message" hidden></p>
+<p id="hub-message" class="message" hidden aria-live="polite"></p>
 <div class="table-scroll" id="hub-table-wrap" hidden>
 <table class="data" id="hub-table">
 <thead><tr>
@@ -273,8 +273,8 @@ $lang_selector
 <h2 data-i18n="admin.llama.heading"></h2>
 <h3 data-i18n="admin.engine.heading"></h3>
 <p class="detail" data-i18n="admin.engine.note"></p>
-<p id="engine-state" class="result-count"></p>
-<p id="engine-detail" class="detail"></p>
+<p id="engine-state" class="result-count" aria-live="polite"></p>
+<p id="engine-detail" class="detail" aria-live="polite"></p>
 <p class="llama-panel">
 <button id="engine-start" type="button" data-i18n="admin.engine.start"></button>
 </p>
@@ -286,9 +286,9 @@ $lang_selector
 <button id="llama-restart" data-i18n="admin.llama.restart"></button>
 </p>
 <h3 data-i18n="admin.llama.command_line"></h3>
-<p id="llama-command" class="command-line"></p>
+<p id="llama-command" class="command-line" aria-live="polite"></p>
 <ul id="llama-preflight" class="sources-note" hidden></ul>
-<p id="llama-message" class="message" hidden></p>
+<p id="llama-message" class="message" hidden aria-live="polite"></p>
 <h3 data-i18n="admin.llama.log_heading"></h3>
 <pre id="llama-log" class="llama-log"></pre>
 <h3 data-i18n="admin.llama.profiles_heading"></h3>
@@ -325,7 +325,7 @@ $lang_selector
 <textarea id="chat-sampling" rows="3"></textarea>
 <p><button type="submit" data-i18n="admin.chat.save"></button></p>
 </form>
-<p id="chat-settings-message" class="message" hidden></p>
+<p id="chat-settings-message" class="message" hidden aria-live="polite"></p>
 </section>
 <section id="vendor-section" role="tabpanel">
 <h2 data-i18n="admin.vendor.heading"></h2>
@@ -345,7 +345,7 @@ $lang_selector
 <button type="submit" data-i18n="admin.vendor.llama_button"></button>
 </div>
 </form>
-<p id="vendor-message" class="message" hidden></p>
+<p id="vendor-message" class="message" hidden aria-live="polite"></p>
 <div class="table-scroll">
 <table class="data" id="vendor-table">
 <thead><tr>
@@ -391,7 +391,7 @@ $lang_selector
 <p class="detail" data-i18n="admin.search.chunk_note"></p>
 <p><button type="submit" data-i18n="admin.search.save"></button></p>
 </form>
-<p id="search-settings-message" class="message" hidden></p>
+<p id="search-settings-message" class="message" hidden aria-live="polite"></p>
 </section>
 <section id="maintenance-section" role="tabpanel">
 <h2 data-i18n="admin.maintenance.heading"></h2>
@@ -403,7 +403,7 @@ $lang_selector
 <h3 data-i18n="admin.maintenance.verify_heading"></h3>
 <p class="detail" data-i18n="admin.maintenance.verify_note"></p>
 <p><button id="integrity-button" data-i18n="admin.maintenance.verify_button"></button></p>
-<p id="integrity-message" class="message" hidden></p>
+<p id="integrity-message" class="message" hidden aria-live="polite"></p>
 <div class="table-scroll">
 <table class="data" id="integrity-table">
 <thead><tr>
@@ -423,7 +423,7 @@ $lang_selector
 </p>
 <label class="visually-hidden" for="config-text" data-i18n="admin.maintenance.import_label"></label>
 <textarea id="config-text" rows="8" class="command-line" data-i18n-placeholder="admin.maintenance.import_label"></textarea>
-<p id="config-message" class="message" hidden></p>
+<p id="config-message" class="message" hidden aria-live="polite"></p>
 </section>
 <section id="diagnostics-section" role="tabpanel">
 <h2 data-i18n="admin.diagnostics.heading"></h2>
@@ -433,7 +433,7 @@ $lang_selector
 <section id="manual-section" role="tabpanel">
 <h2 data-i18n="admin.manual.heading"></h2>
 <p class="detail" data-i18n="admin.manual.note"></p>
-<p id="manual-message" class="message" hidden></p>
+<p id="manual-message" class="message" hidden aria-live="polite"></p>
 <div class="manual-browser">
 <ul id="manual-pages" class="manual-index"></ul>
 <iframe id="manual-frame" data-i18n-title="admin.manual.frame_title"></iframe>

@@ -304,12 +304,59 @@ somete al arranque de prueba de §13.3 y fija el commit en `sources.lock`.
 puesta en marcha nunca bloquea el arranque y sin red lo dice sin romper nada.
 · Loop: Ninguno.
 
+**F6.4 — Importación desde el panel y camino de indexado** *(cerrada el 2026-08-29)*
+§12.4 «Subida»: `POST /api/admin/documents/upload` (bytes en crudo, sin dependencia de *multipart*)
+y `POST /api/admin/documents/index`, que es el **primer llamador en producción** de
+`ingest_documents`. Con él, un documento importado por fin se indexa y se busca.
+· Dep: F6.2 · CA: subir → indexar → el documento aparece en `/api/search`, verificado de punta a
+punta y contra el servidor vivo.
+
 **F6.3 — Deuda pendiente** *(parcial)*
 Revisión de código de H2.2–H2.7: **hecha** el 2026-08-29, veredicto y hallazgo en
 `docs/gates/review-h2.md`. Siguen pendientes, y dependen de hardware y del modelo descargado: la
 prueba de citación en español con el binario y el modelo reales, y la medición de la recuperación
 semántica con `multilingual-e5-base` real.
 · Dep: F6.2 · CA: `docs/gates/milestone-4.md` repasado contra el modelo real.
+
+### Fase 7 — Hallazgos de la revisión general
+
+Salen de `docs/gates/review-general.md`, que registra qué se verificó y qué quedó abierto. El orden
+es el de esa revisión: primero lo que evita que vuelva a pasar lo de la fase 6.
+
+**F7.1 — Prueba de costura: nada del producto sin llamador** *(alta)*
+Verificación de que toda función pública del paquete la usa alguien fuera de `tests/`. Es la
+comprobación que habría cazado el chat roto en el navegador y los documentos que nunca se
+indexaban, los dos defectos más graves de la fase 6.
+· Dep: F6.4 · CA: la comprobación corre en la puerta de calidad y las cuatro funciones huérfanas de
+hoy (`vectors.merge_hits`, `search.unsearchable`, `ingest.readable_html`, `zim.read_info`) quedan
+usadas o borradas, con su cobertura movida al camino vivo.
+
+**F7.2 — Indexado y verificación integral en segundo plano** *(media)*
+`POST /api/admin/documents/index` y `POST /api/admin/vendor/index` bloquean la petición minutos.
+Pasarlos al patrón de `EngineBringup`: hilo demonio con estado consultable y progreso real.
+· Dep: F7.1 · CA: la petición vuelve enseguida y el panel muestra documento *n* de *m*.
+
+**F7.3 — Decidir dónde vive el lock que se escribe en ejecución** *(media)*
+Fijar el commit de llama.cpp modifica el `sources.lock` versionado. Decidir entre mantenerlo (y
+documentar que usar el producto ensucia el árbol) o separar lock de repositorio y lock de
+biblioteca.
+· Dep: — · CA: la decisión queda en §8.3 y el comportamiento la sigue.
+
+**F7.4 — Agrupar el panel en tres familias** *(media)*
+Catorce pestañas en una barra que envuelve. Agrupar en Contenido / Modelo y chat / Sistema con la
+misma maquinaria ARIA (U1 de la revisión).
+· Dep: — · CA: la primera decisión del operador pasa de catorce opciones a tres, sin ocultar
+ninguna sección y sin romper el patrón de teclado.
+
+**F7.5 — Pulido de interfaz** *(baja)*
+U2–U7 de la revisión: progreso en operaciones largas, resultado por fichero al subir, altura máxima
+del historial de chat, estados de color en la tarjeta del motor, indicación de carga en el visor y
+el resto de accesibilidad.
+· Dep: F7.2, F7.4 · CA: cada punto, verificado a mano en las dos pantallas.
+
+**F7.6 — `python -m arca`** *(baja)*
+Añadir `__main__.py` para que la invocación obvia funcione.
+· Dep: — · CA: `python -m arca --version` responde.
 
 ---
 

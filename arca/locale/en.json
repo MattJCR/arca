@@ -113,7 +113,7 @@
   "admin.documents.upload_error.bad_file": "That file is not a readable PDF. ARCA imports PDFs only: convert other formats first.",
   "admin.documents.upload_error.too_large": "The file is over the 2 GiB upload cap. Drop it into the library folder by hand and import it with «arca import».",
   "admin.documents.refresh_button": "Read again",
-  "admin.documents.empty": "No documents imported yet. Use “arca import” to add them.",
+  "admin.documents.empty": "No documents indexed yet. Upload them above with «Import» and then press «Index and seal»; «arca import» on the command line works too.",
   "admin.documents.col.title": "Document",
   "admin.documents.col.file": "Original file",
   "admin.documents.col.pages": "Pages",

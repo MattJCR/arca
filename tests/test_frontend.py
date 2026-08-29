@@ -118,3 +118,11 @@ def _scripts_without_fetch() -> int:
         for script in STATIC.glob("*.js")
         if "async function fetchJson(" not in script.read_text("utf-8")
     )
+
+
+def test_every_region_the_scripts_rewrite_announces_itself() -> None:
+    for template in TEMPLATES.glob("*.html"):
+        text = template.read_text("utf-8")
+        for tag in re.findall(r"<(?:p|ul|ol|div)[^>]*>", text):
+            if 'class="' in tag and "message" in tag.split('class="')[1].split('"')[0].split():
+                assert "aria-live" in tag, f"{template.name}: {tag}"
