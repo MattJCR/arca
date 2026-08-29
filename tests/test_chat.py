@@ -641,3 +641,24 @@ def test_the_reasoning_of_a_thinking_model_is_read_but_never_shown_as_the_answer
 
 def test_the_default_token_budget_leaves_room_for_a_thinking_model() -> None:
     assert ChatSettings().sampling["n_predict"] >= 2048
+
+
+def test_a_combined_citation_marker_counts_as_two_citations() -> None:
+    evidence = select_evidence([result(1, "primero"), result(2, "segundo")], ChatSettings())
+    assert citations_in("Lo dice el manual [1, 2].", evidence) == (1, 2)
+    assert citations_in("Lo dice el manual [1,2].", evidence) == (1, 2)
+    assert citations_in("Uno [1] y dos [2].", evidence) == (1, 2)
+    assert citations_in("Sin respaldo alguno.", evidence) == ()
+
+
+def test_an_answer_with_a_combined_marker_is_not_called_unbacked() -> None:
+    engine, _, _ = engine_for(
+        [
+            result(1, "la bomba se ceba abriendo el tapon de la carcasa"),
+            result(2, "cebar la bomba exige llenar el cuerpo de fluido"),
+        ],
+        ["Se ceba abriendo el tapon [1, 2]."],
+    )
+    reply = engine.reply("Como se ceba la bomba?", read_screen({}), ChatSettings(), CATALOG)
+    assert reply.citations == (1, 2)
+    assert reply.state == STATE_OK

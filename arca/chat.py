@@ -23,7 +23,7 @@ MAX_SCREEN_RESULTS = 5
 MAX_SNIPPET_CHARS = 320
 MAX_PAGE_CHARS = 3000
 SEARCH_PREFIX = "SEARCH:"
-MARKER_PATTERN = re.compile(r"\[(\d{1,2})\]")
+MARKER_PATTERN = re.compile(r"\[(\d{1,2}(?:\s*,\s*\d{1,2})*)\]")
 TERM_PATTERN = re.compile(r"[a-z0-9]+")
 MIN_TERM_LENGTH = 4
 MIN_SEMANTIC_SCORE = 0.75
@@ -283,7 +283,7 @@ def is_risky(text: str, topics: Sequence[str]) -> bool:
 
 def citations_in(text: str, evidence: Sequence[Evidence]) -> tuple[int, ...]:
     markers = {item.marker for item in evidence}
-    found = [int(value) for value in MARKER_PATTERN.findall(text)]
+    found = [int(part) for value in MARKER_PATTERN.findall(text) for part in value.split(",")]
     return tuple(sorted({marker for marker in found if marker in markers}))
 
 

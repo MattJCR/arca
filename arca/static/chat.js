@@ -81,24 +81,40 @@ function evidenceFor(payload, marker) {
 function citedAnswer(payload) {
   const body = document.createElement("p");
   body.className = "chat-text";
-  const parts = payload.text.split(/(\[\d{1,2}\])/);
+  const parts = payload.text.split(/(\[\d{1,2}(?:\s*,\s*\d{1,2})*\])/);
   for (const part of parts) {
-    const match = part.match(/^\[(\d{1,2})\]$/);
-    const source = match ? evidenceFor(payload, Number(match[1])) : null;
-    if (!source) {
+    const match = part.match(/^\[(\d{1,2}(?:\s*,\s*\d{1,2})*)\]$/);
+    if (!match) {
       body.append(document.createTextNode(part));
       continue;
     }
-    const link = document.createElement("a");
-    link.className = "chat-citation";
-    link.href = source.url;
-    link.textContent = part;
-    link.title = source.source_title;
-    link.addEventListener("click", (event) => {
-      event.preventDefault();
-      openResult(asResult(source));
+    const numbers = match[1].split(",").map((value) => Number(value.trim()));
+    if (!numbers.some((number) => evidenceFor(payload, number))) {
+      body.append(document.createTextNode(part));
+      continue;
+    }
+    body.append(document.createTextNode("["));
+    numbers.forEach((number, index) => {
+      if (index) {
+        body.append(document.createTextNode(", "));
+      }
+      const source = evidenceFor(payload, number);
+      if (!source) {
+        body.append(document.createTextNode(String(number)));
+        return;
+      }
+      const link = document.createElement("a");
+      link.className = "chat-citation";
+      link.href = source.url;
+      link.textContent = String(number);
+      link.title = source.source_title;
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        openResult(asResult(source));
+      });
+      body.append(link);
     });
-    body.append(link);
+    body.append(document.createTextNode("]"));
   }
   return body;
 }

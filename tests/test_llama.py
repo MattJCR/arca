@@ -199,10 +199,11 @@ def test_a_binary_that_refuses_to_start_is_reported_with_its_log(server: LlamaSe
 def test_an_unrunnable_command_degrades_instead_of_raising(
     server: LlamaServer, tmp_path: Path
 ) -> None:
-    status = server.start([str(tmp_path / "missing-binary")])
+    dead = LlamaServer(default_url=f"http://127.0.0.1:{free_port()}")
+    status = dead.start([str(tmp_path / "missing-binary")])
     assert not status.running
     assert status.error
-    assert server.health(timeout=1.0) == HEALTH_DOWN
+    assert dead.health(timeout=1.0) == HEALTH_DOWN
 
 
 def test_an_empty_command_is_refused(server: LlamaServer) -> None:

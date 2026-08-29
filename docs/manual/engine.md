@@ -143,6 +143,11 @@ ARCA gestiona **dos** procesos de `llama-server`, no uno, y comparten el mismo b
 | Chat | el `.gguf` de `models/chat/` | `chat_url` | Arranca, responde a `/health` y **genera texto** (§13.3) |
 | Embeddings | el primer `.gguf` legible de `models/embed/` | `embed_url` | Arranca, responde a `/health` y **devuelve un vector con las dimensiones esperadas** |
 
+Cuando un arranque falla, el detalle que se muestra **es la línea del propio motor**, no una
+frase genérica: `_explain()` recorre el log y prefiere lo que explica —«unknown model architecture»,
+«out of memory»— sobre un «error» pelado. Es la diferencia entre «no respondió al chequeo de salud»
+y saber que el GGUF que bajaste está convertido con una arquitectura que tu binario no carga.
+
 La prueba del segundo no puede ser la del primero: un modelo de embeddings no conversa. Lo que se
 comprueba es lo que de verdad importa, que es lo mismo que mira la comprobación `embedding_server`
 de §14: que el vector tenga `embed_dims` dimensiones. Un modelo que devuelve otras se rechaza con

@@ -238,9 +238,12 @@ def test_a_collection_without_a_full_text_index_is_named(tmp_path: Path) -> None
 
 
 def test_an_unreachable_embedding_server_degrades_without_breaking(tmp_path: Path) -> None:
+    from tests.support import free_port
+
     root = tmp_path / "library"
     init_library(root)
-    checks = {check.check_id: check for check in run_checks(root, ArcaConfig())}
+    config = ArcaConfig(embed_url=f"http://127.0.0.1:{free_port()}")
+    checks = {check.check_id: check for check in run_checks(root, config)}
     assert checks["embedding_server"].state is CheckState.DEGRADED
     rendered = render(checks["embedding_server"], load_catalog("es"))
     assert rendered["impact"]

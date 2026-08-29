@@ -13,6 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -73,7 +74,11 @@ RELEASE_PAGE = 20
 NVIDIA_PROBE = "nvidia-smi"
 EMBEDDING_TIMEOUT_SECONDS = 30.0
 EMBEDDING_PROBE = "arca"
-EMBEDDING_LOG_LINES = 20
+EMBEDDING_LOG_LINES = 40
+MAX_DETAIL_CHARS = 300
+PRECISE_WORDS = ("unknown model", "unsupported", "architecture", "out of memory", "cannot")
+FAILURE_WORDS = ("error", "failed")
+NO_HEALTH_ANSWER = "the server did not answer its health check"
 
 BACKEND_CPU = "cpu"
 BACKEND_CUDA = "cuda"
@@ -527,10 +532,12 @@ class EngineBringup:
             self._record("warning", f"embedding server failed to start: {embed.name}", status.error)
             return status.error
         if not server.wait_healthy(self._health_timeout or HEALTH_WAIT_SECONDS):
-            log = " ".join(server.log(EMBEDDING_LOG_LINES))
+            lines = server.log(EMBEDDING_LOG_LINES)
             server.stop()
-            self._record("warning", f"embedding server never became healthy: {embed.name}", log)
-            return "the embedding server did not answer its health check"
+            self._record(
+                "warning", f"embedding server never became healthy: {embed.name}", " ".join(lines)
+            )
+            return _explain(lines)
         try:
             vector = self._client().embed_query(EMBEDDING_PROBE)
         except EmbeddingError as error:
@@ -633,14 +640,12 @@ class EngineBringup:
             self._record("warning", f"chat server failed to start: {profile.name}", status.error)
             return self._set(STATE_FAILED, detail=status.error, profile=profile.name)
         if not self._server.wait_healthy(self._health_timeout or HEALTH_WAIT_SECONDS):
-            log = " ".join(self._server.log(EMBEDDING_LOG_LINES))
+            lines = self._server.log(EMBEDDING_LOG_LINES)
             self._server.stop()
-            self._record("warning", f"chat server never became healthy: {profile.name}", log)
-            return self._set(
-                STATE_FAILED,
-                detail="the chat server did not answer its health check",
-                profile=profile.name,
+            self._record(
+                "warning", f"chat server never became healthy: {profile.name}", " ".join(lines)
             )
+            return self._set(STATE_FAILED, detail=_explain(lines), profile=profile.name)
         self._record("info", f"chat server resumed with {profile.name}")
         return self._set(STATE_READY, binary=str(binary), profile=profile.name)
 
@@ -729,6 +734,14 @@ class EngineBringup:
         with self._lock:
             self._status = status
         return status
+
+
+def _explain(lines: Sequence[str]) -> str:
+    for words in (PRECISE_WORDS, FAILURE_WORDS):
+        said = [line.strip() for line in lines if any(word in line.lower() for word in words)]
+        if said:
+            return said[-1][:MAX_DETAIL_CHARS]
+    return NO_HEALTH_ANSWER
 
 
 def _discard(directory: Path) -> None:

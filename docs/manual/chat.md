@@ -99,7 +99,12 @@ tiraba a la basura la mitad de lo que un modelo sabe hacer. Corregido:
 | Sin espacio | El modelo agotó sus tokens antes de escribir | `truncated` | Dice que le faltó presupuesto y dónde subirlo |
 
 La marca **no la pone el modelo, la pone el sistema**: si la respuesta no contiene ninguna cita
-válida, se marca como sin respaldo, lo diga el modelo o no. Así se conserva entera la regla de §11.3
+válida, se marca como sin respaldo, lo diga el modelo o no. Por eso el reconocimiento de marcadores
+importa tanto: un modelo escribe `[1, 2]` con la misma naturalidad que `[1]`, y hasta el 2026-08-29
+sólo se reconocía la forma simple. El resultado era el peor posible en un archivo: una respuesta
+**bien respaldada** se marcaba como «sin respaldo del archivo» y sus citas no se enlazaban. Ambos
+lados —`citations_in` y el pintado del panel— aceptan ahora la forma combinada, y cada número del
+corchete se enlaza por separado a su párrafo. Así se conserva entera la regla de §11.3
 —en temas de riesgo, citar o declarar que no hay fuente— sin sacrificar la utilidad del asistente
 para todo lo demás. El aviso de riesgo sin cita sigue exactamente donde estaba.
 
