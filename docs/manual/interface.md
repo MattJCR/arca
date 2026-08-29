@@ -114,13 +114,20 @@ Tipografías **vendorizadas** en `static/fonts/`, servidas desde el propio servi
 
 | Uso | Familia | Ficheros |
 |---|---|---|
+| Interfaz (botones, tablas, formularios) | Archivo | `archivo-{latin,latin-ext}.woff2` |
 | Display (cabeceras, rótulos) | Archivo Narrow | `archivo-narrow-{latin,latin-ext}.woff2` |
 | Cuerpo de lectura | Source Serif 4 | `source-serif-4-{latin,latin-ext}.woff2` |
 | Datos, rutas, sellos, hashes | IBM Plex Mono | `ibm-plex-mono-{latin,latin-ext}.woff2` |
 
-Archivo Narrow y Source Serif 4 son variables: un solo fichero por subconjunto cubre los pesos 400–600, declarado con `font-weight: 400 600` en `fonts.css`. Las tres son SIL Open Font License; el texto de cada licencia está junto a los ficheros (`OFL-*.txt` / `OFL-*.md`). Cada `@font-face` lleva su `unicode-range`, así que el navegador solo baja `latin-ext` cuando hace falta.
+Archivo, Archivo Narrow y Source Serif 4 son variables: un solo fichero por subconjunto cubre todo su rango de pesos, declarado con `font-weight: 400 700` (o `400 600`) en `fonts.css`. Archivo y Archivo Narrow son la misma superfamilia de Omnibus-Type, así que la interfaz y sus rótulos comparten esqueleto sin que la estrecha tenga que hacer de texto corrido. Las cuatro son SIL Open Font License; el texto de cada licencia está junto a los ficheros (`OFL-*.txt` / `OFL-*.md`). Cada `@font-face` lleva su `unicode-range`, así que el navegador solo baja `latin-ext` cuando hace falta.
 
-**Regenerar las fuentes** (única operación con red): pedir el CSS de `fonts.googleapis.com` con un `User-Agent` de navegador, quedarse con los subconjuntos `latin` y `latin-ext`, bajar los WOFF2 a `static/fonts/` y reconstruir `fonts.css`. No hay ninguna referencia a Google en el código servido: `tests/test_frontend.py` falla si aparece una URL externa en cualquier plantilla, hoja o script.
+**Regenerar o añadir una fuente** (única operación con red) es un script del repositorio, `scripts/vendor_font.py`, no un procedimiento a mano:
+
+```
+.venv/Scripts/python.exe scripts/vendor_font.py Archivo "wght@400..700" archivo "400 700"
+```
+
+Pide el CSS de `fonts.googleapis.com` con un `User-Agent` de navegador, se queda con los subconjuntos `latin` y `latin-ext`, baja los WOFF2 a `static/fonts/`, guarda la OFL desde el repositorio de Google Fonts y añade los `@font-face` a `fonts.css` con rutas locales. Si la familia ya estaba declarada, reemplaza los WOFF2 y deja el CSS como está. Falla en vez de seguir si el subconjunto no existe, si lo que llega no es un WOFF2 o si la licencia no es una OFL. No hay ninguna referencia a Google en el código servido: `tests/test_frontend.py` falla si aparece una URL externa en cualquier plantilla, hoja o script.
 
 Suelo de calidad: responsive hasta móvil, `:focus-visible` de 3 px en todo, `prefers-reduced-motion` respetado, y contraste de la paleta de §16.
 

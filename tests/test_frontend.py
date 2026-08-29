@@ -7,6 +7,8 @@ PACKAGE = Path(__file__).resolve().parents[1] / "arca"
 STATIC = PACKAGE / "static"
 TEMPLATES = PACKAGE / "templates"
 FONT_FILES = (
+    "archivo-latin.woff2",
+    "archivo-latin-ext.woff2",
     "archivo-narrow-latin.woff2",
     "archivo-narrow-latin-ext.woff2",
     "source-serif-4-latin.woff2",
@@ -15,6 +17,7 @@ FONT_FILES = (
     "ibm-plex-mono-latin-ext.woff2",
 )
 LICENCE_FILES = (
+    "OFL-archivo.txt",
     "OFL-archivo-narrow.txt",
     "OFL-source-serif-4.md",
     "OFL-ibm-plex-mono.txt",
@@ -37,7 +40,7 @@ def test_the_interface_makes_no_external_requests() -> None:
         assert "//cdn" not in text, source.name
 
 
-def test_the_three_typefaces_are_vendored_with_their_licences() -> None:
+def test_every_typeface_is_vendored_with_its_licence() -> None:
     fonts = STATIC / "fonts"
     for name in FONT_FILES:
         path = fonts / name
@@ -52,7 +55,7 @@ def test_the_three_typefaces_are_vendored_with_their_licences() -> None:
 def test_every_font_face_points_at_a_vendored_file() -> None:
     css = (STATIC / "fonts" / "fonts.css").read_text("utf-8")
     families = set(re.findall(r'font-family:\s*"([^"]+)"', css))
-    assert families == {"Archivo Narrow", "Source Serif 4", "IBM Plex Mono"}
+    assert families == {"Archivo", "Archivo Narrow", "Source Serif 4", "IBM Plex Mono"}
     for reference in re.findall(r'url\("([^"]+)"\)', css):
         assert reference.startswith("/static/fonts/")
         assert (STATIC / "fonts" / Path(reference).name).is_file(), reference
@@ -60,6 +63,19 @@ def test_every_font_face_points_at_a_vendored_file() -> None:
 
 LIGHT_PALETTE = ("#d7d3c8", "#e6e2d8", "#171512", "#b04408", "#a1160f", "#8a5a06", "#23663a")
 DARK_PALETTE = ("#0f0e0d", "#1a1917", "#ece8df", "#e8763a", "#f0685c", "#d9a63f", "#5fb377")
+
+
+def test_the_stylesheet_only_reaches_for_vendored_families_first() -> None:
+    css = (STATIC / "style.css").read_text("utf-8")
+    declared = set(
+        re.findall(r'font-family:\s*"([^"]+)"', (STATIC / "fonts" / "fonts.css").read_text("utf-8"))
+    )
+    for token in ("--font-ui", "--font-display", "--font-body", "--font-mono"):
+        stack = re.search(rf"{token}:\s*([^;]+);", css)
+        assert stack is not None, token
+        first = re.match(r'\s*"([^"]+)"', stack.group(1))
+        assert first is not None, token
+        assert first.group(1) in declared, f"{token} starts with {first.group(1)}"
 
 
 def test_the_stylesheet_uses_the_palette_of_the_specification() -> None:

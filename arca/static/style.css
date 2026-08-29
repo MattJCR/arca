@@ -23,8 +23,8 @@
   --info-soft: #dce7ee;
   --on-accent: #ffffff;
   --frame: #ffffff;
-  --font-ui: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
-  --font-display: "Archivo Narrow", "Segoe UI Semibold", "Arial Narrow", var(--font-ui);
+  --font-ui: "Archivo", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  --font-display: "Archivo Narrow", "Arial Narrow", var(--font-ui);
   --font-body: "Source Serif 4", Georgia, "Times New Roman", serif;
   --font-mono: "IBM Plex Mono", Consolas, "Cascadia Mono", monospace;
   --radius: 6px;

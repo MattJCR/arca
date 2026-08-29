@@ -50,11 +50,17 @@ esac
 grep -q 'english-only-lint: allow-spanish' "${FILE}" && exit 0
 
 # "Pokémon" is the spelling of the proper noun and is allowed everywhere, in any
-# casing, so it never trips the accent check. "Archivo Narrow" is the name of a
-# typeface we vendor, so the word list must not see it: only the full typeface
-# name and the file stem are stripped, never a bare "archivo".
+# casing, so it never trips the accent check.
+#
+# "Archivo" and "Archivo Narrow" are the names of two typefaces we vendor, and
+# they collide with the Spanish word on the list below. The rule that keeps the
+# check honest: a word glued to a path separator or an extension is part of a
+# file name, not prose, so it is stripped; the bare word with spaces around it
+# still trips, which is what catches real Spanish.
 STRIPPED="$(sed -e 's/[Pp][Oo][Kk][éÉ][Mm][Oo][Nn]//g' \
-  -e 's/[Aa]rchivo[ -][Nn]arrow//g' "${FILE}")"
+  -e 's/[Aa]rchivo[ -][Nn]arrow//g' \
+  -e 's/[Aa]rchivo[-.\/]//g' \
+  -e 's/[-\/][Aa]rchivo//g' "${FILE}")"
 
 ACCENTED="$(printf '%s' "${STRIPPED}" | grep -n '[áéíóúÁÉÍÓÚñÑ¿¡]' || true)"
 SPANISH_WORDS='\b(el|los|las|una|unos|unas|del|para|por|que|pero|cuando|donde|esto|esta|este|estos|estas|tiene|debe|puede|cada|todo|todos|fichero|archivo|cadena|prueba|pruebas|entorno|siguiente|mediante|porque|aunque|hasta|desde|entre|sobre)\b'
