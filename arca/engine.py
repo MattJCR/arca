@@ -6,6 +6,7 @@ import platform
 import shutil
 import sqlite3
 import stat
+import tarfile
 import threading
 import time
 import urllib.error
@@ -55,13 +56,20 @@ DEFAULT_CHAT_HOST = "127.0.0.1"
 DEFAULT_CHAT_PORT = "8081"
 POLL_SECONDS = 0.5
 DOWNLOAD_TIMEOUT_SECONDS = 7200.0
-ARCHIVE_SUFFIX = ".zip"
+ARCHIVE_SUFFIXES = (".zip", ".tar.gz")
 DIGEST_PREFIX = "sha256:"
 SHA256_LENGTH = 64
+RELEASE_PAGE = 20
+NVIDIA_PROBE = "nvidia-smi"
 
 BACKEND_CPU = "cpu"
-BACKEND_ORDER = ("cuda", "hip", "rocm", "sycl", "vulkan", "metal", BACKEND_CPU)
-GPU_BACKENDS = ("cuda", "hip", "rocm", "sycl", "vulkan", "metal")
+BACKEND_CUDA = "cuda"
+BACKENDS = (BACKEND_CUDA, "hip", "rocm", "sycl", "vulkan", "metal", BACKEND_CPU)
+GPU_BACKENDS = (BACKEND_CUDA, "hip", "rocm", "sycl", "vulkan", "metal")
+NVIDIA_ORDER = (BACKEND_CUDA, "vulkan", "hip", "rocm", "sycl", "metal", BACKEND_CPU)
+OPEN_ORDER = ("vulkan", "hip", "rocm", "sycl", "metal", BACKEND_CUDA, BACKEND_CPU)
+COMPANION_PREFIX = "cudart"
+UNSUPPORTED_TOKENS = ("openvino", "opencl", "s390x", "xcframework")
 SYSTEM_TOKENS = {
     "windows": ("win",),
     "linux": ("ubuntu", "linux"),
@@ -128,28 +136,40 @@ def vendor_dir(root: Path) -> Path:
 
 
 def releases_url(base_url: str = GITHUB_API_URL, repo: str = LLAMA_REPO) -> str:
-    return f"{base_url.rstrip('/')}/repos/{repo}/releases/latest"
+    return f"{base_url.rstrip('/')}/repos/{repo}/releases?per_page={RELEASE_PAGE}"
 
 
 def tag_url(tag: str, base_url: str = GITHUB_API_URL, repo: str = LLAMA_REPO) -> str:
     return f"{base_url.rstrip('/')}/repos/{repo}/git/ref/tags/{urllib.parse.quote(tag)}"
 
 
-def resolve_release(base_url: str = GITHUB_API_URL, repo: str = LLAMA_REPO) -> Release:
+def list_releases(base_url: str = GITHUB_API_URL, repo: str = LLAMA_REPO) -> tuple[Release, ...]:
     payload = _fetch(releases_url(base_url, repo))
-    if not isinstance(payload, dict):
+    if not isinstance(payload, list):
         raise EngineError("the release feed returned an unexpected payload")
-    raw_assets = payload.get("assets")
-    assets = (
-        tuple(_asset(item) for item in raw_assets if isinstance(item, dict))
-        if isinstance(raw_assets, list)
-        else ()
-    )
-    return Release(
-        tag=str(payload.get("tag_name") or ""),
-        commit=_sha(payload.get("target_commitish")),
-        assets=tuple(item for item in assets if item.url),
-    )
+    return tuple(_release(item) for item in payload if isinstance(item, dict))
+
+
+def pick_release(
+    releases: tuple[Release, ...],
+    system: str = "",
+    machine: str = "",
+    nvidia: bool | None = None,
+) -> Release | None:
+    for release in releases:
+        if candidates(release.assets, system, machine, nvidia):
+            return release
+    return None
+
+
+def resolve_release(
+    base_url: str = GITHUB_API_URL,
+    repo: str = LLAMA_REPO,
+    system: str = "",
+    machine: str = "",
+    nvidia: bool | None = None,
+) -> Release | None:
+    return pick_release(list_releases(base_url, repo), system, machine, nvidia)
 
 
 def resolve_commit(tag: str, base_url: str = GITHUB_API_URL, repo: str = LLAMA_REPO) -> str:
@@ -167,7 +187,7 @@ def resolve_commit(tag: str, base_url: str = GITHUB_API_URL, repo: str = LLAMA_R
 
 def backend_of(name: str) -> str:
     lowered = name.lower()
-    for backend in BACKEND_ORDER:
+    for backend in BACKENDS:
         if backend in lowered:
             return backend
     return BACKEND_CPU
@@ -175,6 +195,35 @@ def backend_of(name: str) -> str:
 
 def uses_gpu(name: str) -> bool:
     return backend_of(name) in GPU_BACKENDS
+
+
+def has_nvidia() -> bool:
+    return shutil.which(NVIDIA_PROBE) is not None
+
+
+def backend_order(nvidia: bool | None = None) -> tuple[str, ...]:
+    return NVIDIA_ORDER if (has_nvidia() if nvidia is None else nvidia) else OPEN_ORDER
+
+
+def is_server_package(name: str) -> bool:
+    lowered = name.lower()
+    if not lowered.endswith(ARCHIVE_SUFFIXES):
+        return False
+    if lowered.startswith(COMPANION_PREFIX):
+        return False
+    return not any(token in lowered for token in UNSUPPORTED_TOKENS)
+
+
+def companion_of(asset: Asset, assets: tuple[Asset, ...]) -> Asset | None:
+    if backend_of(asset.name) != BACKEND_CUDA:
+        return None
+    marker = _cuda_marker(asset.name)
+    if not marker:
+        return None
+    for item in assets:
+        if item.name.lower().startswith(COMPANION_PREFIX) and _cuda_marker(item.name) == marker:
+            return item
+    return None
 
 
 def matches_platform(name: str, system: str, machine: str) -> bool:
@@ -188,16 +237,19 @@ def matches_platform(name: str, system: str, machine: str) -> bool:
     return any(token in lowered for token in machines)
 
 
-def candidates(assets: tuple[Asset, ...], system: str = "", machine: str = "") -> tuple[Asset, ...]:
+def candidates(
+    assets: tuple[Asset, ...], system: str = "", machine: str = "", nvidia: bool | None = None
+) -> tuple[Asset, ...]:
     resolved_system = (system or platform.system()).lower()
     resolved_machine = (machine or platform.machine()).lower()
+    order = backend_order(nvidia)
     found = [
         asset
         for asset in assets
-        if asset.name.lower().endswith(ARCHIVE_SUFFIX)
+        if is_server_package(asset.name)
         and matches_platform(asset.name, resolved_system, resolved_machine)
     ]
-    found.sort(key=lambda asset: (BACKEND_ORDER.index(backend_of(asset.name)), asset.name))
+    found.sort(key=lambda asset: (order.index(backend_of(asset.name)), asset.name))
     return tuple(found)
 
 
@@ -205,20 +257,43 @@ def extract_archive(archive: Path, dest: Path) -> Path:
     dest.mkdir(parents=True, exist_ok=True)
     root = dest.resolve()
     try:
-        with zipfile.ZipFile(archive) as bundle:
-            members = bundle.infolist()
-            targets = [_member_target(root, member.filename) for member in members]
-            for member, target in zip(members, targets, strict=True):
-                if member.is_dir():
-                    target.mkdir(parents=True, exist_ok=True)
-                    continue
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with bundle.open(member) as source, target.open("wb") as handle:
-                    shutil.copyfileobj(source, handle)
-    except (zipfile.BadZipFile, ValueError) as error:
+        if archive.name.lower().endswith(".zip"):
+            _extract_zip(archive, root)
+        else:
+            _extract_tar(archive, root)
+    except (zipfile.BadZipFile, tarfile.TarError, ValueError, EOFError) as error:
         raise EngineError(f"the engine package is not a readable archive: {error}") from error
     _mark_executable(dest)
     return dest
+
+
+def _extract_zip(archive: Path, root: Path) -> None:
+    with zipfile.ZipFile(archive) as bundle:
+        members = bundle.infolist()
+        targets = [_member_target(root, member.filename) for member in members]
+        for member, target in zip(members, targets, strict=True):
+            if member.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with bundle.open(member) as source, target.open("wb") as handle:
+                shutil.copyfileobj(source, handle)
+
+
+def _extract_tar(archive: Path, root: Path) -> None:
+    with tarfile.open(archive, "r:*") as bundle:
+        members = [member for member in bundle.getmembers() if member.isfile() or member.isdir()]
+        targets = [_member_target(root, member.name) for member in members]
+        for member, target in zip(members, targets, strict=True):
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            source = bundle.extractfile(member)
+            if source is None:
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with source, target.open("wb") as handle:
+                shutil.copyfileobj(source, handle)
 
 
 def locate_binary(directory: Path) -> Path | None:
@@ -266,6 +341,7 @@ class EngineBringup:
         health_timeout: float = 0.0,
         generation_timeout: float = 0.0,
         download_timeout: float = DOWNLOAD_TIMEOUT_SECONDS,
+        nvidia: bool | None = None,
     ) -> None:
         self._root = root
         self._config = config
@@ -276,6 +352,7 @@ class EngineBringup:
         self._health_timeout = health_timeout
         self._generation_timeout = generation_timeout
         self._download_timeout = download_timeout
+        self._nvidia = nvidia
         self._lock = threading.Lock()
         self._status = EngineStatus(STATE_IDLE, updated_at=utc_now_iso())
         self._thread: threading.Thread | None = None
@@ -316,10 +393,10 @@ class EngineBringup:
             gpu = inspect_binary(self._root, self._config.llama_bin).gpu
             return self._activate(present, model, gpu, tag="")
         self._set(STATE_RESOLVING)
-        release = resolve_release(self._api_url, self._repo)
-        picks = candidates(release.assets)
-        if not picks:
-            return self._set(STATE_UNSUPPORTED, tag=release.tag)
+        release = resolve_release(self._api_url, self._repo, nvidia=self._nvidia)
+        if release is None:
+            return self._set(STATE_UNSUPPORTED)
+        picks = candidates(release.assets, nvidia=self._nvidia)
         tried: list[str] = []
         for asset in picks:
             tried.append(asset.name)
@@ -351,6 +428,7 @@ class EngineBringup:
             self._record("warning", f"engine package carries no server binary: {asset.name}")
             _discard(target)
             return None
+        self._deploy_companion(asset, release, target, tried)
         self._set(STATE_TESTING, candidate=asset.name, tried=tried, tag=release.tag)
         status = self._activate(binary, model, uses_gpu(asset.name), tag=release.tag, tried=tried)
         if status.state != STATE_READY:
@@ -358,6 +436,24 @@ class EngineBringup:
             return None
         self._pin(release)
         return status
+
+    def _deploy_companion(
+        self, asset: Asset, release: Release, target: Path, tried: tuple[str, ...]
+    ) -> None:
+        companion = companion_of(asset, release.assets)
+        if companion is None:
+            return
+        self._set(STATE_DOWNLOADING, candidate=companion.name, tried=tried, tag=release.tag)
+        archive = self._obtain(companion)
+        if archive is None:
+            self._record("warning", f"engine runtime failed to download: {companion.name}")
+            return
+        try:
+            extract_archive(archive, target)
+        except EngineError as error:
+            self._record(
+                "warning", f"engine runtime could not be unpacked: {companion.name}", str(error)
+            )
 
     def _activate(
         self,
@@ -526,6 +622,31 @@ def _mark_executable(directory: Path) -> None:
             continue
         mode = path.stat().st_mode
         path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def _cuda_marker(name: str) -> str:
+    lowered = name.lower()
+    position = lowered.find(f"{BACKEND_CUDA}-")
+    if position < 0:
+        return ""
+    for suffix in ARCHIVE_SUFFIXES:
+        if lowered.endswith(suffix):
+            return lowered[position : -len(suffix)]
+    return ""
+
+
+def _release(item: dict[str, object]) -> Release:
+    raw_assets = item.get("assets")
+    assets = (
+        tuple(_asset(entry) for entry in raw_assets if isinstance(entry, dict))
+        if isinstance(raw_assets, list)
+        else ()
+    )
+    return Release(
+        tag=str(item.get("tag_name") or ""),
+        commit=_sha(item.get("target_commitish")),
+        assets=tuple(entry for entry in assets if entry.url),
+    )
 
 
 def _asset(item: dict[str, object]) -> Asset:

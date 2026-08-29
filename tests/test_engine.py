@@ -17,6 +17,7 @@ from arca.engine import (
     STATE_IDLE,
     STATE_NO_NETWORK,
     STATE_READY,
+    STATE_UNSUPPORTED,
     STATE_WAITING_MODEL,
     Asset,
     EngineBringup,
@@ -25,10 +26,14 @@ from arca.engine import (
     backend_of,
     candidates,
     chat_endpoint,
+    companion_of,
     default_profile,
     extract_archive,
+    is_server_package,
+    list_releases,
     locate_binary,
     matches_platform,
+    pick_release,
     resolve_commit,
     resolve_release,
     uses_gpu,
@@ -45,28 +50,56 @@ from arca.llama import (
     save_profile,
 )
 from arca.vendor import default_lock_path, load_lock
-from tests.support import ReleaseServer, engine_package, write_gguf
+from tests.support import ReleaseServer, engine_package, engine_tarball, runtime_package, write_gguf
 from tests.test_api import http_get, http_request
 
-WINDOWS_ASSETS = (
+RELEASE_ASSETS = (
+    "cudart-llama-bin-win-cuda-12.4-x64.zip",
+    "cudart-llama-bin-win-cuda-13.3-x64.zip",
+    "llama-b9999-bin-android-arm64.tar.gz",
+    "llama-b9999-bin-macos-arm64.tar.gz",
+    "llama-b9999-bin-ubuntu-s390x.tar.gz",
+    "llama-b9999-bin-ubuntu-vulkan-x64.tar.gz",
+    "llama-b9999-bin-ubuntu-x64.tar.gz",
+    "llama-b9999-bin-win-cpu-arm64.zip",
     "llama-b9999-bin-win-cpu-x64.zip",
     "llama-b9999-bin-win-cuda-12.4-x64.zip",
+    "llama-b9999-bin-win-openvino-2026.3.1-x64.zip",
     "llama-b9999-bin-win-vulkan-x64.zip",
-    "llama-b9999-bin-win-arm64.zip",
-    "llama-b9999-bin-ubuntu-x64.zip",
-    "llama-b9999-bin-macos-arm64.zip",
-    "llama-b9999-src.tar.gz",
+    "llama-b9999-ui.tar.gz",
+    "llama-b9999-xcframework.zip",
 )
+WINDOWS_ORDER_WITH_NVIDIA = [
+    "llama-b9999-bin-win-cuda-12.4-x64.zip",
+    "llama-b9999-bin-win-vulkan-x64.zip",
+    "llama-b9999-bin-win-cpu-x64.zip",
+]
+WINDOWS_ORDER_WITHOUT_NVIDIA = [
+    "llama-b9999-bin-win-vulkan-x64.zip",
+    "llama-b9999-bin-win-cuda-12.4-x64.zip",
+    "llama-b9999-bin-win-cpu-x64.zip",
+]
 
 
 @pytest.fixture
 def releases() -> Iterator[ReleaseServer]:
     server = ReleaseServer()
-    for name in WINDOWS_ASSETS:
-        server.add(name, engine_package())
+    for name in RELEASE_ASSETS:
+        if name.startswith("cudart"):
+            server.add(name, runtime_package())
+        elif name.endswith(".zip"):
+            server.add(name, engine_package())
+        else:
+            server.add(name, engine_tarball())
     server.start()
     yield server
     server.stop()
+
+
+@pytest.fixture
+def windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("arca.engine.platform.system", lambda: "Windows")
+    monkeypatch.setattr("arca.engine.platform.machine", lambda: "AMD64")
 
 
 def _assets(*names: str) -> tuple[Asset, ...]:
@@ -75,17 +108,36 @@ def _assets(*names: str) -> tuple[Asset, ...]:
     )
 
 
+def test_a_release_without_a_package_for_this_platform_is_skipped(
+    releases: ReleaseServer,
+) -> None:
+    found = list_releases(releases.url, releases.repo)
+    assert [item.tag for item in found] == [releases.decoy_tag, releases.tag]
+    chosen = pick_release(found, "windows", "amd64")
+    assert chosen is not None
+    assert chosen.tag == releases.tag
+
+
 def test_the_release_is_resolved_at_the_moment_with_its_assets(releases: ReleaseServer) -> None:
-    release = resolve_release(releases.url, releases.repo)
+    release = resolve_release(releases.url, releases.repo, "windows", "amd64")
+    assert release is not None
     assert release.tag == "b9999"
-    assert {asset.name for asset in release.assets} == set(WINDOWS_ASSETS)
+    assert {asset.name for asset in release.assets} == set(RELEASE_ASSETS)
     for asset in release.assets:
         assert asset.url.startswith(releases.url)
         assert len(asset.sha256) == 64
 
 
+def test_the_commit_of_the_release_is_pinned_from_the_feed(releases: ReleaseServer) -> None:
+    release = resolve_release(releases.url, releases.repo, "windows", "amd64")
+    assert release is not None
+    assert release.commit == releases.commit
+
+
 def test_a_branch_name_is_never_taken_for_a_commit(releases: ReleaseServer) -> None:
-    release = resolve_release(releases.url, releases.repo)
+    releases.commitish = "master"
+    release = resolve_release(releases.url, releases.repo, "windows", "amd64")
+    assert release is not None
     assert release.commit == ""
     assert resolve_commit(release.tag, releases.url, releases.repo) == releases.commit
 
@@ -97,7 +149,7 @@ def test_an_unresolvable_tag_degrades_to_no_commit(releases: ReleaseServer) -> N
 
 def test_an_unreachable_release_feed_is_reported_not_raised_raw() -> None:
     with pytest.raises(EngineUnavailableError):
-        resolve_release("http://127.0.0.1:1", "ggml-org/llama.cpp")
+        list_releases("http://127.0.0.1:1", "ggml-org/llama.cpp")
 
 
 @pytest.mark.parametrize(
@@ -105,9 +157,10 @@ def test_an_unreachable_release_feed_is_reported_not_raised_raw() -> None:
     [
         ("llama-b1-bin-win-cuda-12.4-x64.zip", "cuda", True),
         ("llama-b1-bin-win-vulkan-x64.zip", "vulkan", True),
-        ("llama-b1-bin-win-hip-x64.zip", "hip", True),
+        ("llama-b1-bin-win-rocm-7.14-x64.zip", "rocm", True),
+        ("llama-b1-bin-win-sycl-x64.zip", "sycl", True),
         ("llama-b1-bin-win-cpu-x64.zip", "cpu", False),
-        ("llama-b1-bin-ubuntu-x64.zip", "cpu", False),
+        ("llama-b1-bin-ubuntu-x64.tar.gz", "cpu", False),
     ],
 )
 def test_the_backend_is_read_from_the_asset_name(name: str, backend: str, gpu: bool) -> None:
@@ -115,27 +168,56 @@ def test_the_backend_is_read_from_the_asset_name(name: str, backend: str, gpu: b
     assert uses_gpu(name) is gpu
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "cudart-llama-bin-win-cuda-12.4-x64.zip",
+        "llama-b9999-bin-win-openvino-2026.3.1-x64.zip",
+        "llama-b9999-bin-win-opencl-adreno-arm64.zip",
+        "llama-b9999-xcframework.zip",
+        "llama-b9999-bin-ubuntu-s390x.tar.gz",
+    ],
+)
+def test_packages_that_carry_no_server_are_never_candidates(name: str) -> None:
+    assert not is_server_package(name)
+
+
 def test_candidates_put_the_gpu_first_and_the_cpu_last() -> None:
-    picks = candidates(_assets(*WINDOWS_ASSETS), "windows", "amd64")
-    assert [asset.name for asset in picks] == [
-        "llama-b9999-bin-win-cuda-12.4-x64.zip",
-        "llama-b9999-bin-win-vulkan-x64.zip",
-        "llama-b9999-bin-win-cpu-x64.zip",
-    ]
+    picks = candidates(_assets(*RELEASE_ASSETS), "windows", "amd64", nvidia=True)
+    assert [asset.name for asset in picks] == WINDOWS_ORDER_WITH_NVIDIA
+
+
+def test_without_an_nvidia_driver_the_self_contained_gpu_package_goes_first() -> None:
+    picks = candidates(_assets(*RELEASE_ASSETS), "windows", "amd64", nvidia=False)
+    assert [asset.name for asset in picks] == WINDOWS_ORDER_WITHOUT_NVIDIA
 
 
 def test_candidates_never_cross_platforms_or_architectures() -> None:
-    linux = candidates(_assets(*WINDOWS_ASSETS), "linux", "x86_64")
-    mac = candidates(_assets(*WINDOWS_ASSETS), "darwin", "arm64")
-    windows_arm = candidates(_assets(*WINDOWS_ASSETS), "windows", "arm64")
-    assert [asset.name for asset in linux] == ["llama-b9999-bin-ubuntu-x64.zip"]
-    assert [asset.name for asset in mac] == ["llama-b9999-bin-macos-arm64.zip"]
-    assert [asset.name for asset in windows_arm] == ["llama-b9999-bin-win-arm64.zip"]
+    assets = _assets(*RELEASE_ASSETS)
+    linux = candidates(assets, "linux", "x86_64", nvidia=False)
+    mac = candidates(assets, "darwin", "arm64", nvidia=False)
+    windows_arm = candidates(assets, "windows", "arm64", nvidia=False)
+    assert [asset.name for asset in linux] == [
+        "llama-b9999-bin-ubuntu-vulkan-x64.tar.gz",
+        "llama-b9999-bin-ubuntu-x64.tar.gz",
+    ]
+    assert [asset.name for asset in mac] == ["llama-b9999-bin-macos-arm64.tar.gz"]
+    assert [asset.name for asset in windows_arm] == ["llama-b9999-bin-win-cpu-arm64.zip"]
 
 
 def test_an_unknown_platform_selects_nothing() -> None:
-    assert candidates(_assets(*WINDOWS_ASSETS), "haiku", "amd64") == ()
+    assert candidates(_assets(*RELEASE_ASSETS), "haiku", "amd64") == ()
     assert not matches_platform("llama-b1-bin-win-cpu-x64.zip", "linux", "x86_64")
+
+
+def test_the_cuda_runtime_travels_with_its_own_cuda_package() -> None:
+    assets = _assets(*RELEASE_ASSETS)
+    cuda = next(asset for asset in assets if asset.name == "llama-b9999-bin-win-cuda-12.4-x64.zip")
+    vulkan = next(asset for asset in assets if "vulkan" in asset.name)
+    companion = companion_of(cuda, assets)
+    assert companion is not None
+    assert companion.name == "cudart-llama-bin-win-cuda-12.4-x64.zip"
+    assert companion_of(vulkan, assets) is None
 
 
 @pytest.mark.parametrize(
@@ -154,7 +236,7 @@ def test_an_archive_that_escapes_its_destination_is_refused(tmp_path: Path, memb
     assert not (tmp_path.parent / "escape.txt").exists()
 
 
-def test_a_package_is_unpacked_and_its_binary_located(tmp_path: Path) -> None:
+def test_a_zip_package_is_unpacked_and_its_binary_located(tmp_path: Path) -> None:
     archive = tmp_path / "package.zip"
     archive.write_bytes(engine_package())
     target = tmp_path / "dest"
@@ -163,6 +245,17 @@ def test_a_package_is_unpacked_and_its_binary_located(tmp_path: Path) -> None:
     assert binary is not None
     assert binary.name == "llama-server.exe"
     assert (target / "build" / "bin" / "ggml.dll").is_file()
+
+
+def test_a_tarball_package_is_unpacked_the_same_way(tmp_path: Path) -> None:
+    archive = tmp_path / "package.tar.gz"
+    archive.write_bytes(engine_tarball())
+    target = tmp_path / "dest"
+    extract_archive(archive, target)
+    binary = locate_binary(target)
+    assert binary is not None
+    assert binary.name == "llama-server"
+    assert (target / "build" / "bin" / "libggml.so").is_file()
 
 
 def test_the_default_profile_carries_the_decisions_of_section_two(tmp_path: Path) -> None:
@@ -197,7 +290,12 @@ def _isolate_lock(root: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return lock
 
 
-def _bringup(root: Path, config: ArcaConfig, api_url: str = "http://127.0.0.1:1") -> EngineBringup:
+def _bringup(
+    root: Path,
+    config: ArcaConfig,
+    api_url: str = "http://127.0.0.1:1",
+    nvidia: bool = False,
+) -> EngineBringup:
     worker = QueueWorker(library_db_path(root), concurrency=1, max_attempts=1)
     return EngineBringup(
         root,
@@ -206,7 +304,17 @@ def _bringup(root: Path, config: ArcaConfig, api_url: str = "http://127.0.0.1:1"
         worker,
         api_url=api_url,
         download_timeout=30.0,
+        nvidia=nvidia,
     )
+
+
+def _accept(marker: str = "") -> object:
+    def fake_apply(connection, server, binary, profile, **kwargs):  # type: ignore[no-untyped-def]
+        ok = marker in str(binary)
+        trial = TrialResult(ok, "ok" if ok else "start", (str(binary),), error="" if ok else "no")
+        return ApplyResult(ok, trial, profile.name if ok else "", "", ok)
+
+    return fake_apply
 
 
 def test_without_a_chat_model_the_bringup_waits_and_touches_no_network(tmp_path: Path) -> None:
@@ -225,8 +333,19 @@ def test_without_a_network_the_bringup_says_so_instead_of_failing(tmp_path: Path
     assert status.detail
 
 
-def test_the_bringup_tries_the_gpu_package_first_and_falls_back_to_the_cpu_one(
+def test_a_release_with_nothing_for_this_platform_is_declared_unsupported(
     tmp_path: Path, releases: ReleaseServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    write_gguf(root / "models" / "chat" / "model.gguf")
+    monkeypatch.setattr("arca.engine.platform.system", lambda: "Haiku")
+    status = _bringup(root, ArcaConfig(), api_url=releases.url).run()
+    assert status.state == STATE_UNSUPPORTED
+
+
+def test_the_bringup_tries_the_gpu_package_first_and_falls_back_to_the_cpu_one(
+    tmp_path: Path, releases: ReleaseServer, monkeypatch: pytest.MonkeyPatch, windows: None
 ) -> None:
     root = tmp_path / "library"
     init_library(root)
@@ -235,68 +354,69 @@ def test_the_bringup_tries_the_gpu_package_first_and_falls_back_to_the_cpu_one(
     attempts: list[str] = []
 
     def fake_apply(connection, server, binary, profile, **kwargs):  # type: ignore[no-untyped-def]
-        attempts.append(str(binary))
+        attempts.append(Path(str(binary)).parent.parent.parent.name)
         ok = "cpu" in str(binary)
-        trial = TrialResult(ok, "ok" if ok else "start", (str(binary),), error="" if ok else "boom")
+        trial = TrialResult(ok, "ok" if ok else "start", (str(binary),), error="" if ok else "no")
         return ApplyResult(ok, trial, profile.name if ok else "", "", ok)
 
     monkeypatch.setattr("arca.engine.apply_profile", fake_apply)
     monkeypatch.setattr("arca.engine.capture_llama_help", lambda root, binary: None)
-    bringup = _bringup(root, ArcaConfig(), api_url=releases.url)
-    status = bringup.run()
+    status = _bringup(root, ArcaConfig(), api_url=releases.url, nvidia=True).run()
     assert status.state == STATE_READY
-    assert [Path(item).parent.parent.parent.name for item in attempts] == [
-        "b9999-cuda",
-        "b9999-vulkan",
-        "b9999-cpu",
-    ]
+    assert attempts == ["b9999-cuda", "b9999-vulkan", "b9999-cpu"]
     assert not (root / "vendor" / "llama.cpp" / "b9999-cuda").exists()
     assert not (root / "vendor" / "llama.cpp" / "b9999-vulkan").exists()
     assert (root / "vendor" / "llama.cpp" / "b9999-cpu").is_dir()
     assert status.profile == "auto"
 
 
-def test_every_downloaded_package_is_verified_and_kept_for_offline_reuse(
-    tmp_path: Path, releases: ReleaseServer, monkeypatch: pytest.MonkeyPatch
+def test_the_cuda_runtime_is_deployed_next_to_the_cuda_engine(
+    tmp_path: Path, releases: ReleaseServer, monkeypatch: pytest.MonkeyPatch, windows: None
 ) -> None:
     root = tmp_path / "library"
     init_library(root)
     write_gguf(root / "models" / "chat" / "model.gguf")
     _isolate_lock(root, monkeypatch)
+    monkeypatch.setattr("arca.engine.apply_profile", _accept("cuda"))
+    monkeypatch.setattr("arca.engine.capture_llama_help", lambda root, binary: None)
+    status = _bringup(root, ArcaConfig(), api_url=releases.url, nvidia=True).run()
+    assert status.state == STATE_READY
+    deployed = root / "vendor" / "llama.cpp" / "b9999-cuda"
+    assert (deployed / "build" / "bin" / "llama-server.exe").is_file()
+    assert (deployed / "cudart64_12.dll").is_file()
 
-    def fake_apply(connection, server, binary, profile, **kwargs):  # type: ignore[no-untyped-def]
-        return ApplyResult(True, TrialResult(True, "ok", (str(binary),)), profile.name, "", True)
 
-    monkeypatch.setattr("arca.engine.apply_profile", fake_apply)
+def test_every_downloaded_package_is_verified_and_kept_for_offline_reuse(
+    tmp_path: Path, releases: ReleaseServer, monkeypatch: pytest.MonkeyPatch, windows: None
+) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    write_gguf(root / "models" / "chat" / "model.gguf")
+    _isolate_lock(root, monkeypatch)
+    monkeypatch.setattr("arca.engine.apply_profile", _accept())
     monkeypatch.setattr("arca.engine.capture_llama_help", lambda root, binary: None)
     status = _bringup(root, ArcaConfig(), api_url=releases.url).run()
     assert status.state == STATE_READY
-    archive = root / "vendor" / "llama.cpp" / "llama-b9999-bin-win-cuda-12.4-x64.zip"
+    archive = root / "vendor" / "llama.cpp" / "llama-b9999-bin-win-vulkan-x64.zip"
     assert archive.is_file()
     assert archive.with_suffix(archive.suffix + ".sha256").is_file()
     connection = open_library_ro(library_db_path(root))
     try:
-        rows = connection.execute(
-            "SELECT kind, status FROM downloads WHERE kind = 'engine'"
-        ).fetchall()
+        rows = connection.execute("SELECT status FROM downloads WHERE kind = 'engine'").fetchall()
     finally:
         connection.close()
     assert [str(row["status"]) for row in rows] == ["done"]
 
 
 def test_a_successful_bringup_pins_the_commit_in_the_lock(
-    tmp_path: Path, releases: ReleaseServer, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, releases: ReleaseServer, monkeypatch: pytest.MonkeyPatch, windows: None
 ) -> None:
     root = tmp_path / "library"
     init_library(root)
     write_gguf(root / "models" / "chat" / "model.gguf")
     lock = _isolate_lock(root, monkeypatch)
     monkeypatch.setattr("arca.engine.capture_llama_help", lambda root, binary: None)
-
-    def fake_apply(connection, server, binary, profile, **kwargs):  # type: ignore[no-untyped-def]
-        return ApplyResult(True, TrialResult(True, "ok", (str(binary),)), profile.name, "", True)
-
-    monkeypatch.setattr("arca.engine.apply_profile", fake_apply)
+    monkeypatch.setattr("arca.engine.apply_profile", _accept())
     _bringup(root, ArcaConfig(), api_url=releases.url).run()
     entries = {entry.key: entry for entry in load_lock(lock)}
     assert entries["llama.cpp"].commit == releases.commit
@@ -304,19 +424,13 @@ def test_a_successful_bringup_pins_the_commit_in_the_lock(
 
 
 def test_when_no_package_works_the_bringup_says_it_exhausted_them(
-    tmp_path: Path, releases: ReleaseServer, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, releases: ReleaseServer, monkeypatch: pytest.MonkeyPatch, windows: None
 ) -> None:
     root = tmp_path / "library"
     init_library(root)
     write_gguf(root / "models" / "chat" / "model.gguf")
     _isolate_lock(root, monkeypatch)
-
-    def fake_apply(connection, server, binary, profile, **kwargs):  # type: ignore[no-untyped-def]
-        return ApplyResult(
-            False, TrialResult(False, "start", (str(binary),), error="no"), "", "", False
-        )
-
-    monkeypatch.setattr("arca.engine.apply_profile", fake_apply)
+    monkeypatch.setattr("arca.engine.apply_profile", _accept("never"))
     status = _bringup(root, ArcaConfig(), api_url=releases.url).run()
     assert status.state == STATE_EXHAUSTED
     assert len(status.tried) == 3
@@ -334,39 +448,10 @@ def test_an_existing_binary_is_used_without_asking_the_network(
     _isolate_lock(root, monkeypatch)
     monkeypatch.setattr("arca.engine.capture_llama_help", lambda root, binary: None)
     monkeypatch.setattr("arca.engine.inspect_binary", lambda root, configured: BinaryInfo(existing))
-
-    def fake_apply(connection, server, binary, profile, **kwargs):  # type: ignore[no-untyped-def]
-        return ApplyResult(True, TrialResult(True, "ok", (str(binary),)), profile.name, "", True)
-
-    monkeypatch.setattr("arca.engine.apply_profile", fake_apply)
+    monkeypatch.setattr("arca.engine.apply_profile", _accept())
     status = _bringup(root, ArcaConfig(), api_url=releases.url).run()
     assert status.state == STATE_READY
     assert releases.requests == []
-
-
-@pytest.fixture
-def library(tmp_path: Path) -> Iterator[tuple[Path, FastAPI]]:
-    root = tmp_path / "library"
-    init_library(root)
-    yield root, create_app(root, ArcaConfig())
-
-
-def test_creating_the_application_starts_no_bringup(library: tuple[Path, FastAPI]) -> None:
-    _, app = library
-    status, body = http_get(app, "/api/admin/engine")
-    assert status == 200
-    payload = json.loads(body)
-    assert payload["state"] == STATE_IDLE
-    assert payload["running"] is False
-
-
-def test_the_panel_can_ask_for_the_bringup_and_it_never_blocks(
-    library: tuple[Path, FastAPI],
-) -> None:
-    _, app = library
-    status, body = http_request(app, "POST", "/api/admin/engine/start")
-    assert status == 200
-    assert json.loads(body)["state"] in (STATE_IDLE, STATE_WAITING_MODEL)
 
 
 def test_a_settled_chat_is_left_exactly_as_the_operator_left_it(
@@ -400,3 +485,28 @@ def test_a_settled_chat_is_left_exactly_as_the_operator_left_it(
     finally:
         connection.close()
     assert names == ["mine"]
+
+
+@pytest.fixture
+def library(tmp_path: Path) -> Iterator[tuple[Path, FastAPI]]:
+    root = tmp_path / "library"
+    init_library(root)
+    yield root, create_app(root, ArcaConfig())
+
+
+def test_creating_the_application_starts_no_bringup(library: tuple[Path, FastAPI]) -> None:
+    _, app = library
+    status, body = http_get(app, "/api/admin/engine")
+    assert status == 200
+    payload = json.loads(body)
+    assert payload["state"] == STATE_IDLE
+    assert payload["running"] is False
+
+
+def test_the_panel_can_ask_for_the_bringup_and_it_never_blocks(
+    library: tuple[Path, FastAPI],
+) -> None:
+    _, app = library
+    status, body = http_request(app, "POST", "/api/admin/engine/start")
+    assert status == 200
+    assert json.loads(body)["state"] in (STATE_IDLE, STATE_WAITING_MODEL)

@@ -27,33 +27,60 @@ Sin red, `no_network`. Si la release no publica paquete para la plataforma, `uns
 ninguno supera la prueba, `exhausted`. Cada estado tiene su mensaje en los dos catálogos, y un
 test comprueba que ninguno se queda sin él.
 
-## Nunca una URL guardada
+## Nunca una URL guardada, y nunca «la última»
 
-`resolve_release()` pregunta por la release publicada cuando hace falta (trampa 5). No hay ninguna
-URL de paquete incrustada en el código: los enlaces salen de la respuesta del momento. El commit
-que se fija en `sources.lock` se resuelve aparte, por el tag, porque el campo `target_commitish`
-de una release suele traer el nombre de la rama y no un SHA — `_sha()` lo descarta si no es
-hexadecimal, así que una rama nunca se cuela como si fuera un commit.
+`list_releases()` pide la lista de releases publicadas cuando hace falta (trampa 5). No hay
+ninguna URL de paquete incrustada en el código: los enlaces salen de la respuesta del momento.
+
+**No se usa `/releases/latest`**, y esto no es un detalle: llama.cpp publica sus builds como
+*prereleases*, así que ese endpoint las salta y devuelve una release de versión (`v0.3.0` cuando
+se escribió esto) cuyo único adjunto es un `nightly-tag.txt`. Un descargador que confiara en
+«latest» no encontraría jamás un binario. `pick_release()` recorre la lista y **se queda con la
+primera release que publique un paquete para esta plataforma**, que es la pregunta que de verdad
+importa.
+
+El commit sale de `target_commitish` cuando es un SHA de 40 hex — que es lo que traen las builds —
+y si trae el nombre de una rama, `_sha()` lo descarta y se resuelve por el tag con
+`resolve_commit()`. Una rama no puede colarse como si fuera un commit.
 
 GitHub es, con esto, el **tercer y último origen de red** del proyecto, junto al catálogo de Kiwix
 y al hub de modelos.
 
 ## Elegir el paquete sin adivinar
 
-`backend_of()` lee el backend del nombre del asset (`cuda`, `hip`, `rocm`, `sycl`, `vulkan`,
-`metal`, y `cpu` como caída) y `matches_platform()` cruza plataforma y arquitectura por sus
-etiquetas (`win`/`ubuntu`/`macos` y `x64`/`arm64`). `candidates()` devuelve los que encajan
-ordenados: **GPU primero, CPU como último recurso**.
+`matches_platform()` cruza plataforma y arquitectura por sus etiquetas (`win`/`ubuntu`/`macos` y
+`x64`/`arm64`), y `backend_of()` lee el backend del nombre (`cuda`, `hip`, `rocm`, `sycl`,
+`vulkan`, `metal`, y `cpu` como caída).
+
+`is_server_package()` descarta lo que **no lleva servidor dentro**, que en una release real es
+bastante: los `cudart-*` (solo el runtime de CUDA), `xcframework`, `ui`, y los backends que ARCA
+no conduce (`openvino`, `opencl`, `s390x`). Sin ese filtro se descargarían cientos de megas para
+descubrir después que no hay binario.
+
+El orden lo da `backend_order()`, y depende de una evidencia, no de una corazonada: si hay
+`nvidia-smi` en el `PATH` hay driver NVIDIA, y CUDA va primero; si no lo hay, va primero **Vulkan**,
+que es el backend de GPU que funciona en NVIDIA, AMD e Intel sin runtime externo y pesa una décima
+parte. La CPU siempre queda la última.
 
 No hay heurística de VRAM ni pregunta al usuario. Se prueban en orden y se queda el primero que
 arranca y genera: es la reversión de §13.3 generalizada. **El candidato que falla se borra del
 disco**, de modo que `find_binary()` no puede encontrarse después con el motor que no funcionaba.
 
+## El acompañante de CUDA
+
+Los paquetes de CUDA de llama.cpp **no traen el runtime**: sin él, el binario no arranca en una
+máquina que no tenga instalado el toolkit. `companion_of()` empareja cada paquete `cuda-<versión>`
+con su `cudart-...-cuda-<misma versión>` y lo despliega **en el mismo directorio**, antes del
+arranque de prueba. Si el acompañante no se puede bajar, se avisa y se prueba igual: puede que la
+máquina ya tenga el runtime.
+
 ## Desempaquetado
 
-`extract_archive()` valida **todos** los miembros antes de escribir ninguno: rechaza rutas
-absolutas, con `..`, con letra de unidad, o que al resolverse caigan fuera del destino. En POSIX
-marca los ficheros como ejecutables. Un zip ilegible da `EngineError`, no una traza.
+Windows publica `.zip` y Linux y macOS `.tar.gz`; `extract_archive()` maneja los dos, porque
+soportar solo `.zip` dejaba a Linux y macOS sin ningún candidato. En ambos casos valida **todos**
+los miembros antes de escribir ninguno: rechaza rutas absolutas, con `..`, con letra de unidad, o
+que al resolverse caigan fuera del destino. En POSIX marca los ficheros como ejecutables. Un
+archivo ilegible da `EngineError`, no una traza.
 
 ## El perfil que crea
 

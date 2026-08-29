@@ -7,6 +7,7 @@ import re
 import socket
 import struct
 import sys
+import tarfile
 import threading
 import zipfile
 from collections.abc import Iterable, Mapping
@@ -455,7 +456,10 @@ class ReleaseServer:
         self.repo = repo
         self.tag = "b9999"
         self.commit = "a" * 40
+        self.commitish = "a" * 40
+        self.decoy_tag = "v0.3.0"
         self.assets: dict[str, bytes] = {}
+        self.decoy_assets: dict[str, bytes] = {"nightly-tag.txt": b"b9999"}
         self.requests: list[str] = []
         self.tag_reachable = True
         state = self
@@ -464,8 +468,8 @@ class ReleaseServer:
             def do_GET(self) -> None:
                 state.requests.append(self.path)
                 path = self.path.split("?")[0]
-                if path == f"/repos/{state.repo}/releases/latest":
-                    self._json(200, state.release())
+                if path == f"/repos/{state.repo}/releases":
+                    self._json(200, state.release_list())
                     return
                 if path == f"/repos/{state.repo}/git/ref/tags/{state.tag}":
                     if not state.tag_reachable:
@@ -474,7 +478,7 @@ class ReleaseServer:
                     self._json(200, {"object": {"sha": state.commit}})
                     return
                 name = path.removeprefix("/assets/")
-                payload = state.assets.get(name)
+                payload = state.assets.get(name) or state.decoy_assets.get(name)
                 if payload is None:
                     self.send_error(404)
                     return
@@ -511,10 +515,17 @@ class ReleaseServer:
     def add(self, name: str, payload: bytes) -> None:
         self.assets[name] = payload
 
-    def release(self) -> dict[str, object]:
+    def release_list(self) -> list[dict[str, object]]:
+        return [
+            self.release(self.decoy_tag, "master", self.decoy_assets),
+            self.release(self.tag, self.commitish, self.assets),
+        ]
+
+    def release(self, tag: str, commitish: str, assets: dict[str, bytes]) -> dict[str, object]:
         return {
-            "tag_name": self.tag,
-            "target_commitish": "master",
+            "tag_name": tag,
+            "target_commitish": commitish,
+            "prerelease": True,
             "assets": [
                 {
                     "name": name,
@@ -522,7 +533,7 @@ class ReleaseServer:
                     "size": len(payload),
                     "digest": f"sha256:{hashlib.sha256(payload).hexdigest()}",
                 }
-                for name, payload in self.assets.items()
+                for name, payload in assets.items()
             ],
         }
 
@@ -534,4 +545,22 @@ def engine_package(binary_name: str = "llama-server.exe", extra: str = "") -> by
         bundle.writestr("build/bin/ggml.dll", "library\n")
         if extra:
             bundle.writestr(extra, "extra\n")
+    return buffer.getvalue()
+
+
+def engine_tarball(binary_name: str = "llama-server") -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as bundle:
+        entries = ((f"build/bin/{binary_name}", b"binary\n"), ("build/bin/libggml.so", b"lib\n"))
+        for name, body in entries:
+            info = tarfile.TarInfo(name)
+            info.size = len(body)
+            bundle.addfile(info, io.BytesIO(body))
+    return buffer.getvalue()
+
+
+def runtime_package(name: str = "cudart64_12.dll") -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as bundle:
+        bundle.writestr(name, "runtime\n")
     return buffer.getvalue()
