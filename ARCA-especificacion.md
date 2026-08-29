@@ -49,6 +49,8 @@ Una biblioteca de conocimiento consultable sin conexión, con dos mitades: un bu
 | Índice semántico profundo | Todos los documentos importados por el usuario, todos los ZIM pequeños completos, el lote de documentación técnica. De Wikipedia solo una lista curada de artículos |
 | Frontend | HTML servido más JavaScript sin framework ni empaquetador. Todo vendorizado, cero CDN |
 | Nombre del paquete Python | `arca` |
+| Puesta en marcha del chat | **Automática**, decidido el 2026-08-29: el usuario solo deja el `.gguf` en `models/chat/`. ARCA consigue el binario de `llama-server`, lo despliega, fija su commit, crea el perfil y lo prueba. Si un paquete no arranca, prueba el siguiente. Ver §13.0 |
+| Orígenes de red | Tres, y solo tres: el catálogo de Kiwix, el hub de modelos y las releases de llama.cpp en GitHub. Los tres se resuelven en el momento; ninguno se guarda como URL fija |
 
 ---
 
@@ -354,11 +356,11 @@ El requisito es poder mantener y reconstruir el sistema sin conexión. Documenta
 
 - El archivo HTML de la documentación oficial de Python, de la versión exacta instalada.
 - El zip de documentación de SQLite.
-- **llama.cpp: el repositorio completo clonado al commit que compilaste.** llama.cpp renombra y retira banderas con frecuencia, así que la única documentación fiable es la de tu commit. Incluye `docs/`, el README del servidor y los ejemplos.
+- **llama.cpp: el repositorio completo al commit del binario en uso.** llama.cpp renombra y retira banderas con frecuencia, así que la única documentación fiable es la de tu commit. Incluye `docs/`, el README del servidor y los ejemplos. Ese commit no se teclea: lo fija la puesta en marcha automática de §13.0 a partir de la release de la que salió el binario. El paquete descargado se queda en `vendor/llama.cpp/` con su `.sha256`, así que el motor se puede volver a desplegar sin red.
 - **El volcado de `llama-server --help` a fichero, hecho en el momento de la instalación.** Describe tu binario, no el de la web. Es la pieza de documentación más valiosa de todo el conjunto y la única que nadie más puede darte.
 - Documentación de FastAPI, uvicorn, libzim, PyMuPDF y numpy en HTML, desde su fuente oficial.
 
-**Nivel C, el árbol vendorizado.** Un `wheelhouse/` generado con `pip download` de todo el árbol de dependencias, **incluyendo los sdists**, porque el código fuente es la documentación de último recurso. Más las fuentes de llama.cpp, el binario compilado y los GGUF de los modelos. Con eso se reinstala el sistema entero en una máquina limpia sin red.
+**Nivel C, el árbol vendorizado.** Un `wheelhouse/` generado con `pip download` de todo el árbol de dependencias, **incluyendo los sdists**, porque el código fuente es la documentación de último recurso. Más las fuentes de llama.cpp, el paquete del binario tal y como se descargó y los GGUF de los modelos. Con eso se reinstala el sistema entero en una máquina limpia sin red.
 
 **`sources.lock`**, en la raíz del repositorio, una entrada por pieza:
 
@@ -548,6 +550,20 @@ El usuario configura cuatro cosas, no cuarenta: **la ruta de la biblioteca, el m
 ## 13. Sección de administración de llama.cpp
 
 `llama-server` se gestiona como subproceso: arrancar, parar, reiniciar, ver el log en vivo, ver la línea de comandos efectiva.
+
+### 13.0 Puesta en marcha automática
+
+Conseguir el motor no es trabajo del usuario. El `.gguf` son pesos; `llama-server` es el programa que los carga. Lo único que se le pide a la persona es dejar el modelo en `models/chat/`; a partir de ahí ARCA hace sola todo lo demás:
+
+1. **Resolver la release en el momento.** Se consulta la última release publicada de llama.cpp cuando hace falta, nunca una URL guardada (trampa 5). El nombre del paquete decide plataforma y backend; no hay una tabla de URLs incrustada.
+2. **Descargar por la cola que ya existe.** El paquete entra en la misma cola reanudable, con espejo y verificación de hash, que los ZIM, y se ve en la pestaña Descargas como una descarga más. Sin hash publicado se aplica el camino de la trampa 6: se avisa y se guarda el calculado.
+3. **Desplegar en `vendor/llama.cpp/`**, que es donde el descubrimiento del binario ya mira. El desempaquetado rechaza cualquier miembro que se salga del destino.
+4. **Crear el perfil por defecto** a partir del modelo: `--model`, `--ctx-size 8192`, `--cache-type-k/-v q8_0` (§2), host y puerto de `chat_url`, y la plantilla del propio GGUF, que `llama-server` toma de la cabecera sin que haya que pasarla.
+5. **Probarlo con la secuencia de §13.3.** Si arranca y genera, queda `last_good` y activo. Si no, ese paquete se descarta y se prueba el siguiente.
+6. **Elegir el backend sin adivinar.** Los candidatos se prueban en orden, GPU primero y CPU como último recurso, y se queda el primero que supera el arranque de prueba. Es la maquinaria de reversión de §13.3 generalizada, no una heurística nueva. El paquete que falla se borra del disco: solo queda el que funciona.
+7. **Fijar el commit en `sources.lock`** y capturar `--help` y `--version` del binario recién desplegado (§8.3).
+
+Restricciones que no se negocian: **nunca bloquea el arranque** (invariante 5), así que corre en segundo plano con su estado visible en el panel; sin red se queda esperando y lo dice, con el resto de la biblioteca intacta; y todo lo que descarga queda vendorizado y verificable sin red. Si la release no trae paquete para la plataforma, se dice claramente y queda el camino manual de siempre: compilar y apuntar `llama_bin` en `arca.json`.
 
 ### 13.1 El formulario se genera del binario, no del código
 

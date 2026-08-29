@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import re
 import socket
 import struct
 import sys
 import threading
+import zipfile
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -446,3 +448,90 @@ class ModelHubServer:
         ]
         if gated:
             self.gated.add(model_id)
+
+
+class ReleaseServer:
+    def __init__(self, repo: str = "ggml-org/llama.cpp") -> None:
+        self.repo = repo
+        self.tag = "b9999"
+        self.commit = "a" * 40
+        self.assets: dict[str, bytes] = {}
+        self.requests: list[str] = []
+        self.tag_reachable = True
+        state = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                state.requests.append(self.path)
+                path = self.path.split("?")[0]
+                if path == f"/repos/{state.repo}/releases/latest":
+                    self._json(200, state.release())
+                    return
+                if path == f"/repos/{state.repo}/git/ref/tags/{state.tag}":
+                    if not state.tag_reachable:
+                        self.send_error(404)
+                        return
+                    self._json(200, {"object": {"sha": state.commit}})
+                    return
+                name = path.removeprefix("/assets/")
+                payload = state.assets.get(name)
+                if payload is None:
+                    self.send_error(404)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def _json(self, code: int, body: object) -> None:
+                encoded = json.dumps(body).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:
+                pass
+
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+
+    @property
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self._server.server_address[1]}"
+
+    def add(self, name: str, payload: bytes) -> None:
+        self.assets[name] = payload
+
+    def release(self) -> dict[str, object]:
+        return {
+            "tag_name": self.tag,
+            "target_commitish": "master",
+            "assets": [
+                {
+                    "name": name,
+                    "browser_download_url": f"{self.url}/assets/{name}",
+                    "size": len(payload),
+                    "digest": f"sha256:{hashlib.sha256(payload).hexdigest()}",
+                }
+                for name, payload in self.assets.items()
+            ],
+        }
+
+
+def engine_package(binary_name: str = "llama-server.exe", extra: str = "") -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as bundle:
+        bundle.writestr(f"build/bin/{binary_name}", "binary\n")
+        bundle.writestr("build/bin/ggml.dll", "library\n")
+        if extra:
+            bundle.writestr(extra, "extra\n")
+    return buffer.getvalue()

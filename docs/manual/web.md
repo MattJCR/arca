@@ -38,6 +38,8 @@ Módulos: `arca/api.py`, `arca/templates/`, `arca/static/`, `arca/i18n.py`.
 | `GET /api/admin/hub/{model_id}` | Variantes de un modelo con su cuantización, tamaño y hash; modelo con licencia por aceptar → 403 declarándolo |
 | `POST /api/admin/hub/download` | Encola una cuantización concreta en la cola verificada, con destino `models/chat` o `models/embed` |
 | `POST /api/admin/vendor/llama` | Fija el commit de llama.cpp en `sources.lock` y encola su tarball (código y documentación) |
+| `GET /api/admin/engine` | §13.0: estado de la puesta en marcha automática del motor de chat (paso actual, paquete en curso, paquetes ya descartados, binario y perfil resultantes) |
+| `POST /api/admin/engine/start` | Lanza esa puesta en marcha en segundo plano y devuelve el estado; nunca bloquea la petición (ver `engine.md`) |
 | `GET /api/manual` · `GET /api/manual/{page}` | Índice del manual y página renderizada, servidos desde la propia aplicación (ver `manual-browser.md`) |
 | `GET /api/admin/maintenance` | 12.12: rutas en uso, ficheros de log y política de rotación (ver `maintenance.md`) |
 | `POST /api/admin/maintenance/verify` | Verificación integral: ZIM, manifiestos de lote, originales y consistencia de `library.db`, **elemento a elemento** |

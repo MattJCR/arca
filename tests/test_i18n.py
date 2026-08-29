@@ -82,6 +82,7 @@ DYNAMIC_PREFIXES = (
     "home.sources.",
     "home.seal.kind.",
     "home.health.",
+    "admin.engine.state.",
 )
 
 
@@ -165,3 +166,18 @@ def test_every_error_code_the_api_returns_has_an_actionable_message() -> None:
                 key = f"{family}.{code}"
                 assert catalog.has(key), f"{lang}:{key}"
                 assert "{error}" not in catalog.messages[key], f"{lang}:{key}"
+
+
+def test_every_bringup_state_has_a_message_in_both_catalogs() -> None:
+    from arca import engine
+
+    states = {
+        value
+        for name, value in vars(engine).items()
+        if name.startswith("STATE_") and isinstance(value, str)
+    }
+    assert len(states) > 5
+    for lang in SUPPORTED_LANGUAGES:
+        catalog = load_catalog(lang)
+        for state in sorted(states):
+            assert catalog.has(f"admin.engine.state.{state}"), f"{lang}:{state}"

@@ -60,6 +60,7 @@ from arca.db import (
 )
 from arca.diagnostics import IntegrityItem, render, run_checks, verify_integrity, worst_state
 from arca.embed import EmbeddingClient, EmbeddingError
+from arca.engine import EngineBringup
 from arca.fetch import (
     QueueWorker,
     enqueue,
@@ -206,6 +207,8 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        if config.auto_engine:
+            bringup.start()
         yield
         llama.stop()
 
@@ -229,6 +232,7 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         max_attempts=config.download_max_attempts,
         before_replace=_releaser(zim_library),
     )
+    bringup = EngineBringup(root, config, llama, worker)
     binaries: dict[str, BinaryInfo] = {}
 
     def _binary(refresh: int) -> BinaryInfo:
@@ -736,6 +740,15 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         llama.start(effective_command(info.path, profile))
         llama.wait_healthy(HEALTH_WAIT_SECONDS)
         return JSONResponse(_llama_payload(root, config, llama, info))
+
+    @app.get("/api/admin/engine")
+    def api_admin_engine() -> JSONResponse:
+        return JSONResponse(_engine_payload(bringup))
+
+    @app.post("/api/admin/engine/start")
+    def api_admin_engine_start() -> JSONResponse:
+        bringup.start()
+        return JSONResponse(_engine_payload(bringup))
 
     @app.post("/api/admin/vendor/llama")
     def api_admin_vendor_llama(payload: dict[str, Any] = JSON_BODY) -> JSONResponse:
@@ -1770,4 +1783,20 @@ def _hub_file(item: HubFile) -> dict[str, Any]:
         "size_bytes": item.size_bytes,
         "size_human": format_size(item.size_bytes),
         "sha256": item.sha256,
+    }
+
+
+def _engine_payload(bringup: EngineBringup) -> dict[str, Any]:
+    status = bringup.status()
+    return {
+        "state": status.state,
+        "detail": status.detail,
+        "candidate": status.candidate,
+        "download_id": status.download_id,
+        "tried": list(status.tried),
+        "binary": status.binary,
+        "profile": status.profile,
+        "tag": status.tag,
+        "updated_at": status.updated_at,
+        "running": bringup.running(),
     }

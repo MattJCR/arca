@@ -59,6 +59,7 @@ class ArcaConfig:
     llama_bin: str = ""
     hub_url: str = DEFAULT_HUB_URL
     hub_token: str = ""
+    auto_engine: bool = True
 
 
 @dataclass(frozen=True)
@@ -122,6 +123,7 @@ def load_config(root: Path) -> ArcaConfig:
         llama_bin=_read_str(parsed, "llama_bin", defaults.llama_bin),
         hub_url=_read_str(parsed, "hub_url", defaults.hub_url) or defaults.hub_url,
         hub_token=_read_str(parsed, "hub_token", defaults.hub_token),
+        auto_engine=_read_bool(parsed, "auto_engine", defaults.auto_engine),
     )
 
 
@@ -180,6 +182,11 @@ def setup_logging(directory: Path) -> logging.Logger:
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
         logger.addHandler(handler)
     return logger
+
+
+def _read_bool(parsed: dict[object, object], key: str, default: bool) -> bool:
+    value = parsed.get(key)
+    return value if isinstance(value, bool) else default
 
 
 def _read_str(parsed: dict[object, object], key: str, default: str) -> str:

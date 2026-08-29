@@ -3,6 +3,7 @@
 const I18N = JSON.parse(document.getElementById("i18n-data").textContent);
 const DOWNLOAD_POLL_MS = 3000;
 const STATUS_POLL_MS = 15000;
+const ENGINE_POLL_MS = 4000;
 const speedSnapshots = new Map();
 const catalogState = { entries: [], sortKey: "size_bytes", sortDir: -1, flavour: "" };
 
@@ -936,6 +937,55 @@ function renderPreflight(notes) {
   list.hidden = !notes.length;
 }
 
+function engineDetail(payload) {
+  if (payload.state === "ready" && payload.binary) {
+    return t("admin.engine.detail.ready", { binary: payload.binary, profile: payload.profile });
+  }
+  if (payload.candidate) {
+    return t("admin.engine.detail.candidate", { candidate: payload.candidate });
+  }
+  return payload.detail || "";
+}
+
+function renderEngine(payload) {
+  document.getElementById("engine-state").textContent = t("admin.engine.state." + payload.state);
+  const detail = document.getElementById("engine-detail");
+  detail.textContent = engineDetail(payload);
+  detail.hidden = !detail.textContent;
+  document.getElementById("engine-start").disabled = payload.running;
+  if (payload.running) {
+    window.setTimeout(loadEngine, ENGINE_POLL_MS);
+    return;
+  }
+  if (payload.state === "ready") {
+    loadLlama(0);
+  }
+}
+
+async function loadEngine() {
+  let payload;
+  try {
+    payload = await fetchJson("/api/admin/engine");
+  } catch (error) {
+    showMessage("llama-message", errorText("admin.llama.error", error));
+    return;
+  }
+  renderEngine(payload);
+}
+
+async function startEngine() {
+  let payload;
+  try {
+    payload = await fetchJson("/api/admin/engine/start", { method: "POST" });
+  } catch (error) {
+    showMessage("llama-message", errorText("admin.llama.error", error));
+    return;
+  }
+  showMessage("llama-message", "");
+  renderEngine(payload);
+  window.setTimeout(loadEngine, ENGINE_POLL_MS);
+}
+
 async function loadLlama(refresh) {
   let payload;
   try {
@@ -1277,9 +1327,11 @@ document.getElementById("llama-start").addEventListener("click", () => llamaActi
 document.getElementById("llama-stop").addEventListener("click", () => llamaAction("stop"));
 document.getElementById("llama-restart").addEventListener("click", () => llamaAction("restart"));
 document.getElementById("llama-new-profile").addEventListener("submit", createProfile);
+document.getElementById("engine-start").addEventListener("click", startEngine);
 document.getElementById("chat-settings").addEventListener("submit", saveChatSettings);
 loadLlamaHelp();
 loadLlama(1);
+loadEngine();
 loadChatSettings();
 
 async function loadSearchSettings() {

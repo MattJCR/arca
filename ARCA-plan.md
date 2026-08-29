@@ -285,6 +285,30 @@ Ejecutar los 10 puntos de §18 como una sola sesión de aceptación, sobre bibli
 · Dep: F5.1 · CA: los 10 puntos de §18 son ciertos a la vez.
 · Loop: **Goal-based** — la definición de «terminado» del proyecto.
 
+### Fase 6 — Ampliaciones posteriores al cierre
+
+Trabajo pedido después de que §18 se cumpliera entero. Cada tarea deja el sistema arrancable y
+útil, como cualquier hito.
+
+**F6.1 — Errores del panel con código estable y accionable** *(cerrada el 2026-08-29)*
+Cada respuesta de error que el panel puede provocar lleva un `code`; el panel traduce
+`familia.code` y cae al mensaje crudo si no existe la clave.
+· Dep: F5.2 · CA: los endpoints devuelven el código, hay clave en `es` y `en` para cada uno, y el
+juego de códigos de `api.py` coincide con el juego que tiene mensaje (verificado por test).
+
+**F6.2 — Puesta en marcha automática del chat** *(cerrada el 2026-08-29)*
+§13.0: el usuario solo deja el `.gguf` en `models/chat/`; ARCA resuelve la release de llama.cpp en
+el momento, descarga el paquete por la cola verificada, lo despliega, crea el perfil de §2, lo
+somete al arranque de prueba de §13.3 y fija el commit en `sources.lock`.
+· Dep: F6.1 · CA: los candidatos se prueban GPU primero y CPU al final, el que falla se borra, la
+puesta en marcha nunca bloquea el arranque y sin red lo dice sin romper nada.
+· Loop: Ninguno.
+
+**F6.3 — Deuda con modelo real** *(pendiente)*
+Prueba de citación en español con el binario y el modelo reales, medición de la recuperación
+semántica con `multilingual-e5-base` real, y revisión de código de H2.2–H2.7.
+· Dep: F6.2 · CA: `docs/gates/milestone-4.md` repasado contra el modelo real.
+
 ---
 
 ## 7. Loops recomendados (resumen)
