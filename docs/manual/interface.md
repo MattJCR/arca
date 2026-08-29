@@ -1,17 +1,27 @@
 # Interfaz de consulta
 
-Ficheros: `arca/templates/index.html`, `arca/static/archive.js`, `arca/static/style.css`, `arca/static/fonts/`.
+Ficheros: `arca/templates/index.html`, `arca/static/archive.js`, `arca/static/style.css`, `arca/static/theme.js`, `arca/static/icons.js`, `arca/static/fonts/`.
 
 Es la pantalla del operador que consulta el archivo. La de administración es otra pantalla y otro público (§12, regla de la interfaz de usuario final): aquí no hay ajustes, solo el archivo.
 
-## Pantalla partida
+## Tres columnas
 
-Rejilla de dos columnas: **archivo a la izquierda** (2,4 partes) y **asistente a la derecha** (1 parte, pegajosa al hacer scroll). Por debajo de 60 rem las columnas se apilan y el asistente pasa debajo. La izquierda es la que manda; el chat es un panel, no la protagonista (§16).
+Rejilla de tres columnas fijas que ocupan el alto de la ventana: **resultados** (21 rem), **lectura** (el resto) y **asistente** (23 rem). Cada columna hace su propio scroll; la página no se desplaza entera. La izquierda es la que manda; el chat es un panel, no la protagonista (§16).
 
-La columna del archivo tiene dos estados excluyentes:
+Lo que cambió respecto a la versión de dos columnas: **buscar y leer ya no son estados excluyentes**. Antes, abrir un resultado ocultaba el formulario y la lista entera; ahora la columna de resultados se queda donde está, el documento abierto se marca con `aria-current="true"` y un filete de acento, y «← Volver a los resultados» solo cierra el visor. Se puede saltar de un resultado a otro sin volver atrás.
 
-1. **Búsqueda y resultados** — formulario (texto + colección) y la lista fusionada.
-2. **Lectura** — el artículo abierto en un `<iframe>`, con «← Volver a los resultados».
+La columna central tiene dos estados:
+
+1. **Vacía** — invitación a elegir un resultado (`#viewer-empty`).
+2. **Lectura** — el documento en un `<iframe>` a sangre, con su barra propia arriba (`#viewer-pane`).
+
+Por debajo de 78 rem las columnas se estrechan; por debajo de 64 rem se apilan en el orden resultados → lectura → asistente, el alto fijo se suelta y la columna vacía desaparece.
+
+## Controles de lectura
+
+En la barra del visor, a la derecha del sello: **A− / A+** en siete pasos, de 85 % a 150 %. La preferencia se guarda en `localStorage` (`arca.reader-scale`) y se reaplica en cada carga del marco.
+
+Funciona escribiendo la propiedad `--reader-scale` en el `documentElement` del documento enmarcado, dentro de un `try`/`catch`. Solo surte efecto en **nuestras** páginas —el visor legible de un PDF y el manual—, porque son las únicas cuyo CSS declara `font-size: calc(17px * var(--reader-scale, 1))`. Un artículo ZIM trae su propia hoja y la variable no le dice nada: el control se queda sin efecto ahí, y eso es preferible a deformar el CSS ajeno.
 
 ## El sello de procedencia
 
@@ -80,7 +90,25 @@ El resto de estados:
 
 ## Dirección visual
 
-Paleta de §16 en variables CSS: base `#E7E9E4`, papel `#F1F2EF`, tinta `#17242B`, acento `#2F6F5E`, ámbar `#9A6B1F` (degradado), rojo `#8E2B22` (roto).
+Paleta de §16 en variables CSS, con dos temas completos. Claro: base `#d7d3c8`, papel `#e6e2d8`, tarjeta `#f4f2ec`, tinta `#171512`. Oscuro: base `#0f0e0d`, papel `#1a1917`, tarjeta `#211f1d`, tinta `#ece8df`. Señales, en claro/oscuro: acento `#b04408`/`#e8763a` (acción), rojo `#a1160f`/`#f0685c` (destructivo y roto), ámbar `#8a5a06`/`#d9a63f` (degradado), verde `#23663a`/`#5fb377` (correcto), azul `#1f4f6b`/`#6aaed0` (informativo). Todos los pares texto-fondo cumplen AA en ambos temas.
+
+Un solo nombre de variable sirve a los dos temas: `--accent` es naranja en claro y naranja claro en oscuro, y ninguna regla fuera del bloque de tokens escribe un color literal. La única excepción es `--on-accent`, el color del texto **sobre** una superficie de acento: blanco en claro, `#1a0d05` en oscuro, porque el blanco sobre el naranja claro se queda en 2,96:1 y no llega a AA.
+
+## Tema claro y oscuro
+
+`arca/static/theme.js`, cargado en el `<head>` de todas las páginas —también las que van dentro del marco: el visor legible, el visor de PDF y el manual— para que el tema esté puesto antes del primer pintado.
+
+Tres estados, en este orden:
+
+1. **Elección explícita** — `data-theme="light"` o `"dark"` en `<html>`, guardado en `localStorage` bajo `arca.theme`. Manda sobre todo lo demás.
+2. **Sin elección** — no hay atributo y decide `prefers-color-scheme` mediante `:root:not([data-theme="light"])` dentro de la media query. El sistema operativo sigue mandando y sus cambios se reflejan en vivo.
+3. **Sin JavaScript o sin `localStorage`** — igual que el anterior. Todos los accesos al almacenamiento van en `try`/`catch`: el modo privado del navegador o el almacenamiento bloqueado degradan a la preferencia del sistema, nunca a una excepción.
+
+El conmutador vive en la cabecera de las dos pantallas y es un `role="group"` de dos botones con `aria-pressed`. Las páginas enmarcadas no lo llevan: leen la elección y la aplican, pero no la ofrecen, porque su cabecera es la de la página que las contiene.
+
+**El contenido ajeno no se tematiza.** Un artículo ZIM trae su propio CSS, escrito para fondo claro; pintarle un fondo oscuro debajo deja texto negro sobre negro. Así que el visor mantiene el papel claro para lo que no es nuestro, con tres capas que se refuerzan: `--frame` (blanco en los dos temas) en el `iframe` y en el panel que lo sostiene, `color-scheme: light` en el elemento `iframe`, y un `<meta name="color-scheme" content="light">` inyectado en la cabecera del propio artículo por `inject_colour_scheme` (`arca/zim.py`). La tercera es la que manda: sin ella el navegador propaga al marco el `color-scheme` del documento que lo contiene y pinta el lienzo oscuro **por debajo** del fondo del `iframe`, donde el CSS del padre ya no llega. Nuestras propias páginas enmarcadas —el visor legible y el manual— sí siguen el tema, porque cargan `style.css` y pintan su propio fondo encima.
+
+Los tokens del tema oscuro están escritos dos veces a propósito —una en la media query y otra en `:root[data-theme="dark"]`— para que el tema funcione sin JavaScript y la elección explícita pueda además ir en contra del sistema. `tests/test_frontend.py` comprueba que cada color oscuro aparece al menos dos veces.
 
 Tipografías **vendorizadas** en `static/fonts/`, servidas desde el propio servidor (cero CDN):
 

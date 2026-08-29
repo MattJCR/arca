@@ -292,6 +292,10 @@ def inject_base(data: bytes, href: str) -> bytes:
     return _inject(data, tag)
 
 
+def inject_colour_scheme(data: bytes) -> bytes:
+    return _inject(data, b'<meta name="color-scheme" content="light">')
+
+
 def inject_reader(data: bytes, nonce: str, uuid: str, path: str) -> bytes:
     tag = (
         f'<script src="{SELECTION_SCRIPT}" nonce="{escape(nonce, quote=True)}" '

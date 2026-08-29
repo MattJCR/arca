@@ -90,7 +90,7 @@ def _template_keys() -> set[str]:
     keys: set[str] = set()
     for template in TEMPLATE_DIR.glob("*.html"):
         text = template.read_text("utf-8")
-        keys.update(re.findall(r'data-i18n(?:-placeholder|-title)?="([^"]+)"', text))
+        keys.update(re.findall(r'data-i18n(?:-placeholder|-title|-label)?="([^"]+)"', text))
     return keys
 
 

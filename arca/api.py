@@ -186,6 +186,7 @@ from arca.zim import (
     entry_directory,
     index_mode,
     inject_base,
+    inject_colour_scheme,
     inject_reader,
     is_html,
     media_type,
@@ -1018,7 +1019,7 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
             tagline=html.escape(catalog.text("app.tagline")),
             lang_selector=_language_selector(catalog),
             noscript=html.escape(catalog.text("home.noscript")),
-            i18n_json=_embedded_i18n(catalog, "home."),
+            i18n_json=_embedded_i18n(catalog, "home.", "ui."),
         )
         return HTMLResponse(page)
 
@@ -1030,7 +1031,7 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
             language=catalog.language,
             title=html.escape(catalog.text("admin.title")),
             lang_selector=_language_selector(catalog),
-            i18n_json=_embedded_i18n(catalog, "admin.", "diag."),
+            i18n_json=_embedded_i18n(catalog, "admin.", "diag.", "ui."),
         )
         return HTMLResponse(page)
 
@@ -1513,6 +1514,7 @@ def _serve_zim(library: ZimLibrary, catalog: Catalog, uuid: str, path: str) -> R
     if is_html(content.mimetype):
         nonce = token_urlsafe(NONCE_BYTES)
         body = inject_base(body, _zim_base_href(uuid, content.path))
+        body = inject_colour_scheme(body)
         body = inject_reader(body, nonce, uuid, content.path)
         policy = ZIM_READER_POLICY.format(nonce=nonce)
     return Response(

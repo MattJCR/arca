@@ -27,6 +27,12 @@ function applyI18n() {
   for (const element of document.querySelectorAll("[data-i18n-placeholder]")) {
     element.placeholder = t(element.dataset.i18nPlaceholder);
   }
+  for (const element of document.querySelectorAll("[data-i18n-title]")) {
+    element.title = t(element.dataset.i18nTitle);
+  }
+  for (const element of document.querySelectorAll("[data-i18n-label]")) {
+    element.setAttribute("aria-label", t(element.dataset.i18nLabel));
+  }
 }
 
 function formatBytes(value) {
@@ -57,6 +63,49 @@ function cell(text, className) {
   return td;
 }
 
+function bar(fraction, tone) {
+  const track = document.createElement("span");
+  track.className = tone ? "bar bar-" + tone : "bar";
+  const fill = document.createElement("span");
+  fill.style.width = Math.max(0, Math.min(100, fraction * 100)).toFixed(1) + "%";
+  track.append(fill);
+  return track;
+}
+
+function metricCard(tone, iconName, label, value, unit, foot, fraction) {
+  const item = document.createElement("li");
+  item.className = "metric metric-" + tone;
+  const head = document.createElement("p");
+  head.className = "metric-label";
+  head.append(svgIcon(iconName, 13), label);
+  const figure = document.createElement("p");
+  figure.className = "metric-value";
+  figure.append(value);
+  if (unit) {
+    const small = document.createElement("small");
+    small.textContent = unit;
+    figure.append(small);
+  }
+  item.append(head, figure);
+  if (fraction !== null) {
+    item.append(bar(fraction, tone === "accent" ? "" : tone));
+  }
+  const note = document.createElement("p");
+  note.className = "metric-foot";
+  note.textContent = foot;
+  item.append(note);
+  return item;
+}
+
+function levelCell(level) {
+  const td = document.createElement("td");
+  const badge = document.createElement("span");
+  badge.className = "level level-" + level;
+  badge.textContent = level;
+  td.append(badge);
+  return td;
+}
+
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
   const payload = await response.json();
@@ -81,6 +130,85 @@ function errorText(family, error) {
   return t(family, { error: error.message });
 }
 
+function usedByArca(usage) {
+  return usage.zim + usage.docs + usage.models + usage.vendor;
+}
+
+function shareOf(part, whole) {
+  return whole > 0 ? part / whole : 0;
+}
+
+function renderStatusMetrics(payload) {
+  const summary = document.getElementById("status-summary");
+  summary.className = "metrics";
+  summary.replaceChildren();
+  const usage = payload.usage;
+  const mine = usedByArca(usage);
+  summary.append(
+    metricCard(
+      "green",
+      "disk",
+      t("admin.status.metric.free"),
+      formatBytes(payload.free_bytes),
+      t("admin.status.metric.of_total", { total: formatBytes(payload.total_bytes) }),
+      t("admin.status.metric.free_share", {
+        percent: Math.round(100 * shareOf(payload.free_bytes, payload.total_bytes)),
+      }),
+      shareOf(payload.free_bytes, payload.total_bytes)
+    ),
+    metricCard(
+      "accent",
+      "db",
+      t("admin.status.metric.zim"),
+      formatBytes(usage.zim),
+      "",
+      t("admin.status.metric.zim_foot", { count: payload.counts.zim }),
+      shareOf(usage.zim, mine)
+    ),
+    metricCard(
+      "info",
+      "doc",
+      t("admin.status.metric.docs"),
+      formatBytes(usage.docs),
+      "",
+      t("admin.status.metric.docs_foot", {
+        documents: payload.counts.documents,
+        shards: payload.counts.shards,
+      }),
+      shareOf(usage.docs, mine)
+    ),
+    metricCard(
+      "amber",
+      "cpu",
+      t("admin.status.metric.models"),
+      formatBytes(usage.models),
+      "",
+      t("admin.status.metric.models_foot", { size: formatBytes(usage.vendor) }),
+      shareOf(usage.models, mine)
+    )
+  );
+  if (payload.counts.active_downloads) {
+    const active = document.createElement("li");
+    active.className = "metric metric-accent";
+    const head = document.createElement("p");
+    head.className = "metric-label";
+    head.append(svgIcon("download", 13), t("admin.status.metric.downloads"));
+    const figure = document.createElement("p");
+    figure.className = "metric-value";
+    figure.append(String(payload.counts.active_downloads));
+    active.append(head, figure);
+    summary.append(active);
+  }
+}
+
+function renderWorstState(worst) {
+  const badge = document.getElementById("health-badge");
+  badge.className = "state state-" + worst;
+  badge.textContent = t("admin.status.badge." + worst);
+  badge.title = t("admin.status.worst." + worst);
+  badge.hidden = false;
+}
+
 async function loadStatus() {
   let payload;
   try {
@@ -88,30 +216,8 @@ async function loadStatus() {
   } catch (error) {
     return;
   }
-  const summary = document.getElementById("status-summary");
-  summary.replaceChildren();
-  const lines = [
-    t("admin.status.free", {
-      free: formatBytes(payload.free_bytes),
-      total: formatBytes(payload.total_bytes),
-    }),
-    t("admin.status.usage.zim", { size: formatBytes(payload.usage.zim) }),
-    t("admin.status.usage.docs", { size: formatBytes(payload.usage.docs) }),
-    t("admin.status.usage.models", { size: formatBytes(payload.usage.models) }),
-    t("admin.status.usage.vendor", { size: formatBytes(payload.usage.vendor) }),
-    t("admin.status.counts", {
-      zim: payload.counts.zim,
-      shards: payload.counts.shards,
-      documents: payload.counts.documents,
-      active: payload.counts.active_downloads,
-    }),
-    t("admin.status.worst." + payload.worst_state),
-  ];
-  for (const line of lines) {
-    const item = document.createElement("li");
-    item.textContent = line;
-    summary.append(item);
-  }
+  renderStatusMetrics(payload);
+  renderWorstState(payload.worst_state);
   const eventsBody = document.getElementById("events-body");
   eventsBody.replaceChildren();
   if (!payload.events.length) {
@@ -124,7 +230,12 @@ async function loadStatus() {
   }
   for (const event of payload.events) {
     const row = document.createElement("tr");
-    row.append(cell(event.ts), cell(event.level), cell(event.area), cell(event.message));
+    const area = document.createElement("td");
+    const tag = document.createElement("span");
+    tag.className = "tech";
+    tag.textContent = event.area;
+    area.append(tag);
+    row.append(cell(event.ts, "stamp"), levelCell(event.level), area, cell(event.message));
     eventsBody.append(row);
   }
 }
@@ -354,13 +465,23 @@ async function loadDownloads() {
   tableWrap.hidden = false;
   for (const download of payload.downloads) {
     const row = document.createElement("tr");
-    const percent = download.size_bytes
-      ? ((100 * download.bytes_done) / download.size_bytes).toFixed(1) + "%"
-      : "?";
-    const progress = download.done_human + " / " + download.size_human + " (" + percent + ")";
+    const fraction = download.size_bytes ? download.bytes_done / download.size_bytes : 0;
+    const percent = download.size_bytes ? (100 * fraction).toFixed(1) + "%" : "?";
+    const progress = document.createElement("td");
+    const gauge = document.createElement("span");
+    gauge.className = "progress-cell";
+    const tone =
+      download.status === "failed" ? "red" : download.status === "done" ? "green" : "running";
+    const track = bar(fraction, tone);
+    track.title = download.done_human + " / " + download.size_human;
+    const reading = document.createElement("span");
+    reading.className = "num";
+    reading.textContent = percent;
+    gauge.append(track, reading);
+    progress.append(gauge);
     row.append(
       cell(download.filename),
-      cell(progress, "num"),
+      progress,
       cell(downloadSpeed(download), "num"),
       cell(download.mirror ? new URL(download.mirror).host : "-"),
       cell(t("admin.downloads.status." + download.status))

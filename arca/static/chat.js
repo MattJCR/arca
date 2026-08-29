@@ -61,12 +61,20 @@ function renderSelection() {
   strip.hidden = false;
 }
 
+function roleLine(role) {
+  const who = document.createElement("p");
+  who.className = "chat-role";
+  if (role !== "you") {
+    who.append(svgIcon("chat", 12));
+  }
+  who.append(t(role === "you" ? "home.chat.you" : "home.chat.assistant"));
+  return who;
+}
+
 function chatEntry(role, text) {
   const item = document.createElement("li");
   item.className = "chat-entry chat-" + role;
-  const who = document.createElement("p");
-  who.className = "chat-role";
-  who.textContent = t(role === "you" ? "home.chat.you" : "home.chat.assistant");
+  const who = roleLine(role);
   const body = document.createElement("p");
   body.className = "chat-text";
   body.textContent = text;
@@ -143,7 +151,7 @@ function evidenceList(payload) {
     const item = document.createElement("li");
     const link = document.createElement("a");
     link.href = source.url;
-    link.textContent = "[" + source.marker + "] " + source.source_title;
+    link.append(svgIcon("quote", 11), "[" + source.marker + "] " + source.source_title);
     link.addEventListener("click", (event) => {
       event.preventDefault();
       openResult(asResult(source));
@@ -164,10 +172,7 @@ function renderReply(payload) {
   const log = document.getElementById("chat-log");
   const item = document.createElement("li");
   item.className = "chat-entry chat-assistant";
-  const who = document.createElement("p");
-  who.className = "chat-role";
-  who.textContent = t("home.chat.assistant");
-  item.append(who, citedAnswer(payload));
+  item.append(roleLine("assistant"), citedAnswer(payload));
   if (payload.state === "ungrounded") {
     const note = document.createElement("p");
     note.className = "detail chat-ungrounded";
@@ -206,7 +211,7 @@ async function askAssistant(event) {
   chatState.busy = true;
   document.getElementById("chat-log").append(chatEntry("you", question));
   input.value = "";
-  showMessage("chat-message", t("home.chat.thinking"));
+  showBusy("chat-message", t("home.chat.thinking"));
   let payload;
   try {
     payload = await fetchJson("/api/chat", {
@@ -242,4 +247,10 @@ window.addEventListener("message", (event) => {
 });
 
 document.getElementById("chat-form").addEventListener("submit", askAssistant);
+document.getElementById("chat-input").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    document.getElementById("chat-form").requestSubmit();
+  }
+});
 renderSelection();

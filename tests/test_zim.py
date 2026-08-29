@@ -17,6 +17,7 @@ from arca.zim import (
     entry_directory,
     index_mode,
     inject_base,
+    inject_colour_scheme,
     is_html,
     media_type,
     open_archive,
@@ -236,6 +237,15 @@ def test_inject_base_handles_documents_without_a_head() -> None:
 def test_inject_base_escapes_the_href() -> None:
     result = inject_base(b"<head></head>", '/zim/u"onload="x/')
     assert b'"onload=' not in result.split(b"<base", 1)[1].split(b">", 1)[0].replace(b"&quot;", b"")
+
+
+def test_foreign_articles_declare_a_light_canvas_of_their_own() -> None:
+    result = inject_colour_scheme(b"<html><head><title>x</title></head><body>y</body></html>")
+    assert b'<head><meta name="color-scheme" content="light">' in result
+
+
+def test_the_light_canvas_survives_a_document_without_a_head() -> None:
+    assert inject_colour_scheme(b"<p>bare</p>").startswith(b'<meta name="color-scheme"')
 
 
 def test_served_articles_carry_a_base_pointing_at_their_own_folder(tmp_path: Path) -> None:

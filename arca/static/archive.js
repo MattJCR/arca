@@ -3,6 +3,8 @@
 const I18N = JSON.parse(document.getElementById("i18n-data").textContent);
 const state = { collections: [], current: null, query: "", results: [] };
 const VIEWER_SANDBOX = "allow-same-origin allow-scripts";
+const READER_KEY = "arca.reader-scale";
+const READER_STEPS = [0.85, 0.925, 1, 1.1, 1.2, 1.35, 1.5];
 
 function t(key, params) {
   let template = I18N[key];
@@ -27,12 +29,39 @@ function applyI18n() {
   for (const element of document.querySelectorAll("[data-i18n-title]")) {
     element.title = t(element.dataset.i18nTitle);
   }
+  for (const element of document.querySelectorAll("[data-i18n-label]")) {
+    element.setAttribute("aria-label", t(element.dataset.i18nLabel));
+  }
 }
 
 function showMessage(id, text) {
   const element = document.getElementById(id);
   element.textContent = text;
   element.hidden = !text;
+}
+
+function showBusy(id, text) {
+  const element = document.getElementById(id);
+  const wheel = document.createElement("span");
+  wheel.className = "spinner";
+  element.replaceChildren(wheel, document.createTextNode(text));
+  element.hidden = false;
+}
+
+function showSkeletons(count) {
+  const results = document.getElementById("search-results");
+  results.replaceChildren();
+  for (let index = 0; index < count; index += 1) {
+    const item = document.createElement("li");
+    item.className = "result result-loading";
+    for (const width of ["72%", "94%", "48%"]) {
+      const line = document.createElement("span");
+      line.className = "skeleton";
+      line.style.width = width;
+      item.append(line);
+    }
+    results.append(item);
+  }
 }
 
 async function fetchJson(url, options) {
@@ -75,6 +104,7 @@ function seal(result) {
 function resultItem(result) {
   const item = document.createElement("li");
   item.className = "result";
+  item.dataset.key = result.url;
   const link = document.createElement("a");
   link.className = "result-title";
   link.href = result.url;
@@ -204,12 +234,18 @@ async function runSearch(event) {
   if (scope) {
     params.set("scope", scope);
   }
-  showMessage("search-message", query ? t("home.search.searching") : "");
+  if (query) {
+    showBusy("search-message", t("home.search.searching"));
+    showSkeletons(4);
+  } else {
+    showMessage("search-message", "");
+  }
   let payload;
   try {
     payload = await fetchJson("/api/search?" + params.toString());
   } catch (error) {
     showMessage("search-message", t("home.search.error", { error: error.message }));
+    document.getElementById("search-results").replaceChildren();
     return;
   }
   state.query = query;
@@ -280,9 +316,21 @@ function openOriginal(result) {
   showViewer(result, originalViewerUrl(result));
 }
 
+function markOpen(result) {
+  for (const item of document.querySelectorAll("li.result")) {
+    const open = Boolean(result) && item.dataset.key === result.url;
+    if (open) {
+      item.setAttribute("aria-current", "true");
+    } else {
+      item.removeAttribute("aria-current");
+    }
+  }
+}
+
 function showViewer(result, url) {
   state.current = result;
-  document.querySelector(".pane-archive").hidden = true;
+  markOpen(result);
+  document.getElementById("viewer-empty").hidden = true;
   document.getElementById("viewer-pane").hidden = false;
   const strip = document.getElementById("viewer-seal");
   strip.replaceChildren(...seal(result).childNodes);
@@ -294,16 +342,56 @@ function showViewer(result, url) {
 }
 
 function closeViewer() {
+  state.current = null;
+  markOpen(null);
   document.getElementById("viewer-pane").hidden = true;
   document.getElementById("viewer-frame").removeAttribute("src");
-  document.querySelector(".pane-archive").hidden = false;
+  document.getElementById("viewer-empty").hidden = false;
   document.getElementById("search-q").focus();
+}
+
+function readerScale() {
+  let stored;
+  try {
+    stored = Number(window.localStorage.getItem(READER_KEY));
+  } catch (error) {
+    stored = 0;
+  }
+  return READER_STEPS.includes(stored) ? stored : 1;
+}
+
+function applyReaderScale(scale) {
+  document.getElementById("reader-scale").textContent = Math.round(scale * 100) + " %";
+  const frame = document.getElementById("viewer-frame");
+  let inner;
+  try {
+    inner = frame.contentDocument;
+  } catch (error) {
+    return;
+  }
+  if (inner && inner.documentElement) {
+    inner.documentElement.style.setProperty("--reader-scale", String(scale));
+  }
+}
+
+function stepReaderScale(direction) {
+  const steps = READER_STEPS;
+  const index = steps.indexOf(readerScale());
+  const next = steps[Math.min(steps.length - 1, Math.max(0, index + direction))];
+  try {
+    window.localStorage.setItem(READER_KEY, String(next));
+  } catch (error) {
+    applyReaderScale(next);
+    return;
+  }
+  applyReaderScale(next);
 }
 
 function trackViewerNavigation() {
   const frame = document.getElementById("viewer-frame");
   frame.addEventListener("load", () => {
     document.getElementById("viewer-loading").hidden = true;
+    applyReaderScale(readerScale());
     if (!state.current) {
       return;
     }
@@ -343,6 +431,9 @@ async function loadHealth() {
       ? "degraded"
       : "ok";
   if (worst === "ok") {
+    const badge = document.getElementById("health-badge");
+    badge.textContent = t("home.health.ok");
+    badge.hidden = false;
     return;
   }
   const strip = document.getElementById("health-strip");
@@ -362,6 +453,9 @@ document.getElementById("search-scope").addEventListener("change", () => {
   }
 });
 document.getElementById("viewer-back").addEventListener("click", closeViewer);
+document.getElementById("reader-smaller").addEventListener("click", () => stepReaderScale(-1));
+document.getElementById("reader-larger").addEventListener("click", () => stepReaderScale(1));
+applyReaderScale(readerScale());
 trackViewerNavigation();
 runSearch();
 loadHealth();

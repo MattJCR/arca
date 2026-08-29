@@ -688,11 +688,35 @@ GET  /api/manual/{page}              página del manual renderizada
 
 ## 16. Dirección visual
 
-La pantalla principal se parte en dos: archivo a la izquierda, asistente a la derecha. La izquierda es la que manda. El chat es un panel, no la protagonista.
+La pantalla principal se parte en tres columnas fijas: resultados a la izquierda, lectura en el centro, asistente a la derecha. El archivo es el que manda: la búsqueda y sus resultados nunca desaparecen al abrir un documento, y el centro es una superficie de lectura, no un marco encajonado. El chat es un panel, no la protagonista. Por debajo de 64 rem las tres columnas se apilan en ese mismo orden.
+
+La cabecera es una sola fila de 50 px con la identidad, el conmutador de zona, el estado de los subsistemas, el tema y el idioma. En administración se le añade una tira de pestañas de 34 px que solo lista las de la familia activa y se desplaza en horizontal cuando no caben, sin partirse en varias líneas ni crecer en alto.
 
 **Sujeto.** Un archivo consultable, no un producto de IA. La referencia visual es el catálogo de fichas de una biblioteca técnica y el panel de instrumentos de un equipo que debe seguir funcionando cuando falla todo lo demás. Nada de estética de asistente conversacional.
 
-**Paleta.** Base neutra fría, `#E7E9E4`, con papel de lectura ligeramente más claro, `#F1F2EF`. Tinta `#17242B`. Acento de archivo `#2F6F5E`. Marcadores de estado: ámbar `#9A6B1F` para degradado, rojo `#8E2B22` para roto. Evita el crema cálido con acento terracota; es el aspecto por defecto de la interfaz generada por IA y aquí no significa nada.
+**Paleta.** Interfaz de emergencias: manual de defensa civil, no producto de consumo. Dos temas completos, claro por defecto, elegibles por el usuario y recordados en el navegador; sin elección explícita se sigue `prefers-color-scheme`. Todos los pares de texto y fondo listados cumplen AA (4,5:1) en ambos temas.
+
+| Papel | Claro | Oscuro |
+| --- | --- | --- |
+| Fondo (`--base`) | `#d7d3c8` | `#0f0e0d` |
+| Superficie (`--paper`) | `#e6e2d8` | `#1a1917` |
+| Tarjeta (`--card`) | `#f4f2ec` | `#211f1d` |
+| Papel de lectura (`--reader`) | `#f7f5ef` | `#1c1b19` |
+| Tinta (`--ink`) | `#171512` | `#ece8df` |
+| Tinta suave (`--ink-soft`) | `#5b564d` | `#a49d90` |
+| Borde (`--line`) | `#c6c0b2` | `#35322d` |
+
+| Señal | Claro | Oscuro | Uso |
+| --- | --- | --- | --- |
+| `--accent` | `#b04408` | `#e8763a` | acción principal, foco, resultado abierto |
+| `--red` | `#a1160f` | `#f0685c` | destructivo y roto |
+| `--amber` | `#8a5a06` | `#d9a63f` | degradado, avisos |
+| `--green` | `#23663a` | `#5fb377` | correcto, arrancar |
+| `--info` | `#1f4f6b` | `#6aaed0` | informativo, sin urgencia |
+
+El naranja de señalización es la única fuente de color de la acción: no se reparte por adorno. El verde no significa «marca», significa «esto ya está bien».
+
+**Temperatura.** El conjunto es cálido a propósito, con la saturación baja de un impreso: hormigón y hueso en claro, carbón en oscuro. Lo que no vale es el degradado decorativo, la tarjeta con esquina muy redondeada y filete de color a la izquierda por defecto, ni el acento pastel: eso es el aspecto por defecto de la interfaz generada por IA y aquí no significa nada.
 
 **Tipografía.** Display: una grotesca condensada, Archivo Narrow. Cuerpo de lectura: una serif de pantalla, Source Serif 4, porque aquí se leen artículos largos. Datos, hashes, tamaños, banderas y rutas: IBM Plex Mono. **Las tres se descargan como WOFF2 y se sirven desde `static/fonts/`.** Enlazar Google Fonts en un sistema offline es un fallo de diseño, no un detalle.
 

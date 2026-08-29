@@ -206,5 +206,6 @@ def render_document(name: str, language: str, missing: str) -> str:
         f"<title>{html.escape(name)}</title>"
         '<link rel="stylesheet" href="/static/fonts/fonts.css">'
         '<link rel="stylesheet" href="/static/style.css">'
+        '<script src="/static/theme.js"></script>'
         f'</head><body class="manual-page">{content}</body></html>'
     )

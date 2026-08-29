@@ -58,12 +58,65 @@ def test_every_font_face_points_at_a_vendored_file() -> None:
         assert (STATIC / "fonts" / Path(reference).name).is_file(), reference
 
 
+LIGHT_PALETTE = ("#d7d3c8", "#e6e2d8", "#171512", "#b04408", "#a1160f", "#8a5a06", "#23663a")
+DARK_PALETTE = ("#0f0e0d", "#1a1917", "#ece8df", "#e8763a", "#f0685c", "#d9a63f", "#5fb377")
+
+
 def test_the_stylesheet_uses_the_palette_of_the_specification() -> None:
-    css = (STATIC / "style.css").read_text("utf-8")
-    for colour in ("#e7e9e4", "#f1f2ef", "#17242b", "#2f6f5e", "#9a6b1f", "#8e2b22"):
-        assert colour in css.lower(), colour
+    css = (STATIC / "style.css").read_text("utf-8").lower()
+    for colour in LIGHT_PALETTE + DARK_PALETTE:
+        assert colour in css, colour
     assert "prefers-reduced-motion" in css
     assert ":focus-visible" in css
+
+
+def test_both_themes_are_reachable_without_javascript_and_by_choice() -> None:
+    css = (STATIC / "style.css").read_text("utf-8")
+    assert "@media (prefers-color-scheme: dark)" in css
+    assert ':root[data-theme="dark"]' in css
+    assert ':root:not([data-theme="light"])' in css
+    for colour in DARK_PALETTE:
+        assert css.lower().count(colour) >= 2, colour
+
+
+def test_the_framed_pages_follow_the_theme_the_reader_chose() -> None:
+    from arca.ingest import render_readable
+    from arca.manual import render_document
+
+    tag = '<script src="/static/theme.js"></script>'
+    readable = render_readable("t", "o.pdf", "a" * 64, [(1, 0, "p:0001:00", "text")])
+    assert tag in readable
+    assert tag in render_document("README", "es", "missing")
+    assert tag in (STATIC / "pdf.html").read_text("utf-8")
+
+
+def test_every_icon_a_script_draws_is_present_in_the_page_that_loads_it() -> None:
+    drawn = 0
+    for template in TEMPLATES.glob("*.html"):
+        page = template.read_text("utf-8")
+        available = set(re.findall(r'data-icon="([^"]+)"', page))
+        for name in re.findall(r'<script src="/static/([^"]+\.js)"></script>', page):
+            script = STATIC / name
+            if not script.is_file():
+                continue
+            for icon in re.findall(r'svgIcon\(\s*"([^"]+)"', script.read_text("utf-8")):
+                assert icon in available, f"{template.name} lacks {icon} for {name}"
+                drawn += 1
+    assert drawn
+
+
+def test_the_theme_choice_is_offered_on_every_page_the_reader_sees() -> None:
+    script = (STATIC / "theme.js").read_text("utf-8")
+    assert '"arca.theme"' in script
+    assert "localStorage" in script
+    for template in TEMPLATES.glob("*.html"):
+        assert '<script src="/static/theme.js"></script>' in template.read_text("utf-8"), (
+            template.name
+        )
+    for page in (TEMPLATES / "index.html", TEMPLATES / "admin.html"):
+        text = page.read_text("utf-8")
+        assert 'data-theme-choice="light"' in text, page.name
+        assert 'data-theme-choice="dark"' in text, page.name
 
 
 def test_the_home_page_loads_the_vendored_fonts_and_the_archive_script() -> None:

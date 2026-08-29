@@ -50,8 +50,11 @@ esac
 grep -q 'english-only-lint: allow-spanish' "${FILE}" && exit 0
 
 # "Pokémon" is the spelling of the proper noun and is allowed everywhere, in any
-# casing, so it never trips the accent check.
-STRIPPED="$(sed 's/[Pp][Oo][Kk][éÉ][Mm][Oo][Nn]//g' "${FILE}")"
+# casing, so it never trips the accent check. "Archivo Narrow" is the name of a
+# typeface we vendor, so the word list must not see it: only the full typeface
+# name and the file stem are stripped, never a bare "archivo".
+STRIPPED="$(sed -e 's/[Pp][Oo][Kk][éÉ][Mm][Oo][Nn]//g' \
+  -e 's/[Aa]rchivo[ -][Nn]arrow//g' "${FILE}")"
 
 ACCENTED="$(printf '%s' "${STRIPPED}" | grep -n '[áéíóúÁÉÍÓÚñÑ¿¡]' || true)"
 SPANISH_WORDS='\b(el|los|las|una|unos|unas|del|para|por|que|pero|cuando|donde|esto|esta|este|estos|estas|tiene|debe|puede|cada|todo|todos|fichero|archivo|cadena|prueba|pruebas|entorno|siguiente|mediante|porque|aunque|hasta|desde|entre|sobre)\b'

@@ -7,35 +7,46 @@
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/fonts/fonts.css">
 <link rel="stylesheet" href="/static/style.css">
+<script src="/static/theme.js"></script>
 </head>
-<body>
-<header>
-<h1>ARCA</h1>
-<p class="tagline">$tagline</p>
-<a class="header-link" href="/admin" data-i18n="home.nav.admin"></a>
+<body class="app app-archive">
+<header class="topbar">
+<div class="wordmark"><b>ARCA</b><span class="tagline">$tagline</span></div>
+<nav class="seg" data-i18n-label="home.nav.label">
+<a class="seg-item" href="/" aria-current="page"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6.5h16M5.5 6.5v12a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-12"></path><path d="M4.5 6.5 6 3.5h12l1.5 3"></path><path d="M10 11h4"></path></svg><span data-i18n="home.nav.archive"></span></a>
+<a class="seg-item" href="/admin"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.5 12a7.5 7.5 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7.5 7.5 0 0 0-2.1-1.2l-.3-2.5h-4l-.3 2.5a7.5 7.5 0 0 0-2.1 1.2l-2.3-1-2 3.4 2 1.5a7.5 7.5 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-1a7.5 7.5 0 0 0 2.1 1.2l.3 2.5h4l.3-2.5a7.5 7.5 0 0 0 2.1-1.2l2.3 1 2-3.4-2-1.5c.07-.4.1-.8.1-1.2z"></path></svg><span data-i18n="home.nav.admin"></span></a>
+</nav>
+<span class="spacer"></span>
+<span class="state state-ok" id="health-badge" hidden data-i18n="home.health.ok"></span>
+<div class="seg theme-switch" role="group" data-i18n-label="ui.theme.label">
+<button type="button" data-theme-choice="light" aria-pressed="false" data-i18n-title="ui.theme.light"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2.5v2.5M12 19v2.5M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2.5 12H5M19 12h2.5M4.2 19.8 6 18M18 6l1.8-1.8"></path></svg><span class="visually-hidden" data-i18n="ui.theme.light"></span></button>
+<button type="button" data-theme-choice="dark" aria-pressed="false" data-i18n-title="ui.theme.dark"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"></path></svg><span class="visually-hidden" data-i18n="ui.theme.dark"></span></button>
+</div>
 $lang_selector
 </header>
 <main class="archive">
 <section class="pane pane-archive" aria-labelledby="archive-heading">
-<h2 id="archive-heading" data-i18n="home.archive.heading"></h2>
-<p id="health-strip" class="message" hidden aria-live="polite"></p>
+<div class="rail-head">
+<h2 id="archive-heading" class="visually-hidden" data-i18n="home.archive.heading"></h2>
 <form id="search-form" role="search">
-<div class="field field-wide">
-<label for="search-q" data-i18n="home.search.label"></label>
+<div class="searchbar">
+<span class="lead"><svg class="icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M20 20l-4.4-4.4"></path></svg></span>
+<label class="visually-hidden" for="search-q" data-i18n="home.search.label"></label>
 <input id="search-q" type="search" autocomplete="off" data-i18n-placeholder="home.search.placeholder">
+<button type="submit" data-i18n="home.search.button"></button>
 </div>
-<div class="field">
-<label for="search-scope" data-i18n="home.search.scope_label"></label>
+<div class="rail-filters">
+<label class="visually-hidden" for="search-scope" data-i18n="home.search.scope_label"></label>
 <select id="search-scope">
 <option value="" data-i18n="home.search.scope_all"></option>
 </select>
 </div>
-<div class="field field-submit">
-<button type="submit" data-i18n="home.search.button"></button>
-</div>
 </form>
+<p id="health-strip" class="message" hidden aria-live="polite"></p>
 <p id="search-message" class="message" hidden aria-live="polite"></p>
+</div>
 <p id="search-count" class="result-count" hidden aria-live="polite"></p>
+<div class="rail-scroll">
 <ol id="search-results" class="results"></ol>
 <ul id="search-sources" class="sources-note" hidden></ul>
 <section id="semantic-band" class="band" hidden>
@@ -43,36 +54,56 @@ $lang_selector
 <p class="detail" id="semantic-note" hidden></p>
 <ol id="semantic-results" class="results"></ol>
 </section>
+</div>
 </section>
 <section class="pane pane-viewer" id="viewer-pane" hidden aria-labelledby="viewer-heading">
 <div class="viewer-bar">
-<button type="button" id="viewer-back" data-i18n="home.viewer.back"></button>
-<h2 id="viewer-heading" data-i18n="home.viewer.heading"></h2>
-</div>
+<button type="button" id="viewer-back"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6l-6 6 6 6"></path></svg><span data-i18n="home.viewer.back"></span></button>
+<h2 id="viewer-heading" class="visually-hidden" data-i18n="home.viewer.heading"></h2>
 <p class="seal" id="viewer-seal"></p>
+<span class="spacer"></span>
+<div class="reader-tools">
+<button type="button" id="reader-smaller" data-i18n-title="home.viewer.text_smaller"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M5.5 12h13"></path></svg><span class="visually-hidden" data-i18n="home.viewer.text_smaller"></span></button>
+<span class="reader-scale" id="reader-scale" aria-hidden="true"></span>
+<button type="button" id="reader-larger" data-i18n-title="home.viewer.text_larger"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"></path></svg><span class="visually-hidden" data-i18n="home.viewer.text_larger"></span></button>
+</div>
+</div>
 <p class="detail" id="viewer-loading" hidden aria-live="polite" data-i18n="home.viewer.loading"></p>
 <iframe id="viewer-frame" sandbox="allow-same-origin" data-i18n-title="home.viewer.frame_title"></iframe>
 </section>
+<section class="pane pane-empty" id="viewer-empty">
+<svg class="icon" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 4.5h5a3 3 0 0 1 2.5 1.4A3 3 0 0 1 14.5 4.5h5v13h-5a3 3 0 0 0-2.5 1.4A3 3 0 0 0 9.5 17.5h-5z"></path><path d="M12 5.9v13"></path></svg>
+<p data-i18n="home.viewer.empty"></p>
+</section>
 <aside class="pane pane-assistant" aria-labelledby="assistant-heading">
+<div class="assistant-head">
+<svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5a2 2 0 0 1-2 2H9l-4 3v-3H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"></path></svg>
 <h2 id="assistant-heading" data-i18n="home.assistant.heading"></h2>
-<p class="assistant-state"><span class="state state-degraded" id="chat-state" data-i18n="home.chat.state.unavailable"></span></p>
-<p id="chat-unavailable" class="detail" data-i18n="home.chat.unavailable"></p>
-<p id="chat-selection" class="seal" hidden></p>
+<span class="spacer"></span>
+<span class="state state-degraded" id="chat-state" data-i18n="home.chat.state.unavailable"></span>
+</div>
+<p id="chat-unavailable" class="note" data-i18n="home.chat.unavailable"></p>
 <ol id="chat-log" class="chat-log" aria-live="polite"></ol>
 <p id="chat-message" class="message" hidden aria-live="polite"></p>
-<form id="chat-form">
-<div class="field field-wide">
+<p id="chat-selection" class="selection-card" hidden></p>
+<form id="chat-form" class="prompt">
 <label class="visually-hidden" for="chat-input" data-i18n="home.chat.placeholder"></label>
-<textarea id="chat-input" rows="3" data-i18n-placeholder="home.chat.placeholder"></textarea>
-</div>
-<div class="field field-submit">
+<textarea id="chat-input" rows="2" data-i18n-placeholder="home.chat.placeholder"></textarea>
+<div class="prompt-foot">
+<span class="prompt-hint" data-i18n="home.chat.hint"></span>
+<span class="spacer"></span>
 <button type="submit" data-i18n="home.chat.send"></button>
 </div>
 </form>
 </aside>
 </main>
 <noscript><p class="message" data-noscript aria-live="polite">$noscript</p></noscript>
+<div id="icon-set" hidden aria-hidden="true">
+<svg data-icon="chat" class="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5a2 2 0 0 1-2 2H9l-4 3v-3H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"></path></svg>
+<svg data-icon="quote" class="icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 6.5C6.5 8 5 10.5 5 14v3.5h5.5V12H8c0-2 .6-3.4 2.2-4.3z"></path><path d="M18 6.5c-3 1.5-4.5 4-4.5 7.5v3.5H19V12h-2.5c0-2 .6-3.4 2.2-4.3z"></path></svg>
+</div>
 <script id="i18n-data" type="application/json">$i18n_json</script>
+<script src="/static/icons.js"></script>
 <script src="/static/archive.js"></script>
 <script src="/static/chat.js"></script>
 </body>

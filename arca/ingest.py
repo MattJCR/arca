@@ -247,6 +247,7 @@ def render_readable(
         f"<title>{escape(title)}</title>",
         '<link rel="stylesheet" href="/static/fonts/fonts.css">',
         '<link rel="stylesheet" href="/static/style.css">',
+        '<script src="/static/theme.js"></script>',
         "</head>",
         f'<body class="readable" data-doc="{escape(doc_id)}">',
         f"<h1>{escape(title)}</h1>",
