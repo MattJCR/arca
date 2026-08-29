@@ -253,8 +253,8 @@ def test_admin_catalog_marks_library_entries_and_updates(
     assert entries["devdocs_en_python"]["in_library"] is False
     assert entries["devdocs_en_python"]["is_update"] is False
     reader = entries["devdocs_en_python"]["reader_url"]
-    assert reader.startswith("https://library.kiwix.org/viewer#")
-    assert reader.endswith("devdocs_en_python")
+    assert reader.startswith("https://browse.library.kiwix.org/viewer#")
+    assert reader.endswith("devdocs_en_python_2026-05")
 
 
 def test_admin_catalog_filters_lists_categories_and_languages(

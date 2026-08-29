@@ -91,13 +91,24 @@ viaja en el JSON de `/api/admin/catalog`; el JavaScript solo lee
 `entry.reader_url`, de modo que sigue sin haber una URL externa en ningún estático servido y
 `tests/test_frontend.py` sigue en verde.
 
-**El nombre del libro sale del fichero, no de `kiwix:name`.** El feed OPDS trae `kiwix:name` sin la
-variante: para las tres ediciones de Wikipedia en español —`maxi`, `nopic` y `mini`— dice
-`wikipedia_es_all` en las tres. En la biblioteca de Kiwix son tres libros distintos, así que ese
-nombre es ambiguo y el visor abría otra cosa. `book_slug()` lo deriva del nombre del fichero de
-descarga quitándole `.zim` y la fecha (`_2026-06`, con día opcional), que es justamente lo que
-distingue una edición de otra: `wikipedia_es_all_maxi_2026-06.zim` → `wikipedia_es_all_maxi`. Si no
-hubiera fichero, cae a `kiwix:name`. Lo que ya está en la biblioteca se lee sin conexión desde
+**El nombre del libro sale del fichero, no de `kiwix:name`, y va entero.** El feed OPDS trae
+`kiwix:name` sin la variante: para las tres ediciones de Wikipedia en español —`maxi`, `nopic` y
+`mini`— dice `wikipedia_es_all` en las tres. En la biblioteca de Kiwix son tres libros distintos, así
+que ese nombre no identifica ninguno. `book_slug()` lo deriva del fichero de descarga quitándole
+solo `.zim`: `wikipedia_es_all_maxi_2026-06.zim` → `wikipedia_es_all_maxi_2026-06`. Si no hubiera
+fichero, cae a `kiwix:name`.
+
+La forma exacta está tomada de URLs reales del visor, no deducida: se llegó a ella después de que
+dos intentos previos —`kiwix:name` a secas, y luego el nombre sin la fecha— abrieran otro libro.
+Dos propiedades que no son obvias y que los tests fijan con esas URLs observadas:
+
+- **El host del lector no es el del catálogo.** El feed OPDS se consulta en `library.kiwix.org`
+  (`CATALOG_BASE_URL`), pero el visor vive en `browse.library.kiwix.org` (`READER_BASE_URL`). Son dos
+  constantes separadas a propósito.
+- **La fecha forma parte del identificador.** `…/viewer#ecured_es_all_2019-05`, no
+  `…#ecured_es_all`. La consecuencia aceptada: si la biblioteca de Kiwix publica una edición más
+  nueva que la que devuelve el catálogo, el enlace deja de resolver. Falla hacia el visor, que es
+  visible al instante, y no hacia otro libro, que es lo que hacía y no se notaba. Lo que ya está en la biblioteca se lee sin conexión desde
 el archivo, que es de lo que va el producto.
 
 Buscador del catálogo: campo de texto con etiqueta, combos de idioma (con nombre, código y número de libros) y categoría poblados desde `/api/admin/catalog/filters` al cargar la página — si los feeds no responden, los combos quedan vacíos, se avisa y la búsqueda por texto sigue funcionando —, filtro de sabor construido en cliente a partir de los sabores presentes en los resultados, recuento «mostrados de totales», y tabla ordenable por cualquier columna (clic o teclado en la cabecera, con `aria-sort`; por defecto tamaño descendente; columnas numéricas alineadas a la derecha). La tabla vive en un contenedor con scroll y cabecera fija; cada fila conserva las insignias «en la biblioteca» / «versión nueva» y el botón de descarga. Las descargas encoladas desde el dashboard las atiende `QueueWorker` (ver `downloads.md`) en el propio proceso del servidor, que para eso es un proceso administrativo.

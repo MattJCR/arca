@@ -61,29 +61,24 @@ def test_parse_entries_extracts_the_catalog_fields() -> None:
     assert wikipedia.meta4_url.endswith(".zim.meta4")
 
 
+def test_the_reader_url_is_the_one_the_kiwix_viewer_actually_uses() -> None:
+    wikipedia = parse_entries(_feed())[0]
+    observed = "https://browse.library.kiwix.org/viewer#ecured_es_all_2019-05"
+    ecured = replace(wikipedia, filename="ecured_es_all_2019-05.zim")
+    assert reader_url(ecured) == observed
+    videos = replace(wikipedia, filename="canadian-prepper_en_preppingfood_2026-07.zim")
+    assert reader_url(videos).endswith("#canadian-prepper_en_preppingfood_2026-07")
+
+
 def test_the_reader_url_keeps_the_flavour_that_tells_two_editions_apart() -> None:
     wikipedia, devdocs = parse_entries(_feed())[:2]
-    assert reader_url(wikipedia) == "https://library.kiwix.org/viewer#wikipedia_es_all_maxi"
-    assert reader_url(devdocs) == "https://library.kiwix.org/viewer#devdocs_en_python"
+    assert reader_url(wikipedia).endswith("#wikipedia_es_all_maxi_2026-06")
+    assert reader_url(devdocs).endswith("#devdocs_en_python_2026-05")
 
 
-def test_the_reader_url_drops_the_date_that_makes_a_file_name_expire() -> None:
+def test_the_reader_url_keeps_the_date_because_the_viewer_asks_for_it() -> None:
     wikipedia = parse_entries(_feed())[0]
-    assert "2026-06" not in reader_url(wikipedia)
-    monthly = replace(wikipedia, filename="handbook_es_all_2031-12.zim")
-    assert reader_url(monthly).endswith("#handbook_es_all")
-
-
-def test_the_reader_url_drops_a_date_that_carries_the_day_too() -> None:
-    wikipedia = parse_entries(_feed())[0]
-    daily = replace(wikipedia, filename="handbook_es_all_2031-12-24.zim")
-    assert reader_url(daily).endswith("#handbook_es_all")
-
-
-def test_a_file_name_without_a_date_is_left_alone() -> None:
-    wikipedia = parse_entries(_feed())[0]
-    undated = replace(wikipedia, filename="handbook_es_all.zim")
-    assert reader_url(undated).endswith("#handbook_es_all")
+    assert "2026-06" in reader_url(wikipedia)
 
 
 def test_the_reader_url_falls_back_to_the_catalog_name_without_a_file() -> None:

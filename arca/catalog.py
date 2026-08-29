@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import sqlite3
 import urllib.error
 import urllib.parse
@@ -16,9 +15,9 @@ CATALOG_BASE_URL = "https://library.kiwix.org"
 ENTRIES_PATH = "/catalog/v2/entries"
 CATEGORIES_PATH = "/catalog/v2/categories"
 LANGUAGES_PATH = "/catalog/v2/languages"
+READER_BASE_URL = "https://browse.library.kiwix.org"
 VIEWER_PATH = "/viewer#"
 ZIM_SUFFIX = ".zim"
-DATED_SUFFIX = re.compile(r"_\d{4}-\d{2}(?:-\d{2})?$")
 MIRROR_COUNTRY = "ES"
 REQUEST_TIMEOUT_SECONDS = 30
 USER_AGENT = f"arca/{__version__}"
@@ -82,12 +81,12 @@ def http_get(url: str) -> bytes:
 
 
 def book_slug(entry: CatalogEntry) -> str:
-    stem = entry.filename[: -len(ZIM_SUFFIX)] if entry.filename.endswith(ZIM_SUFFIX) else ""
-    without_date = DATED_SUFFIX.sub("", stem)
-    return without_date or entry.book_name
+    if entry.filename.endswith(ZIM_SUFFIX):
+        return entry.filename[: -len(ZIM_SUFFIX)]
+    return entry.book_name
 
 
-def reader_url(entry: CatalogEntry, base_url: str = CATALOG_BASE_URL) -> str:
+def reader_url(entry: CatalogEntry, base_url: str = READER_BASE_URL) -> str:
     slug = book_slug(entry)
     if not slug:
         return ""
