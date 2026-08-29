@@ -286,6 +286,7 @@ function showViewer(result, url) {
   const strip = document.getElementById("viewer-seal");
   strip.replaceChildren(...seal(result).childNodes);
   const frame = document.getElementById("viewer-frame");
+  document.getElementById("viewer-loading").hidden = false;
   frame.src = url;
   frame.focus();
 }
@@ -300,6 +301,7 @@ function closeViewer() {
 function trackViewerNavigation() {
   const frame = document.getElementById("viewer-frame");
   frame.addEventListener("load", () => {
+    document.getElementById("viewer-loading").hidden = true;
     if (!state.current) {
       return;
     }

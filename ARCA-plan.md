@@ -320,10 +320,18 @@ semántica con `multilingual-e5-base` real.
 
 ### Fase 7 — Hallazgos de la revisión general
 
+**F7.0 — Puesta en marcha del servidor de embeddings** *(cerrada el 2026-08-29)*
+La misma queja que el motor del chat, sin resolver: ARCA solo gestionaba un `llama-server`. Ahora
+levanta también el de embeddings con el mismo binario y el `.gguf` de `models/embed/`, probándolo
+por sus dimensiones y no por una generación, que un modelo de embeddings no conversa. Desbloquea el
+indexado de documentos, la franja semántica y la comprobación `embedding_server`.
+· Dep: F6.4 · CA: con el `.gguf` en su carpeta, el panel declara los dos servidores por separado y
+un modelo con otras dimensiones se rechaza con el número concreto.
+
 Salen de `docs/gates/review-general.md`, que registra qué se verificó y qué quedó abierto. El orden
 es el de esa revisión: primero lo que evita que vuelva a pasar lo de la fase 6.
 
-**F7.1 — Prueba de costura: nada del producto sin llamador** *(alta)*
+**F7.1 — Prueba de costura: nada del producto sin llamador** *(cerrada el 2026-08-29)*
 Verificación de que toda función pública del paquete la usa alguien fuera de `tests/`. Es la
 comprobación que habría cazado el chat roto en el navegador y los documentos que nunca se
 indexaban, los dos defectos más graves de la fase 6.
@@ -342,17 +350,18 @@ documentar que usar el producto ensucia el árbol) o separar lock de repositorio
 biblioteca.
 · Dep: — · CA: la decisión queda en §8.3 y el comportamiento la sigue.
 
-**F7.4 — Agrupar el panel en tres familias** *(media)*
+**F7.4 — Agrupar el panel en tres familias** *(cerrada el 2026-08-29)*
 Catorce pestañas en una barra que envuelve. Agrupar en Contenido / Modelo y chat / Sistema con la
 misma maquinaria ARIA (U1 de la revisión).
 · Dep: — · CA: la primera decisión del operador pasa de catorce opciones a tres, sin ocultar
 ninguna sección y sin romper el patrón de teclado.
 
-**F7.5 — Pulido de interfaz** *(baja)*
-U2–U7 de la revisión: progreso en operaciones largas, resultado por fichero al subir, altura máxima
-del historial de chat, estados de color en la tarjeta del motor, indicación de carga en el visor y
-el resto de accesibilidad.
-· Dep: F7.2, F7.4 · CA: cada punto, verificado a mano en las dos pantallas.
+**F7.5 — Pulido de interfaz** *(parcial)*
+Hechos: resultado por fichero al subir (U3), altura máxima del historial de chat (U4), estados de
+color en la tarjeta del motor (U5) e indicación de carga en el visor (U6). Queda U2 (progreso real
+en operaciones largas, que depende de F7.2) y U7 (foco al abrir el visor y texto de orden en las
+tablas).
+· Dep: F7.2 · CA: cada punto, verificado a mano en las dos pantallas.
 
 **F7.6 — `python -m arca`** *(baja)*
 Añadir `__main__.py` para que la invocación obvia funcione.

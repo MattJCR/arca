@@ -11,21 +11,26 @@
 <header>
 <h1>ARCA</h1>
 <a class="header-link" href="/" data-i18n="admin.nav.home"></a>
+<nav class="families" aria-label="admin.nav.families">
+<button type="button" class="family" data-family="content" aria-pressed="true" data-i18n="admin.nav.family.content"></button>
+<button type="button" class="family" data-family="model" aria-pressed="false" data-i18n="admin.nav.family.model"></button>
+<button type="button" class="family" data-family="system" aria-pressed="false" data-i18n="admin.nav.family.system"></button>
+</nav>
 <nav class="tabs" role="tablist">
-<button type="button" role="tab" data-tab="status-section" aria-selected="true" data-i18n="admin.nav.status"></button>
-<button type="button" role="tab" data-tab="catalog-section" aria-selected="false" data-i18n="admin.nav.catalog"></button>
-<button type="button" role="tab" data-tab="downloads-section" aria-selected="false" data-i18n="admin.nav.downloads"></button>
-<button type="button" role="tab" data-tab="content-section" aria-selected="false" data-i18n="admin.nav.content"></button>
-<button type="button" role="tab" data-tab="documents-section" aria-selected="false" data-i18n="admin.nav.documents"></button>
-<button type="button" role="tab" data-tab="scope-section" aria-selected="false" data-i18n="admin.nav.scope"></button>
-<button type="button" role="tab" data-tab="models-section" aria-selected="false" data-i18n="admin.nav.models"></button>
-<button type="button" role="tab" data-tab="llama-section" aria-selected="false" data-i18n="admin.nav.llama"></button>
-<button type="button" role="tab" data-tab="chat-section" aria-selected="false" data-i18n="admin.nav.chat"></button>
-<button type="button" role="tab" data-tab="vendor-section" aria-selected="false" data-i18n="admin.nav.vendor"></button>
-<button type="button" role="tab" data-tab="search-section" aria-selected="false" data-i18n="admin.nav.search"></button>
-<button type="button" role="tab" data-tab="maintenance-section" aria-selected="false" data-i18n="admin.nav.maintenance"></button>
-<button type="button" role="tab" data-tab="diagnostics-section" aria-selected="false" data-i18n="admin.nav.diagnostics"></button>
-<button type="button" role="tab" data-tab="manual-section" aria-selected="false" data-i18n="admin.nav.manual"></button>
+<button type="button" role="tab" data-tab="status-section" data-family="content" aria-selected="true" data-i18n="admin.nav.status"></button>
+<button type="button" role="tab" data-tab="catalog-section" data-family="content" aria-selected="false" data-i18n="admin.nav.catalog"></button>
+<button type="button" role="tab" data-tab="downloads-section" data-family="content" aria-selected="false" data-i18n="admin.nav.downloads"></button>
+<button type="button" role="tab" data-tab="content-section" data-family="content" aria-selected="false" data-i18n="admin.nav.content"></button>
+<button type="button" role="tab" data-tab="documents-section" data-family="content" aria-selected="false" data-i18n="admin.nav.documents"></button>
+<button type="button" role="tab" data-tab="scope-section" data-family="content" aria-selected="false" data-i18n="admin.nav.scope"></button>
+<button type="button" role="tab" data-tab="models-section" data-family="model" aria-selected="false" data-i18n="admin.nav.models"></button>
+<button type="button" role="tab" data-tab="llama-section" data-family="model" aria-selected="false" data-i18n="admin.nav.llama"></button>
+<button type="button" role="tab" data-tab="chat-section" data-family="model" aria-selected="false" data-i18n="admin.nav.chat"></button>
+<button type="button" role="tab" data-tab="vendor-section" data-family="system" aria-selected="false" data-i18n="admin.nav.vendor"></button>
+<button type="button" role="tab" data-tab="search-section" data-family="model" aria-selected="false" data-i18n="admin.nav.search"></button>
+<button type="button" role="tab" data-tab="maintenance-section" data-family="system" aria-selected="false" data-i18n="admin.nav.maintenance"></button>
+<button type="button" role="tab" data-tab="diagnostics-section" data-family="system" aria-selected="false" data-i18n="admin.nav.diagnostics"></button>
+<button type="button" role="tab" data-tab="manual-section" data-family="system" aria-selected="false" data-i18n="admin.nav.manual"></button>
 </nav>
 $lang_selector
 </header>
@@ -156,6 +161,7 @@ $lang_selector
 <button id="documents-index-button" data-i18n="admin.documents.index_button"></button>
 <button id="documents-refresh-button" data-i18n="admin.documents.refresh_button"></button>
 </p>
+<ul id="documents-uploaded" class="sources-note" hidden aria-live="polite"></ul>
 <p id="documents-message" class="message" hidden aria-live="polite"></p>
 <div class="table-scroll">
 <table class="data" id="documents-table">

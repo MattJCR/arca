@@ -935,6 +935,8 @@ section.band li.result {
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
+  max-height: 26rem;
+  overflow-y: auto;
   max-height: 48vh;
   overflow-y: auto;
 }
@@ -1220,4 +1222,32 @@ body.manual-page pre code {
   .manual-index {
     max-height: 14rem;
   }
+}
+
+nav.families {
+  display: flex;
+  gap: 0.25rem;
+  flex: 1 1 100%;
+  order: 2;
+  padding: 0.2rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+}
+
+nav.families .family {
+  flex: 1 1 0;
+  padding: 0.4rem 1rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  background: transparent;
+  color: var(--accent-dark);
+  cursor: pointer;
+}
+
+nav.families .family[aria-pressed="true"] {
+  background: var(--paper);
+  border-color: var(--accent);
+  color: var(--ink);
 }

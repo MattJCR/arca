@@ -668,6 +668,7 @@ async function uploadDocuments(event) {
   button.disabled = true;
   let added = 0;
   let duplicates = 0;
+  const report = [];
   for (const file of files) {
     showMessage("documents-message", t("admin.documents.uploading", { filename: file.name }));
     let payload;
@@ -689,12 +690,22 @@ async function uploadDocuments(event) {
     }
     if (payload.created) {
       added += 1;
+      report.push(t("admin.documents.file_added", { filename: file.name, pages: payload.pages }));
     } else {
       duplicates += 1;
+      report.push(t("admin.documents.file_duplicate", { filename: file.name }));
     }
   }
   button.disabled = false;
   input.value = "";
+  const summary = document.getElementById("documents-uploaded");
+  summary.replaceChildren();
+  for (const line of report) {
+    const item = document.createElement("li");
+    item.textContent = line;
+    summary.append(item);
+  }
+  summary.hidden = !report.length;
   showMessage("documents-message", t("admin.documents.uploaded", { added, duplicates }));
   loadDocuments();
 }
@@ -1035,14 +1046,30 @@ function engineDetail(payload) {
   return payload.detail || "";
 }
 
+const ENGINE_TONE = {
+  ready: "state-ok",
+  failed: "state-broken",
+  exhausted: "state-broken",
+  unsupported: "state-broken",
+};
+
+function engineLine(id, key, params, state) {
+  const element = document.getElementById(id);
+  element.replaceChildren();
+  const badge = document.createElement("span");
+  badge.className = "state " + (ENGINE_TONE[state] || "state-degraded");
+  badge.textContent = t("admin.engine.state." + state);
+  element.append(document.createTextNode(t(key, params) + " "), badge);
+}
+
 function renderEngine(payload) {
-  document.getElementById("engine-state").textContent = t("admin.engine.chat_label", {
-    state: t("admin.engine.state." + payload.state),
-  });
-  document.getElementById("engine-embed").textContent = t("admin.engine.embed_label", {
-    state: t("admin.engine.state." + payload.embed_state),
-    model: payload.embed_model || t("admin.engine.no_model"),
-  });
+  engineLine("engine-state", "admin.engine.chat_label", {}, payload.state);
+  engineLine(
+    "engine-embed",
+    "admin.engine.embed_label",
+    { model: payload.embed_model || t("admin.engine.no_model") },
+    payload.embed_state
+  );
   const detail = document.getElementById("engine-detail");
   detail.textContent = engineDetail(payload);
   detail.hidden = !detail.textContent;
