@@ -11,8 +11,8 @@ from arca.vectors import (
     VectorError,
     VectorHit,
     VectorIndex,
+    hit_order,
     ids_path,
-    merge_hits,
     normalize_rows,
     quantize,
     quantize_query,
@@ -162,12 +162,9 @@ def test_a_truncated_vector_file_is_refused(tmp_path: Path) -> None:
         VectorIndex(tmp_path, DIMS)
 
 
-def test_hits_from_several_shards_merge_by_score() -> None:
-    first = [VectorHit(1, 0.9), VectorHit(2, 0.5)]
-    second = [VectorHit(3, 0.7), VectorHit(4, 0.1)]
-    merged = merge_hits([first, second], limit=3)
-    assert [hit.chunk_id for hit in merged] == [1, 3, 2]
-    assert merge_hits([], limit=5) == []
+def test_hits_order_by_score_and_break_ties_by_chunk() -> None:
+    hits = [VectorHit(4, 0.1), VectorHit(1, 0.9), VectorHit(3, 0.7), VectorHit(2, 0.9)]
+    assert [hit.chunk_id for hit in sorted(hits, key=hit_order)] == [1, 2, 3, 4]
 
 
 def test_a_big_index_is_searched_in_parallel(tmp_path: Path) -> None:

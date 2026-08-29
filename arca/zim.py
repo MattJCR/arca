@@ -100,10 +100,6 @@ def open_archive(path: Path) -> Archive:
         raise ZimError(f"cannot open zim: {path.name}: {error}") from error
 
 
-def read_info(path: Path) -> ZimInfo:
-    return archive_info(open_archive(path), path)
-
-
 def archive_info(archive: Archive, path: Path) -> ZimInfo:
     return ZimInfo(
         uuid=str(archive.uuid),

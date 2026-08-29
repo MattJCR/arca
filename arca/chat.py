@@ -12,7 +12,7 @@ from arca.db import read_setting, write_setting
 from arca.i18n import SUPPORTED_LANGUAGES, Catalog, load_catalog
 from arca.ingest import estimate_tokens
 from arca.llama import Completion, chat_completion
-from arca.search import SOURCE_DOC, SearchResult
+from arca.search import SearchResult
 
 SETTINGS_KEY = "chat"
 MAX_CHUNKS = 5
@@ -534,7 +534,3 @@ def _sampling(value: object) -> dict[str, Any]:
         if isinstance(key, str) and isinstance(item, int | float | str | bool):
             allowed[key] = item
     return allowed or dict(DEFAULT_SAMPLING)
-
-
-def document_evidence(results: Sequence[SearchResult]) -> list[SearchResult]:
-    return [result for result in results if result.source_kind == SOURCE_DOC]

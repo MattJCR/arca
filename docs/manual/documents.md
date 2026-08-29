@@ -82,7 +82,7 @@ Un documento que no sea PDF —la documentación vendorizada, por ejemplo— no 
 
 ## Alcance del índice profundo (§12.5)
 
-`deep_index_scope` guarda, por fuente, uno de tres valores: `out`, `full` o `curated` (con su lista de títulos). Tus documentos son `full` fijo. Las colecciones ZIM son `out` por defecto: indexar Wikipedia entera costaría días de cómputo para poca ganancia.
+`deep_index_scope` guarda, por fuente, uno de tres valores: `out`, `full` o `curated` (con su lista de títulos). **Hoy la elección se registra y nada la consume todavía**: la indexación profunda de artículos de ZIM no está construida, así que `curated` describe una intención, no un efecto. `pipeline.scope_titles` es su lector, a la espera. Tus documentos son `full` fijo. Las colecciones ZIM son `out` por defecto: indexar Wikipedia entera costaría días de cómputo para poca ganancia.
 
 Antes de lanzar nada, la pantalla muestra la **estimación**: fragmentos, segundos de cómputo y espacio en disco. Lo que queda fuera del índice profundo **sigue buscándose por palabras**; solo pierde la precisión de párrafo.
 

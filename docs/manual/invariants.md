@@ -58,3 +58,14 @@ Se ejecuta tras cualquier cambio en `api.py`, `zim.py`, `search.py`, `db.py`,
 `config.py`, `templates/` o `static/`, y antes de cada puerta de hito. La skill
 `verify-no-write` lleva el procedimiento y el árbol de decisión de qué hacer
 cuando falla.
+
+## La costura: nada del producto vive solo para los tests
+
+`tests/test_seams.py` recorre el paquete con `ast` y exige que **toda función pública tenga al
+menos un llamador fuera de `tests/`**. No es una regla de estilo: nació de dos defectos reales que
+la suite en verde no veía, porque cada pieza estaba probada por separado y nadie las unía — el
+chat que no funcionaba en el navegador y los documentos importados que no se indexaban nunca.
+
+Lo que se permite dejar sin llamador va en `PLANNED`, con el motivo escrito y dos guardas: la
+función tiene que seguir existiendo, y tiene que seguir sin llamador. El día que alguien la use, el
+test obliga a sacarla de la lista.

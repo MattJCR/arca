@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import threading
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -184,7 +184,5 @@ class VectorIndex:
         self._ids = np.empty((0,), dtype=np.int64)
 
 
-def merge_hits(groups: Iterable[Sequence[VectorHit]], limit: int) -> list[VectorHit]:
-    merged = [hit for group in groups for hit in group]
-    merged.sort(key=lambda hit: (-hit.score, hit.chunk_id))
-    return merged[:limit]
+def hit_order(hit: VectorHit) -> tuple[float, int]:
+    return (-hit.score, hit.chunk_id)

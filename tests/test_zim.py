@@ -21,10 +21,9 @@ from arca.zim import (
     media_type,
     open_archive,
     read_entry,
-    read_info,
     search_archive,
 )
-from tests.support import ZimArticle, article, build_zim
+from tests.support import ZimArticle, article, build_zim, read_info
 
 PLANTS = article("plants.html", "Plants", "<p>Plants use photosynthesis to make sugar.</p>")
 MOUNTAINS = article("mountains.html", "Mountains", "<p>Orogeny lifts continental crust.</p>")

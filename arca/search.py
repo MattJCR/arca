@@ -9,10 +9,10 @@ from urllib.parse import quote
 from arca.db import read_setting, write_setting
 from arca.ingest import MAX_CHUNK_TOKENS, MIN_CHUNK_TOKENS, PDF_MIME
 from arca.shards import DocumentRow, Shard, ShardHit
+from arca.vectors import VectorHit, hit_order
 from arca.zim import (
     DEFAULT_LIMIT,
     MAX_LIMIT,
-    SEARCH_MODE_NONE,
     ZimError,
     ZimInfo,
     ZimLibrary,
@@ -213,10 +213,6 @@ def _idle_reports(infos: Sequence[ZimInfo]) -> list[SourceReport]:
     ]
 
 
-def unsearchable(reports: Sequence[SourceReport]) -> list[SourceReport]:
-    return [report for report in reports if report.mode == SEARCH_MODE_NONE or report.error]
-
-
 def document_url(doc_id: str, anchor: str = "") -> str:
     base = f"/api/doc/{quote(doc_id, safe='')}"
     return f"{base}#{quote(anchor, safe=':')}" if anchor else base
@@ -310,15 +306,16 @@ def search_shards_by_vector(
     limit: int,
     snippet_chars: int = SNIPPET_CHARS,
 ) -> list[SearchResult]:
-    scored: list[tuple[float, Shard, int]] = []
+    scored: list[tuple[Shard, VectorHit]] = []
     for shard in shards:
         if not shard.state.searchable_by_vector:
             continue
         for hit in shard.search_vectors(vector, limit):
-            scored.append((hit.score, shard, hit.chunk_id))
-    scored.sort(key=lambda item: (-item[0], item[2]))
+            scored.append((shard, hit))
+    scored.sort(key=lambda item: hit_order(item[1]))
     results: list[SearchResult] = []
-    for position, (score, shard, chunk_id) in enumerate(scored[:limit]):
+    for position, (shard, found) in enumerate(scored[:limit]):
+        score, chunk_id = found.score, found.chunk_id
         row = shard.chunk(chunk_id)
         if row is None:
             continue

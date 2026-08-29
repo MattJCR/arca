@@ -12,9 +12,14 @@ from arca.search import (
     normalize_limit,
     normalize_mode,
     search_library,
-    unsearchable,
 )
-from arca.zim import MAX_LIMIT, SEARCH_MODE_FULLTEXT, SEARCH_MODE_TITLE, ZimLibrary
+from arca.zim import (
+    MAX_LIMIT,
+    SEARCH_MODE_FULLTEXT,
+    SEARCH_MODE_NONE,
+    SEARCH_MODE_TITLE,
+    ZimLibrary,
+)
 from tests.support import article, build_zim
 
 
@@ -159,8 +164,9 @@ def test_entry_url_percent_encodes_the_path_but_keeps_its_folders() -> None:
     assert entry_url("u", "Mañana") == "/zim/u/Ma%C3%B1ana"
 
 
-def test_unsearchable_selects_only_the_sources_that_cannot_answer(tmp_path: Path) -> None:
+def test_every_source_reports_whether_it_could_answer(tmp_path: Path) -> None:
     library = _library(tmp_path)
     outcome = search_library(library, "marker")
-    assert unsearchable(outcome.sources) == []
+    assert outcome.sources
+    assert all(report.mode != SEARCH_MODE_NONE and not report.error for report in outcome.sources)
     library.close()

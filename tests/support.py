@@ -17,6 +17,14 @@ from pathlib import Path
 
 from libzim.writer import Creator, Hint, Item, StringProvider
 
+from arca.ingest import (
+    Extraction,
+    OriginalRecord,
+    anchor,
+    render_readable,
+)
+from arca.zim import ZimInfo, archive_info, open_archive
+
 LLAMA_STUB = Path(__file__).resolve().parent / "fixtures" / "llama_server_stub.py"
 
 
@@ -564,3 +572,17 @@ def runtime_package(name: str = "cudart64_12.dll") -> bytes:
     with zipfile.ZipFile(buffer, "w") as bundle:
         bundle.writestr(name, "runtime\n")
     return buffer.getvalue()
+
+
+def read_info(path: Path) -> ZimInfo:
+    return archive_info(open_archive(path), path)
+
+
+def readable_html(record: OriginalRecord, extraction: Extraction) -> str:
+    blocks = [
+        (block.page, block.ord, anchor(block.page, block.ord), block.text)
+        for block in extraction.blocks
+    ]
+    return render_readable(
+        record.title, record.orig_name, record.doc_id, blocks, extraction.unindexable_pages
+    )

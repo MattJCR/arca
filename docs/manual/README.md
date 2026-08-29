@@ -27,6 +27,7 @@ Manual vivo del proyecto. Documenta **únicamente la realidad actual**: lo que e
 - [Interfaz de consulta](interface.md) — pantalla partida, sello de procedencia, visor, estados honestos, dirección visual y tipografías vendorizadas.
 - [Documentos propios](documents.md) — ingesta reanudable, anclas, lotes sellados, índice vectorial, franja semántica y alcance del índice profundo.
 - [Búsqueda y fusión](search.md) — los dos niveles, intercalado por rango, procedencia de cada resultado, `GET /api/search`.
+- [Costuras verificables](../gates/review-general.md) — la prueba de que ninguna función del paquete vive solo para los tests (`tests/test_seams.py`), y por qué existe.
 - [Invariantes verificables](invariants.md) — el contrato de «consultar no escribe» y la degradación en caliente, con su suite y su skill.
 - [Modelos](models.md) — buscador de modelos GGUF en el hub, variantes y cuantizaciones, descarga por la cola verificada, y elección del modelo activo.
 - [Puesta en marcha automática](engine.md) — el usuario solo deja los modelos: ARCA consigue el motor, lo despliega y levanta los dos servidores, el de chat y el de embeddings.

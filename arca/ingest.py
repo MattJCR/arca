@@ -267,16 +267,6 @@ def render_readable(
     return "\n".join(parts)
 
 
-def readable_html(record: OriginalRecord, extraction: Extraction) -> str:
-    blocks = [
-        (block.page, block.ord, anchor(block.page, block.ord), block.text)
-        for block in extraction.blocks
-    ]
-    return render_readable(
-        record.title, record.orig_name, record.doc_id, blocks, extraction.unindexable_pages
-    )
-
-
 def estimate_tokens(text: str) -> int:
     words = len(text.split())
     return ceil(words * TOKENS_PER_WORD) if words else 0

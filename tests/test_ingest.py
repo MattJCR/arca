@@ -24,12 +24,11 @@ from arca.ingest import (
     page_anchor,
     probe_document,
     read_sidecar,
-    readable_html,
     receive_document,
     sidecar_path,
     split_sentences,
 )
-from tests.support import blank_pdf, build_pdf
+from tests.support import blank_pdf, build_pdf, readable_html
 
 PAGES = [
     ["First paragraph of the manual.", "A clearly different second block."],
