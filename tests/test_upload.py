@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from arca.api import create_app
 from arca.config import ArcaConfig, init_library
 from arca.ingest import list_originals, original_path
-from tests.support import EmbeddingServer, build_pdf
+from tests.support import EmbeddingServer, build_pdf, write_gguf
 from tests.test_api import http_get, http_request
 
 DIMS = 8
@@ -138,6 +138,7 @@ def test_indexing_without_the_embedding_server_keeps_the_documents(
     tmp_path: Path, library: tuple[Path, FastAPI], server: EmbeddingServer
 ) -> None:
     root, app = library
+    write_gguf(root / "models" / "embed" / "e5.gguf")
     _upload(app, "manual.pdf", _pdf(tmp_path))
     server.healthy = False
     status, body = http_request(app, "POST", "/api/admin/documents/index")
@@ -146,3 +147,15 @@ def test_indexing_without_the_embedding_server_keeps_the_documents(
     assert payload["sealed"] is False
     assert payload["reason"] == "embeddings_down"
     assert len(list_originals(root)) == 1
+
+
+def test_indexing_without_any_embedding_model_names_that_cause(
+    tmp_path: Path, library: tuple[Path, FastAPI], server: EmbeddingServer
+) -> None:
+    root, app = library
+    _upload(app, "manual.pdf", _pdf(tmp_path))
+    server.healthy = False
+    status, body = http_request(app, "POST", "/api/admin/documents/index")
+    assert status == 200
+    assert json.loads(body)["reason"] == "no_model"
+    assert not list((root / "models" / "embed").glob("*.gguf"))

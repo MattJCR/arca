@@ -448,7 +448,9 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         if not pending:
             return JSONResponse({"sealed": False, "reason": "nothing_to_index"})
         if not embeddings.available():
-            return JSONResponse({"sealed": False, "reason": "embeddings_down"})
+            missing = embed_model_file(root) is None
+            reason = "no_model" if missing else "embeddings_down"
+            return JSONResponse({"sealed": False, "reason": reason})
         connection = open_library_rw(library_db_path(root))
         try:
             report = ingest_documents(root, connection, pending, embeddings, default_ocr())

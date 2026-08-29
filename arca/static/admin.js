@@ -706,8 +706,8 @@ async function uploadDocuments(event) {
     summary.append(item);
   }
   summary.hidden = !report.length;
+  await loadDocuments();
   showMessage("documents-message", t("admin.documents.uploaded", { added, duplicates }));
-  loadDocuments();
 }
 
 async function indexDocuments() {
@@ -723,6 +723,7 @@ async function indexDocuments() {
     return;
   }
   button.disabled = false;
+  await loadDocuments();
   if (payload.sealed) {
     showMessage(
       "documents-message",
@@ -732,15 +733,15 @@ async function indexDocuments() {
         chunks: payload.chunks,
       })
     );
-  } else {
-    const reasons = {
-      nothing_to_index: "admin.documents.index_nothing",
-      embeddings_down: "admin.documents.index_no_server",
-      seal_failed: "admin.documents.index_failed",
-    };
-    showMessage("documents-message", t(reasons[payload.reason] || "admin.documents.index_failed"));
+    return;
   }
-  loadDocuments();
+  const reasons = {
+    nothing_to_index: "admin.documents.index_nothing",
+    embeddings_down: "admin.documents.index_no_server",
+    no_model: "admin.documents.embedding_missing",
+    seal_failed: "admin.documents.index_failed",
+  };
+  showMessage("documents-message", t(reasons[payload.reason] || "admin.documents.index_failed"));
 }
 
 async function loadDocuments() {
