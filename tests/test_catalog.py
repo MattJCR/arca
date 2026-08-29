@@ -1,4 +1,5 @@
 import urllib.error
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from arca.catalog import (
     parse_entries,
     parse_languages,
     parse_meta4,
+    reader_url,
     record_zim_entry,
     resolve_downloads,
     safe_filename,
@@ -57,6 +59,22 @@ def test_parse_entries_extracts_the_catalog_fields() -> None:
     assert wikipedia.size_bytes == 112233445566
     assert wikipedia.has_fulltext is True
     assert wikipedia.meta4_url.endswith(".zim.meta4")
+
+
+def test_the_reader_url_points_at_the_book_on_the_kiwix_library() -> None:
+    wikipedia = parse_entries(_feed())[0]
+    assert reader_url(wikipedia) == "https://library.kiwix.org/viewer#wikipedia_es_all"
+
+
+def test_the_reader_url_escapes_the_book_name() -> None:
+    wikipedia = parse_entries(_feed())[0]
+    odd = replace(wikipedia, book_name="two words/and more")
+    assert reader_url(odd).endswith("/viewer#two%20words/and%20more")
+
+
+def test_a_book_without_a_name_gets_no_reader_url() -> None:
+    wikipedia = parse_entries(_feed())[0]
+    assert reader_url(replace(wikipedia, book_name="")) == ""
 
 
 def test_parse_entries_skips_entries_without_acquisition_link() -> None:

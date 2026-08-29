@@ -387,6 +387,16 @@ function catalogRow(entry) {
   button.textContent = t("admin.catalog.add_button");
   button.addEventListener("click", () => addDownload(entry.uuid, button));
   actions.append(button);
+  if (entry.reader_url) {
+    const reader = document.createElement("a");
+    reader.className = "reader-link";
+    reader.href = entry.reader_url;
+    reader.target = "_blank";
+    reader.rel = "noopener noreferrer";
+    reader.textContent = t("admin.catalog.read_online");
+    reader.title = t("admin.catalog.read_online_hint");
+    actions.append(reader);
+  }
   row.append(actions);
   return row;
 }

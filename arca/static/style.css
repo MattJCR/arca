@@ -505,6 +505,29 @@ td button {
   color: var(--ink-soft);
 }
 
+.reader-link {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 0.6rem;
+  margin: 0 0.3rem 0.2rem 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--card);
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: border-color 0.14s ease, background-color 0.14s ease, color 0.14s ease;
+}
+
+.reader-link:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 td button:hover {
   border-color: var(--accent);
   background: var(--accent-soft);

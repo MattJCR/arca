@@ -15,6 +15,7 @@ CATALOG_BASE_URL = "https://library.kiwix.org"
 ENTRIES_PATH = "/catalog/v2/entries"
 CATEGORIES_PATH = "/catalog/v2/categories"
 LANGUAGES_PATH = "/catalog/v2/languages"
+VIEWER_PATH = "/viewer#"
 MIRROR_COUNTRY = "ES"
 REQUEST_TIMEOUT_SECONDS = 30
 USER_AGENT = f"arca/{__version__}"
@@ -75,6 +76,12 @@ def http_get(url: str) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
         return bytes(response.read())
+
+
+def reader_url(entry: CatalogEntry, base_url: str = CATALOG_BASE_URL) -> str:
+    if not entry.book_name:
+        return ""
+    return f"{base_url}{VIEWER_PATH}{urllib.parse.quote(entry.book_name)}"
 
 
 def entries_url(

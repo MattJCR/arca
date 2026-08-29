@@ -27,6 +27,7 @@ from arca.catalog import (
     fetch_entries,
     fetch_languages,
     format_size,
+    reader_url,
     resolve_entry,
 )
 from arca.chat import (
@@ -1138,6 +1139,7 @@ def _entry_payload(entry: CatalogEntry, local: dict[str, str]) -> dict[str, Any]
         "has_fulltext": entry.has_fulltext,
         "in_library": bool(local_filename),
         "is_update": bool(local_filename) and local_filename != entry.filename,
+        "reader_url": reader_url(entry),
     }
 
 

@@ -82,6 +82,16 @@ mensaje en `es` y en `en` rompe la suite.
 
 Capa visual (`static/style.css`): cabecera de **una sola fila de 50 px** —identidad, conmutador de familia con icono, estado de los subsistemas, tema, idioma y enlace al archivo— y debajo una tira de pestañas de 34 px, pegajosa bajo la cabecera, que **solo lista las pestañas de la familia activa** y se desplaza en horizontal cuando no caben. Antes eran tres filas apiladas y las catorce pestañas siempre visibles: unos 121 px de alto frente a los 87 de ahora. El estado general se pinta como **tarjetas de métrica** con barra de proporción (espacio libre sobre el total; ZIM, documentos y modelos sobre lo que ocupa ARCA), la cola de descargas lleva su progreso como barra en la propia celda, y el registro de eventos usa insignias de nivel (`info` azul, `warning` ámbar, `error` rojo, `ok` verde) con la marca de tiempo en monoespaciada tabular. Tarjetas con radio corto y sombra suave, tablas con filas alternas, hover, cabecera fija y desplazamiento propio (`.table-scroll`, que evita romper texto en columnas estrechas), tipografías WOFF2 vendorizadas en `static/fonts/` y temas claro y oscuro (ver `interface.md`), y responsive hasta móvil con el resto del suelo de calidad de §16 (foco visible, movimiento reducido, contraste).
 
+**Leer sin descargar.** Cada fila del catálogo lleva, junto al botón de descarga, un enlace «Leer en
+línea» que abre esa colección en el lector de `library.kiwix.org` en una pestaña nueva
+(`target="_blank"`, `rel="noopener noreferrer"`). Sirve para lo que el catálogo no puede contestar:
+si el contenido de una colección de 40 GB vale lo que ocupa. No descarga nada y necesita conexión,
+igual que el propio catálogo. La dirección la construye `catalog.reader_url()` en el servidor a
+partir del `book_name` y viaja en el JSON de `/api/admin/catalog`; el JavaScript solo lee
+`entry.reader_url`, de modo que sigue sin haber una URL externa en ningún estático servido y
+`tests/test_frontend.py` sigue en verde. Lo que ya está en la biblioteca se lee sin conexión desde
+el archivo, que es de lo que va el producto.
+
 Buscador del catálogo: campo de texto con etiqueta, combos de idioma (con nombre, código y número de libros) y categoría poblados desde `/api/admin/catalog/filters` al cargar la página — si los feeds no responden, los combos quedan vacíos, se avisa y la búsqueda por texto sigue funcionando —, filtro de sabor construido en cliente a partir de los sabores presentes en los resultados, recuento «mostrados de totales», y tabla ordenable por cualquier columna (clic o teclado en la cabecera, con `aria-sort`; por defecto tamaño descendente; columnas numéricas alineadas a la derecha). La tabla vive en un contenedor con scroll y cabecera fija; cada fila conserva las insignias «en la biblioteca» / «versión nueva» y el botón de descarga. Las descargas encoladas desde el dashboard las atiende `QueueWorker` (ver `downloads.md`) en el propio proceso del servidor, que para eso es un proceso administrativo.
 
 ## Bilingüe

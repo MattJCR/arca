@@ -528,7 +528,7 @@ Sin login. Una sección por área, con estado real y no supuesto.
 
 **12.1 Estado general.** Espacio libre y ocupado por categoría, número de ZIM, lotes, documentos y fragmentos, subsistemas activos y degradados, últimos veinte eventos.
 
-**12.2 Catálogo y descargas.** Buscador del catálogo remoto con los filtros de OPDS (idioma, categoría, texto, sabor). Cola de descargas con progreso, velocidad, espejo en uso, pausar, reanudar, cancelar, reintentar. Detección de versiones nuevas comparando `book_name` contra el catálogo. Reverificación de hashes de la biblioteca local, con y sin red.
+**12.2 Catálogo y descargas.** Buscador del catálogo remoto con los filtros de OPDS (idioma, categoría, texto, variante). Cada resultado ofrece **«Leer en línea»**, que abre esa colección en el lector de la propia biblioteca de Kiwix, en una pestaña nueva y fuera de ARCA, para poder mirar qué trae antes de gastar disco. No descarga nada, necesita conexión y desaparece de utilidad en cuanto la colección está en la biblioteca, donde ya se lee sin conexión. La URL se construye en el servidor a partir del `book_name` del catálogo y viaja en el JSON: ningún estático de la interfaz contiene una dirección externa. Cola de descargas con progreso, velocidad, espejo en uso, pausar, reanudar, cancelar, reintentar. Detección de versiones nuevas comparando `book_name` contra el catálogo. Reverificación de hashes de la biblioteca local, con y sin red.
 
 **12.3 Contenido local.** Lista de ZIM con tamaño, idioma, sabor, número de artículos, si trae índice de texto completo, y estado. Activar y desactivar un ZIM para las búsquedas sin borrarlo.
 
