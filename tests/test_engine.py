@@ -645,3 +645,56 @@ def test_a_chat_model_alone_leaves_the_embedding_side_waiting(
     status = _embed_bringup(root, ArcaConfig(), server).run()
     assert status.state == STATE_READY
     assert status.embed_state == STATE_WAITING_MODEL
+
+
+def test_the_profile_only_uses_flags_the_binary_offers(tmp_path: Path) -> None:
+    model = tmp_path / "chat.gguf"
+    write_gguf(model)
+    read = read_model(model, "chat")
+    without = default_profile(read, "http://127.0.0.1:8081", gpu=False)
+    with_budget = default_profile(
+        read, "http://127.0.0.1:8081", gpu=False, flags=frozenset({"--reasoning-budget"})
+    )
+    assert "--reasoning-budget" not in without.args
+    assert with_budget.args["--reasoning-budget"] == "0"
+
+
+def test_the_flags_of_a_binary_are_read_from_its_own_help() -> None:
+    from arca.llama import supported_flags
+    from tests.fixtures.llama_server_stub import HELP_TEXT
+
+    flags = supported_flags(HELP_TEXT)
+    assert "--ctx-size" in flags
+    assert "--invented-flag" not in flags
+
+
+def test_an_auto_profile_that_lags_behind_the_binary_is_rebuilt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    write_gguf(root / "models" / "chat" / "chat.gguf")
+    binary = root / "vendor" / "llama.cpp" / "llama-server.exe"
+    binary.write_text("binary", "utf-8")
+    _isolate_lock(root, monkeypatch)
+    connection = open_library_rw(library_db_path(root))
+    try:
+        save_profile(connection, Profile(name="auto", mode="form", args={"--model": "old.gguf"}))
+        mark_last_good(connection, "auto")
+    finally:
+        connection.close()
+    rebuilt: list[str] = []
+    monkeypatch.setattr("arca.engine.capture_llama_help", lambda root, binary: None)
+    monkeypatch.setattr("arca.engine.help_source", lambda root, binary: ("", "capture", ""))
+    monkeypatch.setattr("arca.engine.inspect_binary", lambda root, configured: BinaryInfo(binary))
+
+    def fake_apply(connection, server, profile_binary, profile, **kwargs):  # type: ignore[no-untyped-def]
+        rebuilt.append(profile.args.get("--model", ""))
+        return ApplyResult(
+            True, TrialResult(True, "ok", (str(profile_binary),)), profile.name, "", True
+        )
+
+    monkeypatch.setattr("arca.engine.apply_profile", fake_apply)
+    status = _bringup(root, ArcaConfig()).run()
+    assert status.state == STATE_READY
+    assert rebuilt and rebuilt[0].endswith("chat.gguf")

@@ -128,8 +128,28 @@ Con el contexto real de ARCA, su razonamiento puede consumir **el presupuesto en
 | 1024 | `length` | **0 caracteres** | 4.369 |
 | 2048 | `stop` | 197 caracteres | 4.912 |
 
-De ahí dos cambios. El presupuesto por defecto sube a **2048**, que es lo que hace falta para que
-un modelo que razona llegue a escribir. Y, más importante, **un texto vacío ya no se traduce como
-«no hay nada en la biblioteca»**: eso era culpar al archivo de que al modelo le faltara sitio.
-`Completion.out_of_room` distingue el caso —`finish_reason` de longitud y respuesta vacía— y el
-asistente dice lo que pasó y dónde subir el tope.
+De ahí tres cambios. **Un texto vacío ya no se traduce como «no hay nada en la biblioteca»**: eso
+era culpar al archivo de que al modelo le faltara sitio. `Completion.out_of_room` distingue el caso
+—`finish_reason` de longitud y respuesta vacía— y el asistente dice lo que pasó y dónde subir el
+tope. El presupuesto por defecto sube a **2048**. Y, sobre todo, el perfil automático **acota el
+pensamiento en origen**.
+
+La bandera correcta no es la obvia. Medido contra el modelo real con evidencia pobre:
+
+| Arranque | Tiempo | Final | Respuesta | Razonamiento |
+|---|---|---|---|---|
+| `--reasoning off` | 30,3 s | `length` | **0 caracteres** | 8.307 |
+| `--reasoning-budget 0` | 5,5 s | `stop` | 416 caracteres | **0** |
+
+`--reasoning off` no lo apagaba: el modelo seguía pensando hasta agotar el presupuesto.
+`--reasoning-budget 0` sí. La bandera se añade **solo si el binario la ofrece**, leída de su propio
+`--help` (§13.1): nunca una lista incrustada que mienta el día que llama.cpp la renombre.
+
+## La evidencia de un ZIM lleva texto, no solo el título
+
+Hasta el 2026-08-29 un resultado de ZIM entraba al contexto **con su título y nada más** —once
+caracteres, «Paracetamol»—, porque `libzim` no devuelve extracto. Con 40 GB de Wikipedia, el
+asistente solo podía citar títulos. Ahora `chat_search` lee el artículo y recorta un pasaje con
+`passage()`, que **ancla en la palabra menos frecuente de la pregunta**: anclar en la primera
+coincidencia dejaba la ventana dentro de la ficha del infobox, que es justo donde no está la
+respuesta.

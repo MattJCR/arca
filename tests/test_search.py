@@ -11,6 +11,7 @@ from arca.search import (
     interleave,
     normalize_limit,
     normalize_mode,
+    passage,
     search_library,
 )
 from arca.zim import (
@@ -170,3 +171,26 @@ def test_every_source_reports_whether_it_could_answer(tmp_path: Path) -> None:
     assert outcome.sources
     assert all(report.mode != SEARCH_MODE_NONE and not report.error for report in outcome.sources)
     library.close()
+
+
+def test_a_passage_is_cut_around_the_words_of_the_question() -> None:
+    text = "uno dos tres " * 40 + "el tapon de la carcasa se abre antes " + "cuatro cinco " * 40
+    found = passage(text, ["tapon"], limit=80)
+    assert "tapon" in found
+    assert found.startswith("…")
+    assert len(found) <= 82
+
+
+def test_a_passage_without_the_words_falls_back_to_the_beginning() -> None:
+    found = passage("uno dos tres cuatro", ["nada"], limit=80)
+    assert found == "uno dos tres cuatro"
+    assert passage("", ["x"]) == ""
+
+
+def test_the_passage_anchors_on_the_rarest_word_not_the_first_one() -> None:
+    infobox = "Paracetamol Paracetamol nombre formula masa molar " * 6
+    useful = "La dosis habitual en adultos es de 500 a 1000 mg cada seis horas. "
+    found = passage(
+        infobox + useful + "enlaces externos " * 20, ["paracetamol", "dosis"], limit=160
+    )
+    assert "dosis habitual" in found

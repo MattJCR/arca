@@ -223,6 +223,45 @@ def original_url(doc_id: str, page: int = 0) -> str:
     return f"{base}#page={page}" if page else base
 
 
+def passage(text: str, terms: Sequence[str], limit: int = SNIPPET_CHARS) -> str:
+    collapsed = " ".join(text.split())
+    if not collapsed:
+        return ""
+    lowered = collapsed.lower()
+    hits = [lowered.find(term) for term in terms if term and lowered.find(term) >= 0]
+    if not hits:
+        return snippet(collapsed, limit)
+    start = max(0, _anchor(lowered, terms, limit) - limit // 3)
+    window = collapsed[start : start + limit]
+    prefix = "…" if start else ""
+    suffix = "…" if start + limit < len(collapsed) else ""
+    return f"{prefix}{window.strip()}{suffix}"
+
+
+def _anchor(lowered: str, terms: Sequence[str], limit: int) -> int:
+    seen = {term: _occurrences(lowered, term) for term in set(terms) if term}
+    present = {term: found for term, found in seen.items() if found}
+    if not present:
+        return 0
+    rarest = min(present, key=lambda term: (len(present[term]), -len(term)))
+    best, score = present[rarest][0], -1
+    for anchor in present[rarest]:
+        window = lowered[anchor : anchor + limit]
+        distinct = sum(1 for term in present if term in window)
+        if distinct > score:
+            best, score = anchor, distinct
+    return best
+
+
+def _occurrences(text: str, term: str, cap: int = 12) -> list[int]:
+    found: list[int] = []
+    start = text.find(term)
+    while start >= 0 and len(found) < cap:
+        found.append(start)
+        start = text.find(term, start + 1)
+    return found
+
+
 def snippet(text: str, limit: int = SNIPPET_CHARS) -> str:
     collapsed = " ".join(text.split())
     if len(collapsed) <= limit:

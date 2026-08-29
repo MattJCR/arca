@@ -766,7 +766,10 @@ async function loadDocuments() {
     notes.push(t("admin.documents.provisional", { shards: payload.provisional.join(", ") }));
   }
   if (!payload.embedding_available) {
-    notes.push(t("admin.documents.embedding_down", { url: payload.embedding_server }));
+    const key = payload.embedding_model
+      ? "admin.documents.embedding_down"
+      : "admin.documents.embedding_missing";
+    notes.push(t(key, { url: payload.embedding_server }));
   }
   showMessage("documents-message", notes.join(" "));
   renderDocumentRows(payload.documents);

@@ -6,7 +6,7 @@ import shutil
 import sqlite3
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from secrets import token_urlsafe
 from string import Template
@@ -32,11 +32,13 @@ from arca.catalog import (
 from arca.chat import (
     ChatEngine,
     ChatSettings,
+    PageReader,
     read_screen,
     read_settings,
     read_settings_payload,
     reply_payload,
     settings_payload,
+    terms_of,
     write_settings,
 )
 from arca.config import (
@@ -111,6 +113,7 @@ from arca.llama import (
     default_profile,
     delete_profile,
     effective_command,
+    embed_model_file,
     format_command,
     grouped_help,
     help_source,
@@ -154,6 +157,7 @@ from arca.search import (
     SearchSettings,
     SourceReport,
     normalize_mode,
+    passage,
     read_search_payload,
     read_search_settings,
     search_library,
@@ -210,6 +214,7 @@ ZIM_ACTIONS = ("enable", "disable")
 MODEL_KINDS = ("chat", "embed")
 PDF_SUFFIX = ".pdf"
 NONCE_BYTES = 16
+CHAT_PASSAGES = 8
 UPLOAD_SUBDIR = "uploads"
 MAX_UPLOAD_BYTES = 2 * 1024**3
 SECRET_KEYS = ("hub_token",)
@@ -277,7 +282,10 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
             query_vector=_query_vector(embeddings, query, MODE_BOTH, shards),
             settings=_search_settings(root),
         )
-        return [*outcome.semantic, *outcome.keyword]
+        found = [*outcome.semantic, *outcome.keyword]
+        return [_with_passage(item, query, read_page) for item in found[:CHAT_PASSAGES]] + list(
+            found[CHAT_PASSAGES:]
+        )
 
     def read_page(source_kind: str, source_id: str, path: str) -> str:
         if source_kind == SOURCE_ZIM:
@@ -1283,6 +1291,7 @@ def _admin_documents(root: Path, library: ShardLibrary, client: EmbeddingClient)
         "provisional": provisional,
         "embedding_server": client.base_url,
         "embedding_available": client.available(),
+        "embedding_model": embed_model_file(root) is not None,
     }
 
 
@@ -1906,6 +1915,17 @@ async def _receive_upload(request: Request, destination: Path) -> int:
                 break
             handle.write(chunk)
     return written
+
+
+def _with_passage(result: SearchResult, query: str, reader: PageReader) -> SearchResult:
+    if result.snippet or result.source_kind != SOURCE_ZIM:
+        return result
+    try:
+        text = reader(result.source_kind, result.source_id, result.path)
+    except (LookupError, OSError):
+        return result
+    found = passage(text, sorted(terms_of(query)))
+    return replace(result, snippet=found) if found else result
 
 
 def _engine_payload(bringup: EngineBringup) -> dict[str, Any]:

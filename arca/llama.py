@@ -765,6 +765,11 @@ def parse_help(text: str) -> list[HelpOption]:
     return options
 
 
+def supported_flags(text: str) -> frozenset[str]:
+    options = parse_help(text)
+    return frozenset(name for option in options for name in (option.flag, *option.aliases) if name)
+
+
 def curated_group(flags: Sequence[str]) -> str:
     for flag in flags:
         if flag.startswith(YARN_PREFIX):

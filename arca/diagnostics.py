@@ -27,6 +27,7 @@ from arca.llama import (
     Profile,
     chat_model_file,
     default_profile,
+    embed_model_file,
     estimate_memory,
     find_binary,
     health_of,
@@ -94,7 +95,7 @@ def run_checks(
         _check_shard_manifests(states),
         _check_embedding_coherence(states),
         _check_provisional_shards(states),
-        _check_embedding_server(config),
+        _check_embedding_server(root, config),
         _check_incomplete_downloads(root),
         *_check_vendor_lock(),
         *_check_llama(root, config, server),
@@ -480,14 +481,20 @@ def _check_provisional_shards(states: Sequence[ShardState]) -> CheckResult:
     return CheckResult("provisional_shards", CheckState.OK, params)
 
 
-def _check_embedding_server(config: ArcaConfig) -> CheckResult:
+def _check_embedding_server(root: Path, config: ArcaConfig) -> CheckResult:
     client = EmbeddingClient(
         base_url=config.embed_url,
         model=config.embed_model,
         dims=config.embed_dims,
         timeout=EMBEDDING_PROBE_SECONDS,
     )
-    params = {"url": config.embed_url, "dims": str(config.embed_dims), "found": ""}
+    model = embed_model_file(root)
+    params = {
+        "url": config.embed_url,
+        "dims": str(config.embed_dims),
+        "found": "",
+        "model": model.name if model is not None else "",
+    }
     if not client.available():
         return CheckResult("embedding_server", CheckState.DEGRADED, params)
     try:

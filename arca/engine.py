@@ -34,9 +34,11 @@ from arca.llama import (
     embed_model_file,
     embedding_command,
     find_binary,
+    help_source,
     inspect_binary,
     last_good_profile,
     save_profile,
+    supported_flags,
 )
 from arca.vendor import (
     VendorError,
@@ -58,6 +60,8 @@ PROFILE_NAME = "auto"
 CONTEXT_SIZE = "8192"
 CACHE_TYPE = "q8_0"
 ALL_GPU_LAYERS = "999"
+REASONING_FLAG = "--reasoning-budget"
+REASONING_OFF = "0"
 DEFAULT_CHAT_HOST = "127.0.0.1"
 DEFAULT_CHAT_PORT = "8081"
 POLL_SECONDS = 0.5
@@ -325,7 +329,9 @@ def chat_endpoint(chat_url: str) -> tuple[str, str]:
     return host, port
 
 
-def default_profile(model: ModelFile, chat_url: str, gpu: bool) -> Profile:
+def default_profile(
+    model: ModelFile, chat_url: str, gpu: bool, flags: frozenset[str] = frozenset()
+) -> Profile:
     host, port = chat_endpoint(chat_url)
     args = {
         "--model": str(model.path),
@@ -337,6 +343,8 @@ def default_profile(model: ModelFile, chat_url: str, gpu: bool) -> Profile:
     }
     if gpu:
         args["--n-gpu-layers"] = ALL_GPU_LAYERS
+    if REASONING_FLAG in flags:
+        args[REASONING_FLAG] = REASONING_OFF
     return Profile(name=PROFILE_NAME, mode=MODE_FORM, args=args)
 
 
@@ -409,9 +417,11 @@ class EngineBringup:
         present, _ = find_binary(self._root, self._config.llama_bin)
         if present is not None:
             settled = self._settled()
-            if chat is not None and settled is not None:
-                return self._resume(present, settled)
             gpu = inspect_binary(self._root, self._config.llama_bin).gpu
+            if chat is not None and settled is not None:
+                if settled.name == PROFILE_NAME and self._stale(settled, chat, gpu, present):
+                    return self._activate(present, chat, gpu, tag="")
+                return self._resume(present, settled)
             if chat is None:
                 return self._set(STATE_READY, binary=str(present))
             return self._activate(present, chat, gpu, tag="")
@@ -562,7 +572,7 @@ class EngineBringup:
         tag: str,
         tried: tuple[str, ...] = (),
     ) -> EngineStatus:
-        profile = default_profile(model, self._config.chat_url, gpu)
+        profile = default_profile(model, self._config.chat_url, gpu, self._flags(binary))
         connection = open_library_rw(library_db_path(self._root))
         try:
             stored = save_profile(connection, profile)
@@ -605,6 +615,14 @@ class EngineBringup:
             return last_good_profile(connection)
         finally:
             connection.close()
+
+    def _stale(self, settled: Profile, chat: ModelFile, gpu: bool, binary: Path) -> bool:
+        wanted = default_profile(chat, self._config.chat_url, gpu, self._flags(binary))
+        return settled.mode == MODE_FORM and settled.args != wanted.args
+
+    def _flags(self, binary: Path) -> frozenset[str]:
+        text, _source, _error = help_source(self._root, binary)
+        return supported_flags(text)
 
     def _resume(self, binary: Path, profile: Profile) -> EngineStatus:
         if self._server.health() == HEALTH_OK:

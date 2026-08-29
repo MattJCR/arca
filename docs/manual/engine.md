@@ -95,7 +95,15 @@ archivo ilegible da `EngineError`, no una traza.
 | `--host` · `--port` | de `chat_url` | `arca.json` |
 | `--n-gpu-layers` | `999` | solo en paquetes de GPU; §13.4 ya documenta que es la forma habitual de decir «todas» |
 
-La plantilla de chat no se pasa: `llama-server` la toma de la cabecera del propio GGUF.
+| `--reasoning-budget` | `0` | solo si el binario la ofrece; ver `chat.md` |
+
+La plantilla de chat no se pasa: `llama-server` la toma de la cabecera del propio GGUF. Las
+banderas opcionales se comprueban contra el `--help` del binario con `supported_flags()`, de modo
+que un binario antiguo que no las conozca no recibe nada que le impida arrancar.
+
+Si el perfil `auto` se queda por detrás de lo que el binario ofrece —porque se actualizó el motor o
+porque ARCA aprendió una bandera nueva—, la puesta en marcha lo **rehace y lo vuelve a probar** con
+la reversión de §13.3. Los perfiles del operador no se tocan nunca.
 
 El perfil se llama `auto` y pasa por `apply_profile()`, así que hereda el `last_good` y la
 reversión de los perfiles hechos a mano. Se puede editar después como cualquier otro.

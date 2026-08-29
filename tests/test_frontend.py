@@ -141,3 +141,14 @@ def test_every_region_the_scripts_rewrite_announces_itself() -> None:
         for tag in re.findall(r"<(?:p|ul|ol|div)[^>]*>", text):
             if 'class="' in tag and "message" in tag.split('class="')[1].split('"')[0].split():
                 assert "aria-live" in tag, f"{template.name}: {tag}"
+
+
+def test_every_page_declares_a_vendored_icon() -> None:
+    icon = STATIC / "favicon.svg"
+    assert icon.is_file()
+    assert icon.read_text("utf-8").lstrip().startswith("<svg")
+    for template in TEMPLATES.glob("*.html"):
+        page = template.read_text("utf-8")
+        if "<head>" not in page:
+            continue
+        assert '<link rel="icon" href="/static/favicon.svg"' in page, template.name
