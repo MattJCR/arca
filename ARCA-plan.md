@@ -556,10 +556,10 @@ no encuentra ni un nombre visible dentro de un perfil.
 `static/music/material.js`: lee el manifiesto, decodifica con `decodeAudioData` solo los instrumentos
 del estilo activo, mantiene un presupuesto de memoria y descarta lo que sale de él al cambiar de
 estilo. Sin material o con manifiesto ilegible, se declara el nivel 2 y no se intenta nada más.
-· Dep: F9.1, F9.4 · CA: `tests/test_frontend.py` recorre los `.js` con `rglob` y no con `glob` —hoy
-`STATIC.glob("*.js")` (`tests/test_frontend.py:28`) no es recursivo y un `static/music/` se saltaría
-en silencio la prohibición de red y el conteo del envoltorio de `fetch`—; la memoria decodificada se
-mantiene bajo el presupuesto tras veinte cambios de estilo.
+· Dep: F9.1, F9.4 · CA: los ficheros de `static/music/` los ve el escáner de red y el del envoltorio
+de `fetch` —los dos recorren `static/` en profundidad desde el 2026-08-29; antes se saltaban en
+silencio todo lo que no estuviera en la raíz de `static/`—; la memoria decodificada se mantiene bajo
+el presupuesto tras veinte cambios de estilo.
 · Loop: Ninguno.
 
 **F9.6 — Voces, buses y mezcla** *(pendiente)*

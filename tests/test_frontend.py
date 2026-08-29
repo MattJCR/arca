@@ -24,20 +24,31 @@ LICENCE_FILES = (
 )
 
 
+def _label(path: Path) -> str:
+    return path.relative_to(PACKAGE).as_posix()
+
+
+def _pages() -> list[Path]:
+    return sorted(TEMPLATES.rglob("*.html"))
+
+
+def _scripts() -> list[Path]:
+    return sorted(STATIC.rglob("*.js"))
+
+
+def _stylesheets() -> list[Path]:
+    return sorted(STATIC.rglob("*.css"))
+
+
 def _interface_sources() -> list[Path]:
-    return [
-        *TEMPLATES.glob("*.html"),
-        *STATIC.glob("*.css"),
-        *STATIC.glob("*.js"),
-        *(STATIC / "fonts").glob("*.css"),
-    ]
+    return [*_pages(), *_stylesheets(), *_scripts()]
 
 
 def test_the_interface_makes_no_external_requests() -> None:
     for source in _interface_sources():
         text = source.read_text("utf-8")
-        assert not re.search(r"https?://", text), source.name
-        assert "//cdn" not in text, source.name
+        assert not re.search(r"https?://", text), _label(source)
+        assert "//cdn" not in text, _label(source)
 
 
 def test_every_typeface_is_vendored_with_its_licence() -> None:
@@ -108,7 +119,7 @@ def test_the_framed_pages_follow_the_theme_the_reader_chose() -> None:
 
 def test_every_icon_a_script_draws_is_present_in_the_page_that_loads_it() -> None:
     drawn = 0
-    for template in TEMPLATES.glob("*.html"):
+    for template in _pages():
         page = template.read_text("utf-8")
         available = set(re.findall(r'data-icon="([^"]+)"', page))
         for name in re.findall(r'<script src="/static/([^"]+\.js)"></script>', page):
@@ -125,7 +136,7 @@ def test_the_theme_choice_is_offered_on_every_page_the_reader_sees() -> None:
     script = (STATIC / "theme.js").read_text("utf-8")
     assert '"arca.theme"' in script
     assert "localStorage" in script
-    for template in TEMPLATES.glob("*.html"):
+    for template in _pages():
         assert '<script src="/static/theme.js"></script>' in template.read_text("utf-8"), (
             template.name
         )
@@ -167,11 +178,11 @@ def test_the_pages_we_frame_ourselves_do_need_scripts() -> None:
 
 
 def test_scripts_never_write_html_directly() -> None:
-    for script in STATIC.glob("*.js"):
+    for script in _scripts():
         text = script.read_text("utf-8")
-        assert "innerHTML" not in text, script.name
-        assert "outerHTML" not in text, script.name
-        assert "document.write" not in text, script.name
+        assert "innerHTML" not in text, _label(script)
+        assert "outerHTML" not in text, _label(script)
+        assert "document.write" not in text, _label(script)
 
 
 def test_the_panel_carries_the_error_code_from_the_api_to_the_message() -> None:
@@ -186,26 +197,24 @@ def test_the_panel_carries_the_error_code_from_the_api_to_the_message() -> None:
 
 def test_the_shared_fetch_helper_forwards_the_request_options() -> None:
     definitions = 0
-    for script in STATIC.glob("*.js"):
+    for script in _scripts():
         text = script.read_text("utf-8")
         for match in re.finditer(r"async function fetchJson\(([^)]*)\)\s*\{", text):
             definitions += 1
-            assert match.group(1).replace(" ", "") == "url,options", script.name
+            assert match.group(1).replace(" ", "") == "url,options", _label(script)
             body = text[match.end() : match.end() + 200]
-            assert "fetch(url, options)" in body, script.name
-    assert definitions == len(list(STATIC.glob("*.js"))) - _scripts_without_fetch()
+            assert "fetch(url, options)" in body, _label(script)
+    assert definitions == len(_scripts()) - _scripts_without_fetch()
 
 
 def _scripts_without_fetch() -> int:
     return sum(
-        1
-        for script in STATIC.glob("*.js")
-        if "async function fetchJson(" not in script.read_text("utf-8")
+        1 for script in _scripts() if "async function fetchJson(" not in script.read_text("utf-8")
     )
 
 
 def test_every_region_the_scripts_rewrite_announces_itself() -> None:
-    for template in TEMPLATES.glob("*.html"):
+    for template in _pages():
         text = template.read_text("utf-8")
         for tag in re.findall(r"<(?:p|ul|ol|div)[^>]*>", text):
             if 'class="' in tag and "message" in tag.split('class="')[1].split('"')[0].split():
@@ -216,7 +225,7 @@ def test_every_page_declares_a_vendored_icon() -> None:
     icon = STATIC / "favicon.svg"
     assert icon.is_file()
     assert icon.read_text("utf-8").lstrip().startswith("<svg")
-    for template in TEMPLATES.glob("*.html"):
+    for template in _pages():
         page = template.read_text("utf-8")
         if "<head>" not in page:
             continue

@@ -88,7 +88,7 @@ DYNAMIC_PREFIXES = (
 
 def _template_keys() -> set[str]:
     keys: set[str] = set()
-    for template in TEMPLATE_DIR.glob("*.html"):
+    for template in sorted(TEMPLATE_DIR.rglob("*.html")):
         text = template.read_text("utf-8")
         keys.update(re.findall(r'data-i18n(?:-placeholder|-title|-label)?="([^"]+)"', text))
     return keys
@@ -96,7 +96,7 @@ def _template_keys() -> set[str]:
 
 def _script_keys() -> set[str]:
     keys: set[str] = set()
-    for script in STATIC_DIR.glob("*.js"):
+    for script in sorted(STATIC_DIR.rglob("*.js")):
         text = script.read_text("utf-8")
         for key in re.findall(r'(?<![\w.])t\(\s*"([^"]+)"', text):
             if not key.endswith("."):
@@ -124,7 +124,7 @@ def test_dynamic_key_families_are_complete_in_both_catalogs() -> None:
 def test_the_interface_never_hardcodes_a_user_facing_string_from_a_catalog() -> None:
     spanish = load_catalog("es").messages
     long_strings = {value for value in spanish.values() if len(value) > 24}
-    for script in STATIC_DIR.glob("*.js"):
+    for script in sorted(STATIC_DIR.rglob("*.js")):
         text = script.read_text("utf-8")
         for value in long_strings:
             assert value not in text, f"{script.name}: {value}"
