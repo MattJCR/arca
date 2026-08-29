@@ -304,9 +304,11 @@ somete al arranque de prueba de §13.3 y fija el commit en `sources.lock`.
 puesta en marcha nunca bloquea el arranque y sin red lo dice sin romper nada.
 · Loop: Ninguno.
 
-**F6.3 — Deuda con modelo real** *(pendiente)*
-Prueba de citación en español con el binario y el modelo reales, medición de la recuperación
-semántica con `multilingual-e5-base` real, y revisión de código de H2.2–H2.7.
+**F6.3 — Deuda pendiente** *(parcial)*
+Revisión de código de H2.2–H2.7: **hecha** el 2026-08-29, veredicto y hallazgo en
+`docs/gates/review-h2.md`. Siguen pendientes, y dependen de hardware y del modelo descargado: la
+prueba de citación en español con el binario y el modelo reales, y la medición de la recuperación
+semántica con `multilingual-e5-base` real.
 · Dep: F6.2 · CA: `docs/gates/milestone-4.md` repasado contra el modelo real.
 
 ---

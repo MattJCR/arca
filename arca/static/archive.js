@@ -57,7 +57,10 @@ function seal(result) {
   path.textContent = result.source_kind === "doc" ? result.anchor : result.path;
   const rank = document.createElement("span");
   rank.className = "seal-rank";
-  if (result.source_kind === "doc" && result.page) {
+  if (result.followed) {
+    rank.textContent = t("home.seal.followed", { rank: result.rank + 1 });
+    rank.title = t("home.seal.followed_hint");
+  } else if (result.source_kind === "doc" && result.page) {
     rank.textContent = t("home.seal.page", { page: result.page });
     rank.title = t("home.seal.page_hint");
   } else {
@@ -311,7 +314,11 @@ function trackViewerNavigation() {
       return;
     }
     const strip = document.getElementById("viewer-seal");
-    const moved = Object.assign({}, state.current, { path: path.slice(prefix.length) });
+    const reached = path.slice(prefix.length);
+    const moved = Object.assign({}, state.current, {
+      path: reached,
+      followed: reached !== state.current.path,
+    });
     strip.replaceChildren(...seal(moved).childNodes);
   });
 }

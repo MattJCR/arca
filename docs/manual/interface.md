@@ -19,7 +19,7 @@ Es el elemento distintivo del diseño (§16), y aparece **en cada resultado** y 
 
 `ZIM · <colección> · <ruta dentro de la colección> · #<posición dentro de esa colección>`
 
-La posición lleva un `title` que explica que es el rango **dentro de su fuente** y que no se comparan puntuaciones entre colecciones. Cuando se navega por los enlaces internos del artículo, el sello **se actualiza solo**: el visor escucha la carga del `iframe`, lee su ruta y reescribe la franja. Así la procedencia nunca se queda desfasada respecto a lo que se está leyendo. Este mismo sello es el que viaja al chat: al seleccionar texto en el visor, el panel recibe el texto con su documento y su ancla, y lo envía con la pregunta (ver `chat.md`).
+La posición lleva un `title` que explica que es el rango **dentro de su fuente** y que no se comparan puntuaciones entre colecciones. Cuando se navega por los enlaces internos del artículo, el sello **se actualiza solo**: el visor escucha la carga del `iframe`, lee su ruta y reescribe la franja. Así la procedencia nunca se queda desfasada respecto a lo que se está leyendo. Y al seguir un enlace **la posición desaparece**: `#3` se sustituye por «enlace seguido desde #3», porque el puesto en el ranking era del artículo que salió en la búsqueda, no de la página a la que se ha llegado. Enseñar ahí un `#3` sería atribuirle a esta página un puesto que nunca tuvo (§9.4). Este mismo sello es el que viaja al chat: al seleccionar texto en el visor, el panel recibe el texto con su documento y su ancla, y lo envía con la pregunta (ver `chat.md`).
 
 ## Visor
 

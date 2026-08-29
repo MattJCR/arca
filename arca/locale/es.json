@@ -28,6 +28,8 @@
   "home.seal.kind.zim": "ZIM",
   "home.seal.rank": "#{rank}",
   "home.seal.rank_hint": "Posición dentro de «{source}». No se comparan puntuaciones entre colecciones.",
+  "home.seal.followed": "enlace seguido desde #{rank}",
+  "home.seal.followed_hint": "Has llegado aquí siguiendo un enlace del artículo que salió en esa posición. Esta página no ocupaba ningún puesto en la búsqueda.",
   "home.semantic.heading": "Búsqueda semántica",
   "home.seal.kind.doc": "DOC",
   "home.seal.page": "pág. {page}",
