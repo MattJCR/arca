@@ -103,3 +103,16 @@ Igual que el dashboard: el servidor incrusta como JSON las claves `home.*` del c
 ## Comprobado en
 
 `tests/test_frontend.py` (cero red externa, tipografías con licencia, `@font-face` apuntando a ficheros presentes, paleta, sandbox del visor, ningún `innerHTML`), `tests/test_i18n.py` (cobertura de claves) y `tests/test_api.py` (portada en ambos idiomas).
+
+## Probado en un navegador de verdad
+
+`tests/test_browser.py` conduce el Chrome instalado en la máquina con Playwright —sin descargar
+ningún navegador, `channel="chrome"`— y ejerce lo que ninguna otra prueba veía: que el visor abre
+el artículo dentro del marco, que **el lector inyectado se ejecuta** dentro de un ZIM, que
+seleccionar texto llega al panel del asistente con su procedencia, que la pregunta viaja con la
+selección y con la página abierta, y que pulsar «Preguntar» hace un **POST** a `/api/chat` y pinta
+la respuesta.
+
+Existe por una razón concreta: tres defectos de esta serie —el chat que devolvía 405, `PDF.js` que
+no arrancaba y la selección que nunca llegaba— eran invisibles para una suite verde porque nadie
+ejercía la página. Si Playwright o Chrome no están, el módulo se salta solo.

@@ -24,7 +24,7 @@ Manual vivo del proyecto. Documenta **únicamente la realidad actual**: lo que e
 - [Catálogo y descargas](downloads.md) — cliente OPDS, resolución meta4, motor reanudable, cola, verificación local.
 - [Vendorizado](vendor.md) — `sources.lock`, verificación sin red, deriva de versiones, captura de `llama-server --help`.
 - [Lectura de colecciones ZIM](zim.md) — metadatos reales, los tres modos de índice, búsqueda, lectura de entradas, servido de artículos, `ZimLibrary`.
-- [Interfaz de consulta](interface.md) — pantalla partida, sello de procedencia, visor, estados honestos, dirección visual y tipografías vendorizadas.
+- [Interfaz de consulta](interface.md) — pantalla partida, sello de procedencia, visor, estados honestos, dirección visual, tipografías vendorizadas y la prueba de navegador que ejerce todo eso de verdad.
 - [Documentos propios](documents.md) — ingesta reanudable, anclas, lotes sellados, índice vectorial, franja semántica y alcance del índice profundo.
 - [Búsqueda y fusión](search.md) — los dos niveles, intercalado por rango, procedencia de cada resultado, `GET /api/search`.
 - [Costuras verificables](../gates/review-general.md) — la prueba de que ninguna función del paquete vive solo para los tests (`tests/test_seams.py`), y por qué existe.
