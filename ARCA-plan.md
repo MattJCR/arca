@@ -463,6 +463,162 @@ de la fase.
 generación en el servidor, y sin *streaming* disponible la pantalla sigue respondiendo.
 · Loop: Ninguno.
 
+### Fase 9 — ARCA Music
+
+Capa opcional de música procedural, especificada en el **anexo A** de `ARCA-especificacion.md`. Va en
+rama aparte (`music`) y se integra al empezarla, para que un experimento sonoro no pueda tocar un
+sistema que ya funciona.
+
+**Tres decisiones tomadas antes de empezar, y por qué:**
+
+- **Muestreador, no banco de osciladores.** El listón es la música dinámica de Left 4 Dead, que está
+  compuesta y grabada: lo procedural allí es el *Director*, no el sonido. La calidad viene del
+  material. Un sintetizador en tiempo real escrito desde cero suena a politono lleve la teoría
+  musical que lleve. El material se prepara antes, y en reproducción solo se disparan muestras.
+- **Dos orígenes de material, un solo formato.** El renderizador propio es el suelo: sin red, sin
+  licencias, siempre disponible, y hace bien lo percutido, lo metálico, los drones y las texturas.
+  Los paquetes de muestras libres —VSCO 2 Community Edition y VCSL son CC0; hay pianos e impulsos de
+  salas reales bajo CC-BY— son el techo, y traen lo que ninguna síntesis barata imita: cuerda y metal
+  grabados. Se descargan desde el panel con el motor de descarga que ya existe, o se importan de una
+  carpeta si no hay red. El motor no distingue el origen porque ambos terminan en el mismo manifiesto.
+- **Cero Python en el camino del audio.** Generar PCM en el servidor obliga a un *stream* HTTP, un
+  búfer circular y contrapresión, quemando CPU justo cuando llama.cpp ocupa la máquina — contra el
+  principio de que Music nunca ralentiza ARCA. Web Audio hace el trabajo en su propio hilo de render.
+  Python solo aparece al preparar el material, nunca al reproducirlo.
+
+**La fase puede terminar en F9.0.** Es su rasgo más importante: la primera tarea es una escucha, y si
+lo que sale no suena a música, F9 se cierra ahí y no se gasta una línea más. Todo lo demás depende de
+esa puerta.
+
+**F9.0 — Rodaja vertical y prueba de escucha** *(pendiente, es una puerta)*
+El camino más fino de extremo a extremo, por los dos orígenes de material: un renderizador mínimo
+—campanas por síntesis modal, un drone— y un puñado de muestras CC0 traídas a mano, disparadas desde
+una página suelta con reverberación por convolución y una progresión sencilla. Sin perfiles, sin
+estilos, sin interfaz, sin i18n. Cinco minutos de una sola señal (octubre, ambiental) en tres
+intensidades, en las dos versiones. No se juzga con tests: se juzga escuchando.
+· Dep: ninguna · CA: el operador escucha las dos y decide. Si suena a biblioteca de producción, la
+fase continúa y queda fijado qué origen manda; si suena a politono con los dos, **F9 se cierra como
+no viable** y se documenta por qué. Sin clics audibles y sin cortes en esos cinco minutos.
+· Loop: Ninguno.
+
+**F9.1 — Manifiesto y renderizador de material** *(pendiente)*
+`arca/music/manifest.py` define el formato —instrumento, nota, capa de dinámica, `sha256`, origen,
+licencia y `material_version`— y es el único contrato que el navegador conoce. `arca/music/render.py`
+y `arca music render` lo llenan sintetizando: modal para lo percutido y metálico, guía de onda para
+lo pulsado, pads por filtrado y granulación de ruido, percusión como transitorio más cuerpo
+resonante, e impulsos sintéticos. Salida a `<raiz>/music/material/<version>/` en WAV PCM mono.
+Determinista y reanudable: al relanzarlo salta lo ya hecho y verifica su hash (invariantes 2 y 7).
+`numpy` y `wave` de la estándar; ninguna dependencia nueva.
+· Dep: F9.0 · CA: dos renderizados producen los mismos hashes, uno interrumpido a la mitad retoma sin
+repetir lo hecho, un fichero corrupto se detecta al validar el manifiesto, y el conjunto completo
+cabe en decenas de megas.
+· Loop: Ninguno.
+
+**F9.2 — Curador de material muestreado** *(pendiente)*
+`arca/music/curate.py` y `arca music import <ruta>`: dado un paquete ya en disco, recorta el
+subconjunto que hace falta —unos pocos instrumentos, unas pocas notas, dos dinámicas—, convierte a
+mono, normaliza, recorta silencios y escribe el mismo manifiesto que el renderizador, **anotando
+licencia y procedencia por fichero** y guardando el texto de la licencia junto al material. Un
+paquete de gigas deja decenas de megas; el archivo original se descarta al terminar y su `sha256`
+queda registrado para poder rehacerlo. Formatos que no sepamos leer con la estándar se rechazan
+diciendo cuál es, en vez de añadir una dependencia a escondidas.
+· Dep: F9.1 · CA: un paquete real deja un manifiesto válido con su licencia; un fichero ilegible se
+salta y se declara sin abortar; una curación interrumpida retoma; el material curado y el sintetizado
+son intercambiables para el motor.
+· Loop: Ninguno.
+
+**F9.3 — Descarga del material desde el panel** *(pendiente)*
+Pestaña de material en administración: lista de paquetes conocidos con su licencia, su tamaño y su
+estado, y un botón que encola la descarga en el motor que ya existe (`arca/fetch.py`), con pausa,
+reanudación y verificación por hash como cualquier ZIM. Los paquetes **no se resuelven en el
+momento** como el catálogo de Kiwix, porque no hay catálogo: se fijan por versión en `sources.lock`
+con su `sha256` y su licencia, igual que llama.cpp y la documentación de §8.3, y `--verify` los
+recomprueba sin red. Al terminar la descarga se encadena la curación de F9.2 sola. Sin red, la
+pestaña lo dice y remite a `arca music import`.
+· Dep: F9.2 · CA: descargar → curar → sonar sin tocar la línea de órdenes; matar el proceso a la
+mitad y reanudar no vuelve a bajar lo bajado; un `sha256` que no cuadra marca el paquete inservible y
+no lo cura; con la red caída, ni la pestaña ni el resto del panel se rompen; el enlace muerto de un
+paquete se declara como tal y los demás siguen disponibles.
+· Loop: Ninguno.
+
+**F9.4 — Perfiles, estilos y validación** *(pendiente)*
+Doce perfiles de mes y los estilos iniciales —ambiental, cinemático, electrónico— como JSON en
+`arca/music/profiles/`, con anulación opcional del operador en `<raiz>/music/profiles/`. Esquema
+estricto: identificadores y nunca texto visible, claves desconocidas ignoradas, valores fuera de
+rango recortados, semillas como enteros. Un perfil que no valida se descarta y se declara; no rompe
+la carga de los demás. Los otros tres estilos del anexo llegan después de escuchar los primeros.
+· Dep: F9.0 · CA: un JSON hostil —clave inventada, tempo negativo, `scales` con un objeto dentro,
+cadena donde va un número— deja el resto de perfiles cargados y no ejecuta nada; el escáner de i18n
+no encuentra ni un nombre visible dentro de un perfil.
+· Loop: Ninguno.
+
+**F9.5 — Carga y verificación del material en el navegador** *(pendiente)*
+`static/music/material.js`: lee el manifiesto, decodifica con `decodeAudioData` solo los instrumentos
+del estilo activo, mantiene un presupuesto de memoria y descarta lo que sale de él al cambiar de
+estilo. Sin material o con manifiesto ilegible, se declara el nivel 2 y no se intenta nada más.
+· Dep: F9.1, F9.4 · CA: `tests/test_frontend.py` recorre los `.js` con `rglob` y no con `glob` —hoy
+`STATIC.glob("*.js")` (`tests/test_frontend.py:28`) no es recursivo y un `static/music/` se saltaría
+en silencio la prohibición de red y el conteo del envoltorio de `fetch`—; la memoria decodificada se
+mantiene bajo el presupuesto tras veinte cambios de estilo.
+· Loop: Ninguno.
+
+**F9.6 — Voces, buses y mezcla** *(pendiente)*
+El muestreador: voces con capas de dinámica, alternancia de repeticiones y desafinación leve para que
+dos notas iguales nunca suenen idénticas; bus por capa con su ganancia, filtro paso bajo por lejanía,
+convolución compartida y limitador en el maestro. Todo cambio de ganancia por rampa; ningún salto.
+· Dep: F9.5 · CA: treinta minutos de reproducción continua sin clics audibles, con el número de nodos
+del grafo estable al final —sin fugas— y sin efecto ametralladora en notas repetidas.
+· Loop: Ninguno.
+
+**F9.7 — Composición y semillas** *(pendiente)*
+Generador con PRNG semillado propio: progresión armónica con conducción de voces, motivos, ritmo y
+estructura local, todo derivado de `seed + perfil + estilo + generator_version`. Planificador con
+anticipación contra el reloj del contexto de audio; no se genera nada con el reproductor parado.
+· Dep: F9.6 · CA: la misma terna produce una lista de eventos idéntica —comparada serializada desde
+Playwright, que ya es dependencia de desarrollo—, y cambiar el algoritmo sin subir
+`generator_version` hace fallar ese test.
+· Loop: Ninguno.
+
+**F9.8 — Director** *(pendiente)*
+Intensidad de 0 a 100 % traducida a densidad de arreglo, no a volumen. Las transiciones —intensidad,
+tema nuevo, cambio de estilo, cambio de mes— caen en el compás y nunca a mitad de frase. Mezcla de
+perfiles por día del mes, calculada una vez al generar el tema. Mes actual desde el reloj local.
+· Dep: F9.7 · CA: recorrer la intensidad de 0 a 100 y volver no produce ni un corte; toda transición
+cae en el primer tiempo del compás; la mezcla entre meses es determinista dada la fecha.
+· Loop: Ninguno.
+
+**F9.9 — Reproductor en la interfaz** *(pendiente)*
+Un botón de icono en la barra superior, junto a tema e idioma, y un panel con reproducción,
+intensidad, volumen y las tres acciones. Iconos SVG en línea como el resto —nada de emojis—, tokens
+de §16 y la franja de procedencia (`octubre · ambiental · seed 184729 · gen v1`) en monoespaciada.
+Volumen, intensidad, estilo y modo de perfil en `localStorage`, cada acceso en `try`/`catch`. Nunca
+arranca solo: la primera reproducción la pide el usuario. Si el material lleva licencia con
+atribución, el panel la muestra.
+· Dep: F9.8 · CA: `tests/test_i18n.py` pasa con los dos catálogos completos y sin una sola cadena
+literal; foco de teclado visible en todos los controles; movimiento reducido respetado; recargar la
+página recuerda los ajustes y **no** suena hasta que alguien pulsa.
+· Loop: Ninguno.
+
+**F9.10 — Degradación y aislamiento** *(pendiente)*
+Los tres niveles del anexo A.6, con cada punto de entrada envuelto: material ausente, Web Audio no
+disponible, sin dispositivo de audio, autoarranque bloqueado, perfil inexistente, excepción del
+generador. Ninguno enseña una traza; todos degradan y lo declaran.
+· Dep: F9.9 · CA: una excepción provocada a propósito en el generador degrada al nivel 2 sin tocar
+búsqueda, lectura ni chat; borrar `arca/static/music/` deja la portada funcionando y **la suite
+entera en verde**.
+· Loop: Ninguno.
+
+**F9.11 — Puerta de la fase: no escribe, no llama a nadie, y está documentada** *(pendiente)*
+Verificación de que Music no rompe ningún invariante: ejercitar una sesión de consulta con la música
+sonando y comprobar que bajo la raíz no cambia un byte, que no sale una sola petición fuera del
+origen **en tiempo de consulta** —la descarga de material es administración, no consulta—, y que sin
+red el sistema entero se comporta igual. Página `docs/manual/music.md` con lo que hay de verdad: el
+nivel en que está el sistema, de dónde salió el material con su licencia, y cómo borrar la capa.
+· Dep: F9.10 · CA: la skill `verify-no-write` pasa con el reproductor activo; el test de red no
+encuentra ni un `http` en los fuentes del frontend de Music; el manual describe el estado real, no el
+planificado.
+· Loop: **Turn-based** — `verify-no-write`, otra vez la más importante.
+
 ---
 
 ## 7. Loops recomendados (resumen)

@@ -29,6 +29,8 @@ Una biblioteca de conocimiento consultable sin conexión, con dos mitades: un bu
 - Sincronización, nube, telemetría, actualizaciones automáticas.
 - Cualquier llamada de red en tiempo de consulta. La red solo se toca al descargar o al vendorizar.
 
+**Capas opcionales.** Todo lo que no sea el archivo y su asistencia es una capa aparte, borrable, de la que nada del núcleo depende. Hoy hay una: la música procedural del **anexo A**. Una capa opcional no añade dependencias, no añade orígenes de red y no puede impedir que ARCA arranque.
+
 ---
 
 ## 2. Decisiones cerradas
@@ -50,7 +52,8 @@ Una biblioteca de conocimiento consultable sin conexión, con dos mitades: un bu
 | Frontend | HTML servido más JavaScript sin framework ni empaquetador. Todo vendorizado, cero CDN |
 | Nombre del paquete Python | `arca` |
 | Puesta en marcha del chat | **Automática**, decidido el 2026-08-29: el usuario solo deja el `.gguf` en `models/chat/`. ARCA consigue el binario de `llama-server`, lo despliega, fija su commit, crea el perfil y lo prueba. Si un paquete no arranca, prueba el siguiente. Ver §13.0 |
-| Orígenes de red | Tres, y solo tres: el catálogo de Kiwix, el hub de modelos y las releases de llama.cpp en GitHub. Los tres se resuelven en el momento; ninguno se guarda como URL fija |
+| Orígenes de red | Cuatro. Tres del núcleo —el catálogo de Kiwix, el hub de modelos y las releases de llama.cpp en GitHub—, que se resuelven en el momento y no se guardan como URL fija. El cuarto, añadido el 2026-08-29, son los paquetes de muestras libres del anexo A: es opcional, solo se toca desde administración, y se fija por versión en `sources.lock` como la documentación de §8.3, porque no existe catálogo que resolver |
+| Música (anexo A) | Capa opcional y borrable, decidida el 2026-08-29. Reproducción entera en el navegador con Web Audio sobre material **muestreado**, nunca un banco de osciladores en tiempo real. El material se prepara fuera de tiempo real por dos caminos con el mismo manifiesto —`arca music render` lo sintetiza; los paquetes de muestras libres se descargan desde el panel con el motor de descarga de §8.2 o se importan de una carpeta— y vive bajo `<raiz>/music/`. Cero dependencias nuevas |
 
 ---
 
@@ -141,6 +144,9 @@ Una sola ruta raíz. Es lo único que se pide en la instalación.
     wheelhouse/             # wheels y sdists de todo el árbol de dependencias
     llama.cpp/              # repositorio al commit fijado + binarios compilados
     docs/                   # tarballs originales de documentación upstream
+  music/                    # capa opcional, anexo A
+    material/<version>/     # muestras renderizadas + manifest.json
+    profiles/               # perfiles del operador, opcionales
   logs/
     arca.log
 ```
@@ -761,3 +767,81 @@ El proyecto está terminado cuando todo esto es cierto a la vez:
 - El chat cita o admite que no sabe, y en temas de riesgo nunca improvisa.
 - La documentación de todo lo que usa el proyecto, incluida la del commit exacto de llama.cpp compilado, se consulta sin red desde la propia biblioteca.
 - Un cambio de configuración de llama.cpp que no arranca revierte solo al último perfil que funcionaba.
+
+---
+
+## Anexo A — ARCA Music
+
+Capa opcional de música procedural. **No forma parte del núcleo y nada del núcleo depende de ella.** Se borra entera —`arca/music/`, `arca/static/music/`, `<raiz>/music/` y una línea de la plantilla— y lo que queda es un ARCA íntegro. Esa frase gobierna el anexo entero: *ARCA sin Music* vale más que *ARCA con Music rota*.
+
+### A.1 El listón y de dónde sale la calidad
+
+La referencia es la música dinámica de Left 4 Dead, y conviene decir qué es exactamente porque se malinterpreta: **está compuesta y grabada** —piano preparado, cuerda, percusión, texturas procesadas—. Lo procedural es el *Director*, que decide qué capas suenan, cuándo entran y con qué intensidad. Nadie sintetiza esa música en tiempo real.
+
+De ahí sale la única decisión que de verdad importa: **la calidad viene del material, no del algoritmo.** Un banco de osciladores en el navegador suena a politono por mucha teoría musical que lleve encima. Un muestreador que dispara material bien hecho suena a música aunque la partitura sea sencilla.
+
+El material se prepara **fuera de tiempo real**, por dos caminos que terminan en el mismo manifiesto y que el motor no distingue.
+
+**El suelo lo pone el renderizador propio**, donde la CPU es gratis y se puede gastar por muestra mil veces lo que el tiempo real permitiría: síntesis modal para lo percutido y metálico (campanas, placas, piano preparado), guía de onda para lo pulsado, pads por filtrado y granulación de ruido, percusión como transitorio más cuerpo resonante, y respuestas de impulso sintéticas para la reverberación por convolución. Es el conjunto que esta técnica hace bien, y es —no por casualidad— casi el mismo vocabulario del que están hechas las señales de tensión de L4D.
+
+Lo que esa técnica no hace de forma creíble es cuerda frotada y metal orquestal expuestos, y no se va a fingir que sí. Por eso **el techo lo ponen las muestras libres**: existe material grabado y publicado bajo licencias que permiten esto —VSCO 2 Community Edition y la Versilian Community Sample Library son CC0; hay pianos y respuestas de impulso de salas reales bajo CC-BY—. Los paquetes completos pesan gigas, así que no se copian enteros: el curador recorta el subconjunto que hace falta, lo convierte, anota licencia y procedencia por fichero, guarda el texto de la licencia y descarta el archivo original dejando su `sha256` registrado.
+
+Se traen **desde un botón del panel de administración**, por el motor de descarga reanudable y verificada de §8.2, con pausa y reanudación como cualquier ZIM. Ese es el cuarto origen de red del sistema, y tiene dos particularidades: es el único opcional —ARCA entero funciona sin él— y es el único que no se resuelve en el momento, porque no hay catálogo que consultar. Se fija por versión en `sources.lock` con su hash y su licencia, igual que llama.cpp y la documentación de §8.3, con lo que `--verify` lo recomprueba sin red y un enlace que muera dentro de dos años se declara muerto en vez de romper nada. Sin red, el mismo curador acepta una carpeta local.
+
+Ninguno de los dos caminos es obligatorio. Sin material importado, Music suena con lo sintetizado; sin nada de nada, degrada como se describe en A.6.
+
+### A.2 Arquitectura
+
+**La reproducción vive entera en el navegador.** Web Audio, JavaScript sin framework, como el resto del frontend. El backend no participa: no hay endpoint de audio, no hay proceso de música, no hay hilo generando PCM mientras llama.cpp ocupa la máquina. Music no puede ralentizar una búsqueda porque no comparte nada con ella.
+
+**Python aparece una sola vez, y no en el camino del audio:** `arca music render` produce el material en la instalación, igual que `scripts/vendor_font.py` produce las tipografías. Es una operación de escritura deliberada, reanudable y verificada por hash, como una descarga. Después de eso, Music solo lee.
+
+Dependencias nuevas: **ninguna**. El renderizador usa `numpy` y el módulo `wave` de la biblioteca estándar. Orígenes de red nuevos: **ninguno**. El material se sintetiza, no se descarga.
+
+### A.3 El material en disco
+
+```
+<raiz>/music/
+  material/
+    <material_version>/
+      manifest.json         # instrumento, nota, capa, sha256, origen y licencia de cada fichero
+      <instrumento>-<nota>-<capa>.wav
+      ir/<nombre>.wav       # respuestas de impulso
+  profiles/                 # perfiles del operador, opcionales
+```
+
+WAV PCM, mono, sin comprimir: lo decodifica cualquier navegador sin códec y sin dependencia. El conjunto entero se mide en decenas de megas, no en gigas, y viaja con la raíz como todo lo demás. **Nunca entra en el repositorio.**
+
+Se aplican los invariantes de §6 sin excepción: el manifiesto se valida antes de usar el material (7), su ausencia degrada en vez de romper (5), se detecta en cada arranque (6), un renderizado interrumpido retoma por fichero (2), y consultar no escribe (1) porque tocar música es solo leer.
+
+### A.4 Perfiles y estilos
+
+Doce perfiles de mes y una lista de estilos, en JSON, sin código. El mes aporta carácter temporal —tempo, densidad, brillo, disonancia, cola de reverberación—; el estilo aporta instrumentación y lenguaje. `octubre + ambiental` y `octubre + electrónico` suenan distintos y siguen sonando a octubre.
+
+El JSON lleva **identificadores, nunca texto visible**: `"id": "october"`, y el nombre sale del catálogo i18n. Se valida con esquema estricto antes de cargarse: claves desconocidas se ignoran, valores fuera de rango se recortan, un perfil que no valida se descarta y se declara. Las semillas son enteros. Nada de lo que hay en un perfil puede ejecutar código.
+
+El cambio de mes no es un corte: los parámetros del mes actual y el siguiente se mezclan por día del mes, una vez, al generar el tema.
+
+### A.5 El Director
+
+La intensidad no es volumen: es densidad de arreglo. El Director traduce un valor de 0 a 100 % en qué capas suenan y con cuánta presencia —drones y pads abajo, armonía y melodía en medio, bajo y percusión arriba— y **las transiciones caen en el compás**, nunca a mitad de frase. Cambiar la intensidad, pedir tema nuevo o cambiar de estilo son transiciones musicales, no cortes.
+
+La generación es un planificador con anticipación: un tic corto programa los eventos de los próximos cientos de milisegundos contra el reloj del contexto de audio. No se genera la pieza entera por adelantado, no se genera nada con el reproductor parado.
+
+Semilla, perfil, estilo y `generator_version` identifican una pieza. La misma terna reproduce la misma música; cambiar el algoritmo obliga a subir la versión. Esa franja —`octubre · ambiental · seed 184729 · gen v1`— se enseña en el panel con la tipografía monoespaciada del sello de procedencia de §16: en un archivo, saber de dónde sale algo también vale para la música.
+
+### A.6 Degradación en tres niveles
+
+1. Motor completo con material verificado.
+2. Sin material, sin Web Audio o con el generador roto: una capa mínima de respaldo, sintetizada en el sitio, sin planificador ni capas.
+3. Si tampoco: Music se declara desactivada y ARCA sigue exactamente igual.
+
+Ningún fallo de Music toca la búsqueda, la lectura, el corpus, el chat ni la interfaz principal. No se enseñan trazas al usuario. La primera reproducción siempre la pide el usuario: no hay autoarranque.
+
+### A.7 Criterios de aceptación
+
+- Suena a música. Lo juzga el operador escuchando, y es la primera puerta de la fase, no la última.
+- Reproduce indefinidamente sin clics audibles, sin fugas y sin degradar la búsqueda ni el chat.
+- Misma semilla, mismo perfil, misma versión del generador: misma pieza.
+- Sin red, sin modelo, sin material: arranca igual y dice en qué nivel está.
+- Borrar el módulo deja un ARCA que pasa toda su suite de tests.
