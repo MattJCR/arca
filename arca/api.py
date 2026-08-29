@@ -218,6 +218,7 @@ USAGE_CATEGORIES: dict[str, str] = {
 
 def create_app(root: Path, config: ArcaConfig) -> FastAPI:
     llama = LlamaServer(default_url=config.chat_url)
+    embed_server = LlamaServer(default_url=config.embed_url)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -225,6 +226,7 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
             bringup.start()
         yield
         llama.stop()
+        embed_server.stop()
 
     app = FastAPI(
         title="ARCA",
@@ -246,7 +248,7 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         max_attempts=config.download_max_attempts,
         before_replace=_releaser(zim_library),
     )
-    bringup = EngineBringup(root, config, llama, worker)
+    bringup = EngineBringup(root, config, llama, worker, embed_server=embed_server)
     binaries: dict[str, BinaryInfo] = {}
 
     def _binary(refresh: int) -> BinaryInfo:
@@ -1891,6 +1893,9 @@ def _engine_payload(bringup: EngineBringup) -> dict[str, Any]:
         "binary": status.binary,
         "profile": status.profile,
         "tag": status.tag,
+        "embed_state": status.embed_state,
+        "embed_detail": status.embed_detail,
+        "embed_model": status.embed_model,
         "updated_at": status.updated_at,
         "running": bringup.running(),
     }

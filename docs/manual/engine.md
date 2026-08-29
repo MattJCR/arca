@@ -1,4 +1,4 @@
-# Puesta en marcha automática del chat
+# Puesta en marcha automática del chat y de los embeddings
 
 Módulo: `arca/engine.py`. Sección 13.0 de la especificación.
 
@@ -7,17 +7,18 @@ es el **motor** que los carga y los sirve, un binario de llama.cpp que ARCA lanz
 y que nunca es dependencia del paquete (§2). Tener el modelo sin el motor es tener el ZIM sin el
 lector.
 
-Conseguir ese motor no es trabajo del usuario. Lo único que se le pide es dejar el `.gguf` en
-`models/chat/`; el resto lo hace este módulo.
+Conseguir ese motor no es trabajo del usuario. Lo único que se le pide es dejar los `.gguf` en
+`models/chat/` y `models/embed/`; el resto lo hace este módulo, incluidos **los dos servidores**
+que ARCA necesita (ver «Los dos servidores» más abajo).
 
 ## La secuencia
 
 | Paso | Qué hace | Estado que se ve en el panel |
 |---|---|---|
-| 1 | Busca un `.gguf` de chat | `waiting_model` si no hay ninguno |
+| 1 | Busca un `.gguf` de chat y otro de embeddings | `waiting_model` si no hay **ninguno de los dos** |
 | 2 | Si ya hay binario (`llama_bin`, `vendor/llama.cpp/` o `PATH`), salta a la prueba | — |
 | 2b | Si además ya hay un perfil `last_good`, **no toca nada**: el chat ya estaba resuelto | `ready` |
-| 3 | Resuelve la última release publicada de llama.cpp **en el momento** | `resolving` |
+| 3 | Resuelve **en el momento** la primera release de llama.cpp con paquete para esta plataforma | `resolving` |
 | 4 | Descarga el paquete que toca por la cola reanudable y verificada | `downloading` |
 | 5 | Lo desempaqueta en `vendor/llama.cpp/<tag>-<backend>/` | `deploying` |
 | 6 | Crea el perfil y lo somete al arranque de prueba de §13.3 | `testing` |
@@ -121,6 +122,29 @@ pestaña de llama.cpp.
 - El commit exacto en `sources.lock`, que encola el tarball de código y documentación de llama.cpp
   por la vía de siempre (ver `vendor.md`).
 - La captura de `--help` y `--version` de ese binario concreto (§8.3).
+
+## Los dos servidores
+
+ARCA gestiona **dos** procesos de `llama-server`, no uno, y comparten el mismo binario:
+
+| Proceso | Modelo | Puerto | Cómo se prueba |
+|---|---|---|---|
+| Chat | el `.gguf` de `models/chat/` | `chat_url` | Arranca, responde a `/health` y **genera texto** (§13.3) |
+| Embeddings | el primer `.gguf` legible de `models/embed/` | `embed_url` | Arranca, responde a `/health` y **devuelve un vector con las dimensiones esperadas** |
+
+La prueba del segundo no puede ser la del primero: un modelo de embeddings no conversa. Lo que se
+comprueba es lo que de verdad importa, que es lo mismo que mira la comprobación `embedding_server`
+de §14: que el vector tenga `embed_dims` dimensiones. Un modelo que devuelve otras se rechaza con
+el número concreto en el mensaje, porque sellar un lote con dimensiones equivocadas es la trampa 1.
+
+El modelo de embeddings **se descubre por carpeta**, no por `embed_model`: esa clave nombra el
+modelo declarado en los manifiestos de lote, no un fichero. Si hay un `.gguf` en `models/embed/`,
+ese es.
+
+Cada servidor tiene su propio `LlamaServer`, así que uno puede estar en marcha y el otro no. El
+panel muestra los dos estados por separado y el chat sigue funcionando aunque los embeddings estén
+caídos: lo único que se pierde es la mitad semántica de la búsqueda y la posibilidad de sellar
+lotes nuevos.
 
 ## Configuración
 

@@ -29,7 +29,7 @@ Manual vivo del proyecto. Documenta **únicamente la realidad actual**: lo que e
 - [Búsqueda y fusión](search.md) — los dos niveles, intercalado por rango, procedencia de cada resultado, `GET /api/search`.
 - [Invariantes verificables](invariants.md) — el contrato de «consultar no escribe» y la degradación en caliente, con su suite y su skill.
 - [Modelos](models.md) — buscador de modelos GGUF en el hub, variantes y cuantizaciones, descarga por la cola verificada, y elección del modelo activo.
-- [Puesta en marcha automática del chat](engine.md) — el usuario solo deja el modelo: ARCA consigue el motor, lo despliega, crea el perfil y lo prueba.
+- [Puesta en marcha automática](engine.md) — el usuario solo deja los modelos: ARCA consigue el motor, lo despliega y levanta los dos servidores, el de chat y el de embeddings.
 - [Servidor llama.cpp](llama.md) — descubrimiento del binario, subproceso, formulario generado del `--help`, perfiles, arranque de prueba con reversión y validaciones previas.
 - [Chat con citación](chat.md) — estado de pantalla, política de contexto, suelo de relevancia, citación al párrafo y temas de riesgo.
 - [Manual en la aplicación](manual-browser.md) — el manual servido desde la propia ARCA, con su renderizador de Markdown acotado.

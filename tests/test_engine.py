@@ -45,12 +45,21 @@ from arca.llama import (
     LlamaServer,
     Profile,
     TrialResult,
+    embedding_command,
     mark_last_good,
     read_model,
     save_profile,
 )
 from arca.vendor import default_lock_path, load_lock
-from tests.support import ReleaseServer, engine_package, engine_tarball, runtime_package, write_gguf
+from tests.support import (
+    ReleaseServer,
+    engine_package,
+    engine_tarball,
+    free_port,
+    runtime_package,
+    stub_command,
+    write_gguf,
+)
 from tests.test_api import http_get, http_request
 
 RELEASE_ASSETS = (
@@ -510,3 +519,110 @@ def test_the_panel_can_ask_for_the_bringup_and_it_never_blocks(
     status, body = http_request(app, "POST", "/api/admin/engine/start")
     assert status == 200
     assert json.loads(body)["state"] in (STATE_IDLE, STATE_WAITING_MODEL)
+
+
+def _embed_bringup(
+    root: Path,
+    config: ArcaConfig,
+    embed_server: LlamaServer,
+    api_url: str = "http://127.0.0.1:1",
+) -> EngineBringup:
+    worker = QueueWorker(library_db_path(root), concurrency=1, max_attempts=1)
+    return EngineBringup(
+        root,
+        config,
+        LlamaServer(default_url=config.chat_url),
+        worker,
+        api_url=api_url,
+        download_timeout=30.0,
+        nvidia=False,
+        embed_server=embed_server,
+        health_timeout=20.0,
+    )
+
+
+def test_the_embedding_command_asks_for_embeddings_and_nothing_else(tmp_path: Path) -> None:
+    model = tmp_path / "e5.gguf"
+    write_gguf(model)
+    command = embedding_command(Path("llama-server"), read_model(model, "embed"), "http://h:9999")
+    assert "--embeddings" in command
+    assert command[command.index("--pooling") + 1] == "mean"
+    assert command[command.index("--model") + 1] == str(model)
+    assert command[command.index("--host") + 1] == "h"
+    assert command[command.index("--port") + 1] == "9999"
+
+
+def _with_stub_embeddings(monkeypatch: pytest.MonkeyPatch, port: int, *extra: str) -> None:
+    monkeypatch.setattr(
+        "arca.engine.embedding_command",
+        lambda binary, model, base_url: stub_command(port, *extra),
+    )
+
+
+def test_the_embedding_server_is_started_and_proved_by_its_dimensions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    write_gguf(root / "models" / "embed" / "e5.gguf")
+    binary = root / "vendor" / "llama.cpp" / "llama-server.exe"
+    binary.write_text("binary", "utf-8")
+    _isolate_lock(root, monkeypatch)
+    monkeypatch.setattr("arca.engine.capture_llama_help", lambda root, binary: None)
+    port = free_port()
+    _with_stub_embeddings(monkeypatch, port, "--stub-dims", "8")
+    server = LlamaServer(default_url=f"http://127.0.0.1:{port}")
+    config = ArcaConfig(embed_url=f"http://127.0.0.1:{port}", embed_dims=8)
+    try:
+        status = _embed_bringup(root, config, server).run()
+    finally:
+        server.stop()
+    assert status.embed_state == STATE_READY
+    assert status.embed_model == "e5.gguf"
+
+
+def test_an_embedding_server_with_other_dimensions_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    write_gguf(root / "models" / "embed" / "e5.gguf")
+    binary = root / "vendor" / "llama.cpp" / "llama-server.exe"
+    binary.write_text("binary", "utf-8")
+    _isolate_lock(root, monkeypatch)
+    monkeypatch.setattr("arca.engine.capture_llama_help", lambda root, binary: None)
+    port = free_port()
+    _with_stub_embeddings(monkeypatch, port, "--stub-dims", "8")
+    server = LlamaServer(default_url=f"http://127.0.0.1:{port}")
+    config = ArcaConfig(embed_url=f"http://127.0.0.1:{port}", embed_dims=768)
+    try:
+        status = _embed_bringup(root, config, server).run()
+    finally:
+        server.stop()
+    assert status.embed_state == "failed"
+    assert "768" in status.embed_detail
+
+
+def test_with_no_model_at_all_the_bringup_waits_for_either(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    server = LlamaServer(default_url="http://127.0.0.1:1")
+    status = _embed_bringup(root, ArcaConfig(), server).run()
+    assert status.state == STATE_WAITING_MODEL
+
+
+def test_a_chat_model_alone_leaves_the_embedding_side_waiting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "library"
+    init_library(root)
+    write_gguf(root / "models" / "chat" / "chat.gguf")
+    binary = root / "vendor" / "llama.cpp" / "llama-server.exe"
+    binary.write_text("binary", "utf-8")
+    _isolate_lock(root, monkeypatch)
+    monkeypatch.setattr("arca.engine.capture_llama_help", lambda root, binary: None)
+    monkeypatch.setattr("arca.engine.apply_profile", _accept())
+    server = LlamaServer(default_url="http://127.0.0.1:1")
+    status = _embed_bringup(root, ArcaConfig(), server).run()
+    assert status.state == STATE_READY
+    assert status.embed_state == STATE_WAITING_MODEL

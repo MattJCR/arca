@@ -1036,7 +1036,13 @@ function engineDetail(payload) {
 }
 
 function renderEngine(payload) {
-  document.getElementById("engine-state").textContent = t("admin.engine.state." + payload.state);
+  document.getElementById("engine-state").textContent = t("admin.engine.chat_label", {
+    state: t("admin.engine.state." + payload.state),
+  });
+  document.getElementById("engine-embed").textContent = t("admin.engine.embed_label", {
+    state: t("admin.engine.state." + payload.embed_state),
+    model: payload.embed_model || t("admin.engine.no_model"),
+  });
   const detail = document.getElementById("engine-detail");
   detail.textContent = engineDetail(payload);
   detail.hidden = !detail.textContent;

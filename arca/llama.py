@@ -12,6 +12,7 @@ import subprocess
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections import deque
 from collections.abc import Mapping, Sequence
@@ -118,6 +119,8 @@ TEST_MESSAGES: tuple[dict[str, str], ...] = (
 SOURCE_BINARY = "binary"
 SOURCE_CAPTURE = "capture"
 HELP_CAPTURE_FILENAME = "llama-server-help.txt"
+EMBEDDING_POOLING = "mean"
+EMBEDDING_CONTEXT = "512"
 PROFILE_NAME_PATTERN = re.compile(r"^[\w][\w .-]*$")
 MODE_FORM = "form"
 MODE_RAW = "raw"
@@ -801,13 +804,41 @@ def is_profile_name(name: str) -> bool:
     return bool(name) and len(name) <= 64 and bool(PROFILE_NAME_PATTERN.match(name))
 
 
-def chat_model_file(root: Path, name: str = "") -> ModelFile | None:
-    directory = models_dir(root, "chat")
+def model_file(root: Path, kind: str, name: str = "") -> ModelFile | None:
+    directory = models_dir(root, kind)
     if name:
         path = directory / Path(name).name
-        return read_model(path, "chat") if path.is_file() else None
-    models = [model for model in list_models(root) if model.kind == "chat" and not model.error]
+        return read_model(path, kind) if path.is_file() else None
+    models = [model for model in list_models(root) if model.kind == kind and not model.error]
     return models[0] if models else None
+
+
+def chat_model_file(root: Path, name: str = "") -> ModelFile | None:
+    return model_file(root, "chat", name)
+
+
+def embed_model_file(root: Path, name: str = "") -> ModelFile | None:
+    return model_file(root, "embed", name)
+
+
+def embedding_command(binary: Path, model: ModelFile, base_url: str) -> list[str]:
+    parts = urllib.parse.urlsplit(base_url)
+    return [
+        str(binary),
+        "--model",
+        str(model.path),
+        "--embeddings",
+        "--pooling",
+        EMBEDDING_POOLING,
+        "--ctx-size",
+        EMBEDDING_CONTEXT,
+        "--ubatch-size",
+        EMBEDDING_CONTEXT,
+        "--host",
+        parts.hostname or DEFAULT_HOST,
+        "--port",
+        str(parts.port or DEFAULT_PORT),
+    ]
 
 
 def referenced_model(config_name: str, profile: Profile | None) -> str:

@@ -18,15 +18,19 @@ from pathlib import Path
 
 from arca.config import ArcaConfig, library_db_path
 from arca.db import open_library_ro, open_library_rw, record_event, utc_now_iso
+from arca.embed import EmbeddingClient, EmbeddingError
 from arca.fetch import QueueWorker, enqueue, file_sha256, get_download
 from arca.llama import (
     BINARY_NAMES,
+    HEALTH_WAIT_SECONDS,
     MODE_FORM,
     LlamaServer,
     ModelFile,
     Profile,
     apply_profile,
     chat_model_file,
+    embed_model_file,
+    embedding_command,
     find_binary,
     inspect_binary,
     last_good_profile,
@@ -61,6 +65,9 @@ DIGEST_PREFIX = "sha256:"
 SHA256_LENGTH = 64
 RELEASE_PAGE = 20
 NVIDIA_PROBE = "nvidia-smi"
+EMBEDDING_TIMEOUT_SECONDS = 30.0
+EMBEDDING_PROBE = "arca"
+EMBEDDING_LOG_LINES = 20
 
 BACKEND_CPU = "cpu"
 BACKEND_CUDA = "cuda"
@@ -128,6 +135,9 @@ class EngineStatus:
     binary: str = ""
     profile: str = ""
     tag: str = ""
+    embed_state: str = STATE_IDLE
+    embed_detail: str = ""
+    embed_model: str = ""
     updated_at: str = ""
 
 
@@ -342,6 +352,7 @@ class EngineBringup:
         generation_timeout: float = 0.0,
         download_timeout: float = DOWNLOAD_TIMEOUT_SECONDS,
         nvidia: bool | None = None,
+        embed_server: LlamaServer | None = None,
     ) -> None:
         self._root = root
         self._config = config
@@ -353,6 +364,7 @@ class EngineBringup:
         self._generation_timeout = generation_timeout
         self._download_timeout = download_timeout
         self._nvidia = nvidia
+        self._embed_server = embed_server
         self._lock = threading.Lock()
         self._status = EngineStatus(STATE_IDLE, updated_at=utc_now_iso())
         self._thread: threading.Thread | None = None
@@ -382,16 +394,25 @@ class EngineBringup:
             return self._set(STATE_FAILED, detail=str(error))
 
     def _bringup(self) -> EngineStatus:
-        model = chat_model_file(self._root, self._config.chat_model)
-        if model is None:
+        chat = chat_model_file(self._root, self._config.chat_model)
+        embed = embed_model_file(self._root)
+        if chat is None and embed is None:
             return self._set(STATE_WAITING_MODEL)
+        status = self._secure(chat, embed)
+        if status.state != STATE_READY:
+            return status
+        return self._start_embeddings(Path(status.binary), embed)
+
+    def _secure(self, chat: ModelFile | None, embed: ModelFile | None) -> EngineStatus:
         present, _ = find_binary(self._root, self._config.llama_bin)
         if present is not None:
             settled = self._settled()
-            if settled is not None:
+            if chat is not None and settled is not None:
                 return self._set(STATE_READY, binary=str(present), profile=settled)
             gpu = inspect_binary(self._root, self._config.llama_bin).gpu
-            return self._activate(present, model, gpu, tag="")
+            if chat is None:
+                return self._set(STATE_READY, binary=str(present))
+            return self._activate(present, chat, gpu, tag="")
         self._set(STATE_RESOLVING)
         release = resolve_release(self._api_url, self._repo, nvidia=self._nvidia)
         if release is None:
@@ -400,13 +421,18 @@ class EngineBringup:
         tried: list[str] = []
         for asset in picks:
             tried.append(asset.name)
-            outcome = self._try_candidate(asset, release, model, tuple(tried))
+            outcome = self._try_candidate(asset, release, chat, embed, tuple(tried))
             if outcome is not None:
                 return outcome
         return self._set(STATE_EXHAUSTED, tried=tuple(tried), tag=release.tag)
 
     def _try_candidate(
-        self, asset: Asset, release: Release, model: ModelFile, tried: tuple[str, ...]
+        self,
+        asset: Asset,
+        release: Release,
+        chat: ModelFile | None,
+        embed: ModelFile | None,
+        tried: tuple[str, ...],
     ) -> EngineStatus | None:
         self._set(STATE_DOWNLOADING, candidate=asset.name, tried=tried, tag=release.tag)
         archive = self._obtain(asset)
@@ -430,12 +456,82 @@ class EngineBringup:
             return None
         self._deploy_companion(asset, release, target, tried)
         self._set(STATE_TESTING, candidate=asset.name, tried=tried, tag=release.tag)
-        status = self._activate(binary, model, uses_gpu(asset.name), tag=release.tag, tried=tried)
+        if chat is not None:
+            status = self._activate(
+                binary, chat, uses_gpu(asset.name), tag=release.tag, tried=tried
+            )
+        else:
+            status = self._prove(binary, embed, tag=release.tag, tried=tried)
         if status.state != STATE_READY:
             _discard(target)
             return None
         self._pin(release)
         return status
+
+    def _prove(
+        self, binary: Path, embed: ModelFile | None, *, tag: str, tried: tuple[str, ...]
+    ) -> EngineStatus:
+        if embed is None:
+            return self._set(STATE_FAILED, detail="no model to prove the binary with", tag=tag)
+        trial = self._embedding_trial(binary, embed)
+        if trial:
+            return self._set(
+                STATE_FAILED, detail=trial, candidate=binary.name, tried=tried, tag=tag
+            )
+        capture_llama_help(self._root, str(binary))
+        return self._set(STATE_READY, binary=str(binary), tried=tried, tag=tag)
+
+    def _start_embeddings(self, binary: Path, embed: ModelFile | None) -> EngineStatus:
+        if embed is None:
+            return self._merge(embed_state=STATE_WAITING_MODEL)
+        if self._embed_server is None:
+            return self._merge(embed_state=STATE_IDLE)
+        if self._embeddings_alive():
+            return self._merge(embed_state=STATE_READY, embed_model=embed.name)
+        self._merge(embed_state=STATE_TESTING, embed_model=embed.name)
+        error = self._embedding_trial(binary, embed)
+        if error:
+            return self._merge(embed_state=STATE_FAILED, embed_detail=error)
+        return self._merge(embed_state=STATE_READY, embed_model=embed.name)
+
+    def _embeddings_alive(self) -> bool:
+        return self._client().available()
+
+    def _client(self) -> EmbeddingClient:
+        return EmbeddingClient(
+            base_url=self._config.embed_url,
+            model=self._config.embed_model,
+            dims=self._config.embed_dims,
+            timeout=EMBEDDING_TIMEOUT_SECONDS,
+        )
+
+    def _embedding_trial(self, binary: Path, embed: ModelFile) -> str:
+        server = self._embed_server
+        if server is None:
+            return "no embedding server to drive"
+        command = embedding_command(binary, embed, self._config.embed_url)
+        status = server.start(command)
+        if status.error:
+            self._record("warning", f"embedding server failed to start: {embed.name}", status.error)
+            return status.error
+        if not server.wait_healthy(self._health_timeout or HEALTH_WAIT_SECONDS):
+            log = " ".join(server.log(EMBEDDING_LOG_LINES))
+            server.stop()
+            self._record("warning", f"embedding server never became healthy: {embed.name}", log)
+            return "the embedding server did not answer its health check"
+        try:
+            vector = self._client().embed_query(EMBEDDING_PROBE)
+        except EmbeddingError as error:
+            server.stop()
+            self._record("warning", f"embedding server refused a probe: {embed.name}", str(error))
+            return str(error)
+        if len(vector) != self._config.embed_dims:
+            server.stop()
+            detail = f"expected {self._config.embed_dims} dimensions, got {len(vector)}"
+            self._record("warning", f"embedding server dimensions differ: {embed.name}", detail)
+            return detail
+        self._record("info", f"embedding server ready: {embed.name}")
+        return ""
 
     def _deploy_companion(
         self, asset: Asset, release: Release, target: Path, tried: tuple[str, ...]
@@ -582,6 +678,12 @@ class EngineBringup:
             record_event(connection, level, "engine", message, detail)
         finally:
             connection.close()
+
+    def _merge(self, **fields: object) -> EngineStatus:
+        with self._lock:
+            updated = replace(self._status, updated_at=utc_now_iso(), **fields)  # type: ignore[arg-type]
+            self._status = updated
+            return self._status
 
     def _set(self, state: str, **fields: object) -> EngineStatus:
         status = EngineStatus(state, updated_at=utc_now_iso(), **fields)  # type: ignore[arg-type]

@@ -51,7 +51,7 @@ def flag_value(argv: list[str], flag: str, fallback: str) -> str:
 
 
 def build_handler(
-    ready_at: float, generate: bool, plain: bool = False
+    ready_at: float, generate: bool, plain: bool = False, dims: int = 8
 ) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -75,6 +75,18 @@ def build_handler(
                 payload = json.loads(raw)
             except ValueError:
                 payload = {}
+            if self.path.startswith("/v1/embeddings"):
+                inputs = payload.get("input") or []
+                self.reply(
+                    200,
+                    {
+                        "data": [
+                            {"index": index, "embedding": [0.1] * dims}
+                            for index, _ in enumerate(inputs)
+                        ]
+                    },
+                )
+                return
             if not generate:
                 self.reply(500, {"error": {"message": "stub refuses to generate"}})
                 return
@@ -131,7 +143,12 @@ def main(argv: list[str]) -> int:
     ready_at = time.monotonic() + float(flag_value(argv, "--stub-delay", "0"))
     server = ThreadingHTTPServer(
         (host, port),
-        build_handler(ready_at, "--stub-mute" not in argv, "--stub-plain" in argv),
+        build_handler(
+            ready_at,
+            "--stub-mute" not in argv,
+            "--stub-plain" in argv,
+            int(flag_value(argv, "--stub-dims", "8")),
+        ),
     )
     print(f"stub: server is listening on http://{host}:{port}", flush=True)
     try:
