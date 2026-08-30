@@ -132,6 +132,7 @@
   "admin.documents.index_nothing": "No hay nada pendiente de indexar.",
   "admin.documents.index_no_server": "El servidor de embeddings no responde, así que no se puede indexar. Los documentos importados siguen guardados y se indexarán cuando vuelva.",
   "admin.documents.index_failed": "El lote no se pudo sellar entero: queda provisional y se retoma en la próxima pasada.",
+  "admin.documents.index_document_failed": "«{filename}» se quedó sin indexar: {error}",
   "admin.documents.refresh_button": "Volver a leer",
   "admin.documents.empty": "Todavía no hay documentos indexados. Súbelos aquí arriba con «Importar» y luego pulsa «Indexar y sellar»; también sirve «arca import» desde la línea de comandos.",
   "admin.documents.col.title": "Documento",

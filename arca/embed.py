@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 EMBED_MODEL = "multilingual-e5-base"
 EMBED_DIMS = 768
+EMBED_CONTEXT_TOKENS = 512
 QUERY_PREFIX = "query: "
 PASSAGE_PREFIX = "passage: "
 KIND_QUERY = "query"
@@ -15,6 +16,7 @@ KIND_PASSAGE = "passage"
 PREFIXES = {KIND_QUERY: QUERY_PREFIX, KIND_PASSAGE: PASSAGE_PREFIX}
 DEFAULT_BATCH = 16
 DEFAULT_TIMEOUT_SECONDS = 60.0
+MESSAGE_CHARS = 300
 EMBEDDINGS_PATH = "/v1/embeddings"
 HEALTH_PATH = "/health"
 
@@ -24,6 +26,10 @@ class EmbeddingError(RuntimeError):
 
 
 class EmbeddingUnavailableError(EmbeddingError):
+    pass
+
+
+class EmbeddingRejectedError(EmbeddingError):
     pass
 
 
@@ -93,6 +99,10 @@ class EmbeddingClient:
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 body: bytes = response.read()
+        except urllib.error.HTTPError as error:
+            raise EmbeddingRejectedError(
+                f"embedding server refused the request: {error.code} {_explanation(error)}"
+            ) from error
         except (urllib.error.URLError, OSError, TimeoutError) as error:
             raise EmbeddingUnavailableError(f"embedding server unreachable: {error}") from error
         return body
@@ -120,3 +130,21 @@ def _parse_embeddings(raw: bytes, expected: int) -> list[list[float]]:
             raise EmbeddingError("embedding server returned an entry without a vector")
         vectors.append([float(value) for value in vector])
     return vectors
+
+
+def _explanation(error: urllib.error.HTTPError) -> str:
+    try:
+        body = error.read().decode("utf-8", "replace")
+    except OSError:
+        return error.reason if isinstance(error.reason, str) else str(error.reason)
+    try:
+        parsed: object = json.loads(body)
+    except ValueError:
+        return " ".join(body.split())[:MESSAGE_CHARS]
+    if isinstance(parsed, dict):
+        detail = parsed.get("error")
+        if isinstance(detail, dict):
+            return str(detail.get("message") or detail)[:MESSAGE_CHARS]
+        if detail is not None:
+            return str(detail)[:MESSAGE_CHARS]
+    return " ".join(body.split())[:MESSAGE_CHARS]

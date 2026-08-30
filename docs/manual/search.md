@@ -61,9 +61,9 @@ Guardados en la tabla `settings` bajo la clave `search`, editables desde la pest
 | `zim_weight` | 1 | 1–5 | Cuántos resultados aporta cada colección ZIM por vuelta de intercalado |
 | `doc_weight` | 1 | 1–5 | Lo mismo para cada lote de documentos propios |
 | `snippet_chars` | 320 | 80–1000 | Longitud del extracto de cada resultado |
-| `chunk_min_tokens` | 300 | 100–900 | Troceado mínimo, **solo para importaciones futuras** |
-| `chunk_max_tokens` | 500 | 100–900 | Troceado máximo, **solo para importaciones futuras** |
+| `chunk_min_tokens` | 270 | 100–512 | Troceado mínimo, **solo para importaciones futuras** |
+| `chunk_max_tokens` | 450 | 100–512 | Troceado máximo, **solo para importaciones futuras** |
 
 Los pesos son profundidad de intercalado, no puntuaciones: siguen sin compararse scores de fuentes distintas (trampa 3). Un valor fuera de rango no rompe nada — se conserva el que ya había. Si el mínimo llega por encima del máximo, se intercambian.
 
-El troceado no reindexa nada: los lotes sellados son inmutables (invariante 3), así que solo afecta a lo que se importe después.
+El troceado no reindexa nada: los lotes sellados son inmutables (invariante 3), así que solo afecta a lo que se importe después. El tope de 512 no es un número redondo: es el contexto de `multilingual-e5-base`. Por encima de él un fragmento no se indexa —o se indexa truncado en silencio, que es peor—, así que el ajuste no deja subir de ahí. El porqué, medido, está en `documents.md`.

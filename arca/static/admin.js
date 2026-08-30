@@ -872,7 +872,16 @@ async function indexDocuments() {
     no_model: "admin.documents.embedding_missing",
     seal_failed: "admin.documents.index_failed",
   };
-  showMessage("documents-message", t(reasons[payload.reason] || "admin.documents.index_failed"));
+  const lines = [t(reasons[payload.reason] || "admin.documents.index_failed")];
+  for (const item of payload.results || []) {
+    if (item.error) {
+      lines.push(t("admin.documents.index_document_failed", {
+        filename: item.orig_name,
+        error: item.error,
+      }));
+    }
+  }
+  showMessage("documents-message", lines.join(" "));
 }
 
 async function loadDocuments() {

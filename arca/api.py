@@ -547,6 +547,15 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
                 "documents": len(report.results),
                 "chunks": sum(item.chunks for item in report.results),
                 "reason": "" if report.sealed else "seal_failed",
+                "results": [
+                    {
+                        "orig_name": item.orig_name,
+                        "status": item.status,
+                        "chunks": item.chunks,
+                        "error": item.error,
+                    }
+                    for item in report.results
+                ],
             }
         )
 

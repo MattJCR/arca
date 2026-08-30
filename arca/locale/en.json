@@ -132,6 +132,7 @@
   "admin.documents.index_nothing": "There is nothing waiting to be indexed.",
   "admin.documents.index_no_server": "The embedding server does not answer, so nothing can be indexed. The imported documents stay stored and will be indexed when it is back.",
   "admin.documents.index_failed": "The batch could not be sealed whole: it stays provisional and is picked up on the next run.",
+  "admin.documents.index_document_failed": "«{filename}» was left unindexed: {error}",
   "admin.documents.refresh_button": "Read again",
   "admin.documents.empty": "No documents indexed yet. Upload them above with «Import» and then press «Index and seal»; «arca import» on the command line works too.",
   "admin.documents.col.title": "Document",

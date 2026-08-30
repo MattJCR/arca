@@ -8,7 +8,7 @@ Módulos: `arca/formats.py` (qué formatos existen, cómo se abren, qué puede f
 2. **Custodia** — copia verificada por relectura a `docs/originals/<sha256><extensión real>`, con sidecar `.json` (nombre real, tipo, fecha, páginas, lote). El original no se vuelve a tocar (invariante 4).
 3. **Extracción** — PyMuPDF por bloques ordenados, con el extractor de la familia del formato, y OCR donde toque (ver la sección de OCR).
 4. **Anclas** — `p:0007:03` (página 4 dígitos, bloque 2), deterministas: reimportar el mismo fichero produce anclas idénticas (trampa 12).
-5. **Troceado** — 300–500 tokens por fragmento, límites de párrafo, un párrafo de solapamiento, corte solo entre frases.
+5. **Troceado** — 270–450 tokens por fragmento, límites de párrafo, un párrafo de solapamiento, corte entre frases y, si una frase sola no cabe, entre palabras. Ningún fragmento pasa del techo, nunca (ver «El techo del troceado»).
 6. **Embeddings** — `passage: ` delante de cada fragmento contra `multilingual-e5-base`.
 7. **Sellado** — `text.sqlite` a solo lectura, `vectors.i8`, `manifest.json` con los hashes y el modelo.
 
@@ -114,6 +114,37 @@ Quien dispara esos pasos es `POST /api/admin/documents/index` (botón «Indexar 
 los originales cuyo sidecar aún no tiene lote, los pasa por `ingest_documents` y sella. Sin
 servidor de embeddings lo dice y no toca nada: los documentos siguen guardados y se indexan cuando
 vuelva. El panel muestra en todo momento cuántos hay esperando.
+
+## El techo del troceado, y por qué es 450 y no 500
+
+`multilingual-e5-base` tiene un contexto de **512 tokens**. Un fragmento que lo pase no se indexa
+mal: **no se indexa**. `llama-server` devuelve 500 (`input (519 tokens) is too large to process`) y
+el lote se queda provisional; y si el servidor estuviera configurado con un lote físico mayor, el
+modelo **truncaría** el texto en silencio y el vector describiría medio párrafo. Lo segundo es peor
+que lo primero, porque no se nota.
+
+El troceo cuenta tokens con una estimación —`estimate_tokens`, palabras × `TOKENS_PER_WORD`— porque
+sellar no puede depender de que haya un servidor vivo al que preguntarle. Esa estimación **tiene que
+quedarse por encima de la realidad**, o el techo no significa nada.
+
+Medido con el tokenizador real sobre un manual técnico en español de 190 páginas: **1,53 tokens por
+palabra de mediana, 1,74 en el percentil 90 y 1,94 en el peor fragmento**. La constante era `1.4` —
+por debajo incluso de la mediana—, así que **34 de 74 fragmentos pasaban de 512 tokens reales** y la
+indexación no terminaba nunca. Ahora `TOKENS_PER_WORD = 2.0`, por encima del peor caso medido, y el
+techo por defecto baja a **450** para dejar holgura. El mismo documento sale en 123 fragmentos, el
+mayor de **467 tokens reales**, y ninguno pasa de 512.
+
+Tres guardas, no una:
+
+- **La estimación es pesimista**, así que el techo estimado es un techo real.
+- **Nada sale por encima del techo**: un párrafo largo se corta entre frases, una frase que sola no
+  cabe se corta entre palabras, y el párrafo de solapamiento se descarta si empujaría el fragmento
+  por encima del techo.
+- **El ajuste del panel no puede desbordar el modelo**: `chunk_max_tokens` se recorta a 512
+  (`MAX_TOKENS_CEILING`), que es el contexto del modelo de embeddings, no un número redondo.
+
+Cambiar estos valores **no reindexa nada**: los lotes sellados son inmutables (invariante 3). Solo
+afecta a lo que se importe después.
 
 ## Reanudabilidad (§10.2)
 

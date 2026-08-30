@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from urllib.parse import quote
 
 from arca.db import read_setting, write_setting
+from arca.embed import EMBED_CONTEXT_TOKENS
 from arca.formats import PDF_MIME, format_for_mime
 from arca.ingest import MAX_CHUNK_TOKENS, MIN_CHUNK_TOKENS
 from arca.shards import DocumentRow, Shard, ShardHit
@@ -33,7 +34,7 @@ MAX_WEIGHT = 5
 MIN_SNIPPET_CHARS = 80
 MAX_SNIPPET_CHARS = 1000
 MIN_TOKENS_FLOOR = 100
-MAX_TOKENS_CEILING = 900
+MAX_TOKENS_CEILING = EMBED_CONTEXT_TOKENS
 
 
 @dataclass(frozen=True)

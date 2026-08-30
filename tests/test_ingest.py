@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 from itertools import pairwise
+from math import ceil
 from pathlib import Path
 
 import pytest
 
 from arca.config import init_library, library_db_path
 from arca.db import open_library_rw, recent_events
+from arca.embed import EMBED_CONTEXT_TOKENS
 from arca.extract import extract_document
 from arca.fetch import file_sha256
 from arca.formats import (
@@ -19,6 +21,7 @@ from arca.formats import (
 from arca.ingest import (
     MAX_CHUNK_TOKENS,
     MIN_CHUNK_TOKENS,
+    TOKENS_PER_WORD,
     anchor,
     chunk_blocks,
     estimate_tokens,
@@ -31,6 +34,7 @@ from arca.ingest import (
     sidecar_path,
     split_sentences,
 )
+from arca.search import MAX_TOKENS_CEILING
 from tests.support import blank_pdf, build_pdf, readable_html
 
 PAGES = [
@@ -377,11 +381,44 @@ def test_chunking_nothing_produces_nothing() -> None:
 
 def test_token_estimation_scales_with_words() -> None:
     assert estimate_tokens("") == 0
-    assert estimate_tokens("one two three") == 5
-    assert estimate_tokens("word " * 100) == 140
+    assert estimate_tokens("one two three") == ceil(3 * TOKENS_PER_WORD)
+    assert estimate_tokens("word " * 100) == ceil(100 * TOKENS_PER_WORD)
 
 
 def test_sentences_split_on_terminators_only() -> None:
     assert split_sentences("One. Two! Three? Four") == ["One.", "Two!", "Three?", "Four"]
     assert split_sentences("No terminator here") == ["No terminator here"]
     assert split_sentences("   ") == []
+
+
+def test_no_chunk_is_wider_than_the_ceiling_it_was_given() -> None:
+    words = " ".join(f"palabra{index}" for index in range(1, 4000))
+    blocks = [Block(1, position, words) for position in range(1, 4)]
+    chunks = chunk_blocks(blocks, MIN_CHUNK_TOKENS, MAX_CHUNK_TOKENS)
+    assert chunks
+    assert max(chunk.n_tokens for chunk in chunks) <= MAX_CHUNK_TOKENS
+
+
+def test_a_sentence_longer_than_the_ceiling_is_split_by_words() -> None:
+    endless = " ".join(f"palabra{index}" for index in range(1, 2000))
+    chunks = chunk_blocks([Block(1, 1, endless)], MIN_CHUNK_TOKENS, MAX_CHUNK_TOKENS)
+    assert len(chunks) > 1
+    assert max(chunk.n_tokens for chunk in chunks) <= MAX_CHUNK_TOKENS
+
+
+def test_the_overlap_never_pushes_a_chunk_past_the_ceiling() -> None:
+    short = " ".join(["corta"] * 30)
+    wide = " ".join(f"ancha{index}" for index in range(1, MAX_CHUNK_TOKENS))
+    blocks = [Block(1, 1, wide), Block(1, 2, short), Block(1, 3, wide), Block(1, 4, wide)]
+    chunks = chunk_blocks(blocks, MIN_CHUNK_TOKENS, MAX_CHUNK_TOKENS)
+    assert max(chunk.n_tokens for chunk in chunks) <= MAX_CHUNK_TOKENS
+
+
+def test_the_chunk_ceiling_stays_inside_the_embedding_context() -> None:
+    assert MAX_CHUNK_TOKENS < EMBED_CONTEXT_TOKENS
+    assert MAX_TOKENS_CEILING <= EMBED_CONTEXT_TOKENS
+
+
+def test_the_token_estimate_is_not_optimistic_for_prose() -> None:
+    prose = "La bomba se ceba por el tapón del cabezal antes de abrir la válvula de paso."
+    assert estimate_tokens(prose) >= len(prose.split()) * 2

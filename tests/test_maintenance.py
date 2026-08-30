@@ -18,7 +18,7 @@ from arca.diagnostics import (
     KIND_ZIM,
     verify_integrity,
 )
-from arca.embed import EmbeddingClient
+from arca.embed import EMBED_CONTEXT_TOKENS, EmbeddingClient
 from arca.fetch import write_sha256_sidecar
 from arca.ingest import original_path
 from arca.pipeline import ingest_documents
@@ -185,7 +185,7 @@ def test_search_settings_round_trip_and_stay_within_bounds(tmp_path: Path) -> No
                     "zim_weight": 99,
                     "doc_weight": 0,
                     "snippet_chars": 5,
-                    "chunk_min_tokens": 700,
+                    "chunk_min_tokens": 480,
                     "chunk_max_tokens": 200,
                 },
                 SearchSettings(),
@@ -197,8 +197,13 @@ def test_search_settings_round_trip_and_stay_within_bounds(tmp_path: Path) -> No
         assert stored.doc_weight == 1
         assert stored.snippet_chars == SearchSettings().snippet_chars
         assert stored.chunk_min_tokens == 200
-        assert stored.chunk_max_tokens == 700
+        assert stored.chunk_max_tokens == 480
         assert read_search_settings(connection) == stored
+        beyond = write_search_settings(
+            connection,
+            read_search_payload({"chunk_max_tokens": 900}, SearchSettings()),
+        )
+        assert beyond.chunk_max_tokens <= EMBED_CONTEXT_TOKENS
     finally:
         connection.close()
 

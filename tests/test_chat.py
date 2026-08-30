@@ -146,7 +146,7 @@ def test_the_evidence_is_capped_at_five_chunks() -> None:
 
 
 def test_the_evidence_is_capped_by_tokens_too() -> None:
-    results = [result(index, "word " * 900) for index in range(1, 6)]
+    results = [result(index, "word " * 630) for index in range(1, 6)]
     chosen = select_evidence(results, ChatSettings())
     assert len(chosen) == 1
 

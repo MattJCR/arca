@@ -32,9 +32,9 @@ COPY_CHUNK_BYTES = 1024 * 1024
 METADATA_FIELDS = ("author", "subject", "keywords", "creator", "producer", "creationDate")
 ANCHOR_PAGE_DIGITS = 4
 ANCHOR_BLOCK_DIGITS = 2
-TOKENS_PER_WORD = 1.4
-MIN_CHUNK_TOKENS = 300
-MAX_CHUNK_TOKENS = 500
+TOKENS_PER_WORD = 2.0
+MIN_CHUNK_TOKENS = 270
+MAX_CHUNK_TOKENS = 450
 OVERLAP_BLOCKS = 1
 DOC_ID_LENGTH = 64
 DOC_ID_ALPHABET = "0123456789abcdef"
@@ -151,6 +151,9 @@ def chunk_blocks(
             chunks.append(_chunk(len(chunks), current))
             current = _overlap(current, min_tokens)
             tokens = sum(estimate_tokens(block.text) for block in current)
+            if tokens + unit_tokens > max_tokens:
+                current = []
+                tokens = 0
             pending = False
         current.append(unit)
         tokens += unit_tokens
@@ -182,16 +185,25 @@ def _split_block(block: Block, max_tokens: int) -> list[Block]:
     current: list[str] = []
     tokens = 0
     for sentence in split_sentences(block.text) or [block.text]:
-        sentence_tokens = estimate_tokens(sentence)
-        if current and tokens + sentence_tokens > max_tokens:
-            pieces.append(Block(block.page, block.ord, " ".join(current)))
-            current = []
-            tokens = 0
-        current.append(sentence)
-        tokens += sentence_tokens
+        for part in _split_sentence(sentence, max_tokens):
+            part_tokens = estimate_tokens(part)
+            if current and tokens + part_tokens > max_tokens:
+                pieces.append(Block(block.page, block.ord, " ".join(current)))
+                current = []
+                tokens = 0
+            current.append(part)
+            tokens += part_tokens
     if current:
         pieces.append(Block(block.page, block.ord, " ".join(current)))
     return pieces
+
+
+def _split_sentence(sentence: str, max_tokens: int) -> list[str]:
+    if estimate_tokens(sentence) <= max_tokens:
+        return [sentence]
+    words = sentence.split()
+    size = max(1, int(max_tokens / TOKENS_PER_WORD))
+    return [" ".join(words[start : start + size]) for start in range(0, len(words), size)]
 
 
 def _chunk(ordinal: int, blocks: Sequence[Block]) -> Chunk:

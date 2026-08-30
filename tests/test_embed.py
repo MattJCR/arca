@@ -12,6 +12,7 @@ from arca.embed import (
     EmbeddingClient,
     EmbeddingError,
     EmbeddingMismatchError,
+    EmbeddingRejectedError,
     EmbeddingUnavailableError,
     prefixed,
 )
@@ -91,10 +92,12 @@ def test_health_reports_what_the_server_says(server: EmbeddingServer) -> None:
     assert client.available() is False
 
 
-def test_a_server_error_is_reported_as_unavailable(server: EmbeddingServer) -> None:
+def test_a_server_error_says_what_the_server_answered(server: EmbeddingServer) -> None:
     server.status = 500
-    with pytest.raises(EmbeddingUnavailableError):
+    with pytest.raises(EmbeddingRejectedError) as raised:
         _client(server).embed_query("text")
+    assert "500" in str(raised.value)
+    assert isinstance(raised.value, EmbeddingError)
 
 
 def test_wrong_dimensions_are_refused_instead_of_stored(server: EmbeddingServer) -> None:
