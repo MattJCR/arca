@@ -774,13 +774,14 @@ toma `kind`, `dest_path`, `sha256` y espejos, y ya conviven cuatro tipos (`zim`,
   estable y verificable hacia las colecciones que solo se publican así; queda escrito para que no se
   vuelva a discutir por olvido, sino por decisión.
 
-**F11.1 — Partir el catálogo en núcleo OPDS y sabor Kiwix** *(pendiente)*
+**F11.1 — Partir el catálogo en núcleo OPDS y sabor Kiwix** *(cerrada el 2026-08-30)*
 Refactor puro: el Atom genérico por un lado, lo que es de Kiwix —`articleCount`, `flavour`, `tags`,
 `_ftindex:yes`, `.meta4`, la URL del lector— por otro. Sin comportamiento nuevo.
 · Dep: ninguna · CA: `tests/test_catalog.py` pasa **sin tocarse** y el panel se comporta igual.
 · Loop: Ninguno.
+· Hecho: `arca/opds.py` es el núcleo Atom genérico (entradas, campos por nombre local y **todos** los enlaces con su `rel`, `type` y `length`); `arca/catalog.py` se queda con el sabor Kiwix y envuelve los errores del núcleo en `CatalogError`. `tests/test_catalog.py` pasó sin tocarse.
 
-**F11.2 — Fuentes declaradas y su estado** *(pendiente)*
+**F11.2 — Fuentes declaradas y su estado** *(cerrada el 2026-08-30)*
 Una fuente es nombre, tipo (`opds`, `json`, `manual`), URL base y cómo mapear a `CatalogEntry`.
 Viven en `arca.json` y se editan desde el panel. Cada una tiene estado propio: alcanzable, caída, o
 sin verificación de hash.
@@ -788,8 +789,9 @@ sin verificación de hash.
 de código**; una fuente caída se declara y **no tumba la búsqueda en las demás**; el estado de cada
 fuente aparece en el diagnóstico.
 · Loop: Ninguno.
+· Hecho: `arca/sources.py` — `Source`, `RemoteItem`, los tres adaptadores (`opds`, `json`, `manual`), `SourceRegistry` con el estado observado en memoria y `probe()`. `sources` es una clave más de `arca.json` que el panel escribe por reemplazo atómico sin tocar el resto del fichero. La comprobación `remote_sources` del diagnóstico enseña ese estado **sin tocar la red**.
 
-**F11.3 — Sabor de libros y `kind="book"`** *(pendiente)*
+**F11.3 — Sabor de libros y `kind="book"`** *(cerrada el 2026-08-30)*
 El adaptador OPDS de libros y el quinto tipo de la cola, con destino `<raiz>/books/`. Descarga
 reanudable, con espejos y verificada por el motor que ya existe. Encadena con la ingesta de la fase
 10 cuando el operador lo pide, nunca solo.
@@ -797,28 +799,32 @@ reanudable, con espejos y verificada por el motor que ya existe. Encadena con la
 cualquier ZIM; pedir «descargar e indexar» lo deja buscable al párrafo; una descarga sin hash queda
 marcada como no verificada.
 · Loop: Ninguno.
+· Hecho: `kind="book"` con destino `<raíz>/books/`, columna `downloads.after_done` (esquema 2, migración en su sitio) y enganche `on_done` en la cola. «Descargar e indexar» encadena con `pipeline.ingest_downloaded_book()`; sin servidor de embeddings el fichero queda descargado y se dice por qué no se indexó. Probado de punta a punta en `tests/test_cli.py` con un EPUB real servido por HTTP.
 
-**F11.4 — Fuente manual** *(pendiente)*
+**F11.4 — Fuente manual** *(cerrada el 2026-08-30)*
 Pegar una URL directa, con su nombre y su hash si se conoce. Cubre cualquier sitio que no publique
 catálogo, sin que el repositorio tenga que conocerlo ni versionar sus dominios.
 · Dep: F11.3 · CA: una URL pegada a mano entra en la cola y se comporta como cualquier otra
 descarga; sin hash se descarga igual y se declara no verificada; una URL inválida se rechaza con
 código antes de encolar nada.
 · Loop: Ninguno.
+· Hecho: `POST /api/admin/downloads/manual` y `arca add --url`, con `bad_url`, `bad_hash` y `bad_item_kind` rechazados antes de encolar nada.
 
-**F11.5 — Buscador remoto con selector de fuente** *(pendiente)*
+**F11.5 — Buscador remoto con selector de fuente** *(cerrada el 2026-08-30)*
 Una pestaña, varias fuentes, y la procedencia visible en cada resultado. Los filtros que una fuente
 no soporte se esconden para esa fuente en vez de fallar.
 · Dep: F11.4 · CA: la navegación es coherente con el resto del panel, buscar en varias fuentes a la
 vez intercala resultados con su origen a la vista, y `tests/test_frontend.py` pasa incluido su veto
 de red.
 · Loop: Ninguno.
+· Hecho: casillas de fuente en el buscador del panel, resultados intercalados con su columna «Fuente» e insignia «sin verificar», y los filtros que ninguna fuente marcada soporta escondidos en vez de fallar. Una fuente caída se anota y no tumba a las demás.
 
-**F11.6 — Manual** *(pendiente)*
+**F11.6 — Manual** *(cerrada el 2026-08-30)*
 `docs/manual/downloads.md` recoge el modelo de fuentes, cómo se declara una, qué significa «no
 verificada» y por qué no hay torrents.
 · Dep: F11.5 · CA: la página describe el estado real y un lector puede añadir una fuente siguiéndola.
 · Loop: Ninguno.
+· Hecho: `docs/manual/downloads.md` reescrito como «Fuentes, catálogo y descargas»; `cli.md` (`arca sources`, `arca search --source`, `arca add --url`), `configuration.md` (clave `sources`), `web.md` (API y pestañas), `database.md` (esquema 2) y `diagnostics.md` al día.
 
 ### Fase 12 — Mapas
 

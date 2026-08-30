@@ -226,3 +226,54 @@ def test_skipped_documents_are_reported_as_such(
     ingest_documents(root, connection, sources, _client(server), seal=False)
     report = ingest_documents(root, connection, sources, _client(server), seal=False)
     assert [result.status for result in report.results] == [JOB_SKIPPED]
+
+
+def test_a_downloaded_book_is_ingested_and_sealed(
+    library: tuple[Path, sqlite3.Connection], server: EmbeddingServer
+) -> None:
+    from arca.pipeline import ingest_downloaded_book
+    from tests.support import build_epub
+
+    root, connection = library
+    book = build_epub(root / "books" / "handbook.epub", [BODY] * 4, title="A handbook")
+    report = ingest_downloaded_book(root, connection, book, _client(server))
+    assert report is not None
+    assert report.sealed
+    assert report.done == 1
+    assert book.is_file()
+
+
+def test_a_downloaded_file_of_a_format_that_does_not_enter_says_so(
+    library: tuple[Path, sqlite3.Connection], server: EmbeddingServer
+) -> None:
+    from arca.pipeline import ingest_downloaded_book
+
+    root, connection = library
+    intruder = root / "books" / "notes.rtf"
+    intruder.parent.mkdir(parents=True, exist_ok=True)
+    intruder.write_bytes(b"{\\rtf1}")
+    assert ingest_downloaded_book(root, connection, intruder, _client(server)) is None
+    detail = connection.execute(
+        "SELECT detail FROM events WHERE message LIKE 'book downloaded but not indexed%'"
+    ).fetchone()
+    assert detail is not None
+    assert "notes.rtf" in str(detail["detail"])
+    assert intruder.is_file()
+
+
+def test_a_downloaded_book_survives_an_embedding_server_that_is_not_there(
+    library: tuple[Path, sqlite3.Connection],
+) -> None:
+    from arca.pipeline import ingest_downloaded_book
+    from tests.support import build_epub, free_port
+
+    root, connection = library
+    book = build_epub(root / "books" / "handbook.epub", [BODY] * 2, title="A handbook")
+    client = EmbeddingClient(base_url=f"http://127.0.0.1:{free_port()}", dims=DIMS, timeout=0.5)
+    assert ingest_downloaded_book(root, connection, book, client) is None
+    event = connection.execute(
+        "SELECT level FROM events WHERE message LIKE 'book downloaded but not indexed%'"
+    ).fetchone()
+    assert event is not None
+    assert event["level"] == "warning"
+    assert book.is_file()

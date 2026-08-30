@@ -6,6 +6,7 @@ const STATUS_POLL_MS = 15000;
 const ENGINE_POLL_MS = 4000;
 const speedSnapshots = new Map();
 const catalogState = { entries: [], sortKey: "size_bytes", sortDir: -1, flavour: "" };
+const sourcesState = { sources: [], selected: new Set() };
 
 function t(key, params) {
   let template = I18N[key];
@@ -240,15 +241,249 @@ async function loadStatus() {
   }
 }
 
-async function loadCatalogFilters() {
+function chosenSources() {
+  return sourcesState.sources.filter(
+    (source) => source.enabled && source.searchable && sourcesState.selected.has(source.source_id)
+  );
+}
+
+function supportedFilters() {
+  const supported = new Set();
+  for (const source of chosenSources()) {
+    for (const filter of source.filters) {
+      supported.add(filter);
+    }
+  }
+  return supported;
+}
+
+function applyFilterVisibility() {
+  const supported = supportedFilters();
+  for (const [id, filter] of [
+    ["catalog-lang", "language"],
+    ["catalog-category", "category"],
+    ["catalog-flavour", "flavour"],
+  ]) {
+    const field = document.getElementById(id).closest(".field");
+    field.hidden = !supported.has(filter);
+  }
+}
+
+function renderSourceChoices() {
+  const holder = document.getElementById("catalog-source-choices");
+  holder.replaceChildren();
+  for (const source of sourcesState.sources) {
+    if (!source.searchable || !source.enabled) {
+      continue;
+    }
+    const label = document.createElement("label");
+    label.className = "field-check";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.value = source.source_id;
+    box.checked = sourcesState.selected.has(source.source_id);
+    box.addEventListener("change", () => {
+      if (box.checked) {
+        sourcesState.selected.add(source.source_id);
+      } else {
+        sourcesState.selected.delete(source.source_id);
+      }
+      applyFilterVisibility();
+    });
+    const name = document.createElement("span");
+    name.textContent = source.name;
+    label.append(box, name);
+    holder.append(label);
+  }
+  applyFilterVisibility();
+}
+
+function sourceRow(source) {
+  const row = document.createElement("tr");
+  const name = cell(source.name);
+  if (!source.enabled) {
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = t("admin.sources.disabled");
+    name.append(" ", badge);
+  }
+  row.append(
+    name,
+    cell(t("admin.sources.kind." + source.kind)),
+    cell(t("admin.sources.item." + source.item_kind)),
+    cell(source.base_url || "-"),
+    cell(t("admin.sources.state." + source.status))
+  );
+  const actions = document.createElement("td");
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.textContent = t(source.enabled ? "admin.sources.disable" : "admin.sources.enable");
+  toggle.addEventListener("click", () => toggleSource(source.source_id));
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.textContent = t("admin.sources.remove");
+  remove.addEventListener("click", () => removeSource(source.source_id));
+  actions.append(toggle, remove);
+  row.append(actions);
+  if (source.detail) {
+    row.title = source.detail;
+  }
+  return row;
+}
+
+function renderSources() {
+  const wrap = document.getElementById("sources-table-wrap");
+  const body = document.getElementById("sources-body");
+  body.replaceChildren();
+  if (!sourcesState.sources.length) {
+    wrap.hidden = true;
+    showMessage("sources-message", t("admin.sources.empty"));
+    return;
+  }
+  wrap.hidden = false;
+  for (const source of sourcesState.sources) {
+    body.append(sourceRow(source));
+  }
+  renderSourceChoices();
+}
+
+function adoptSources(payload) {
+  const searchable = payload.sources.filter((source) => source.enabled && source.searchable);
+  const known = new Set(searchable.map((source) => source.source_id));
+  for (const id of [...sourcesState.selected]) {
+    if (!known.has(id)) {
+      sourcesState.selected.delete(id);
+    }
+  }
+  if (!sourcesState.selected.size) {
+    for (const source of searchable) {
+      sourcesState.selected.add(source.source_id);
+    }
+  }
+  sourcesState.sources = payload.sources;
+  renderSources();
+}
+
+async function loadSources() {
   let payload;
   try {
-    payload = await fetchJson("/api/admin/catalog/filters");
+    payload = await fetchJson("/api/admin/sources");
+  } catch (error) {
+    showMessage("sources-message", errorText("admin.sources.error", error));
+    return;
+  }
+  adoptSources(payload);
+  loadCatalogFilters();
+}
+
+async function probeSources() {
+  const button = document.getElementById("sources-probe-button");
+  button.disabled = true;
+  showMessage("sources-message", t("admin.sources.probing"));
+  let payload;
+  try {
+    payload = await fetchJson("/api/admin/sources/probe", { method: "POST" });
+  } catch (error) {
+    showMessage("sources-message", errorText("admin.sources.error", error));
+    button.disabled = false;
+    return;
+  }
+  button.disabled = false;
+  showMessage("sources-message", "");
+  adoptSources(payload);
+}
+
+function declaration(source) {
+  const copy = { ...source };
+  for (const key of [
+    "status",
+    "detail",
+    "checked_at",
+    "verifies_hash",
+    "searchable",
+    "filters",
+  ]) {
+    delete copy[key];
+  }
+  return copy;
+}
+
+async function saveSources(declared) {
+  let payload;
+  try {
+    payload = await fetchJson("/api/admin/sources", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sources: declared }),
+    });
+  } catch (error) {
+    showMessage("sources-message", errorText("admin.sources.error", error));
+    return false;
+  }
+  adoptSources(payload);
+  showMessage("sources-message", t("admin.sources.saved", { count: payload.sources.length }));
+  loadCatalogFilters();
+  return true;
+}
+
+function toggleSource(id) {
+  const declared = sourcesState.sources.map((source) => {
+    const copy = declaration(source);
+    if (copy.source_id === id) {
+      copy.enabled = !copy.enabled;
+    }
+    return copy;
+  });
+  saveSources(declared);
+}
+
+function removeSource(id) {
+  if (!window.confirm(t("admin.sources.remove_confirm"))) {
+    return;
+  }
+  const declared = sourcesState.sources
+    .filter((source) => source.source_id !== id)
+    .map(declaration);
+  saveSources(declared);
+}
+
+async function addSource(event) {
+  event.preventDefault();
+  const value = (id) => document.getElementById(id).value.trim();
+  const declared = sourcesState.sources.map(declaration);
+  declared.push({
+    source_id: value("source-id"),
+    name: value("source-name") || value("source-id"),
+    kind: document.getElementById("source-kind").value,
+    base_url: value("source-url"),
+    entries_path: value("source-path"),
+    query_param: value("source-query") || "q",
+    language_param: value("source-language"),
+    media_type: value("source-media"),
+    items_key: value("source-items-key"),
+    item_kind: document.getElementById("source-item-kind").value,
+    enabled: true,
+  });
+  if (await saveSources(declared)) {
+    document.getElementById("source-form").reset();
+  }
+}
+
+async function loadCatalogFilters() {
+  const languageSelect = document.getElementById("catalog-lang");
+  const kiwix = chosenSources().find((source) => source.flavour === "kiwix");
+  if (!kiwix || languageSelect.options.length > 1) {
+    return;
+  }
+  let payload;
+  try {
+    payload = await fetchJson(
+      "/api/admin/catalog/filters?source=" + encodeURIComponent(kiwix.source_id)
+    );
   } catch (error) {
     showMessage("catalog-message", errorText("admin.catalog.filters_error", error));
     return;
   }
-  const languageSelect = document.getElementById("catalog-lang");
   for (const language of payload.languages) {
     const option = document.createElement("option");
     option.value = language.code;
@@ -275,6 +510,7 @@ async function searchCatalog(event) {
   if (q) params.set("q", q);
   if (lang) params.set("lang", lang);
   if (category) params.set("category", category);
+  params.set("sources", [...sourcesState.selected].join(","));
   let payload;
   try {
     payload = await fetchJson("/api/admin/catalog?" + params.toString());
@@ -283,6 +519,7 @@ async function searchCatalog(event) {
     return;
   }
   showMessage("catalog-message", "");
+  adoptSources(payload);
   catalogState.entries = payload.entries;
   catalogState.flavour = "";
   rebuildFlavourOptions();
@@ -374,8 +611,16 @@ function catalogRow(entry) {
     badge.textContent = t("admin.catalog.in_library");
     title.append(" ", badge);
   }
+  if (!entry.verified) {
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = t("admin.catalog.unverified");
+    badge.title = t("admin.catalog.unverified_hint");
+    title.append(" ", badge);
+  }
   row.append(
     title,
+    cell(entry.source_name),
     cell(entry.language || "?"),
     cell(entry.flavour || "-"),
     cell(entry.size_human, "num"),
@@ -385,8 +630,15 @@ function catalogRow(entry) {
   const actions = document.createElement("td");
   const button = document.createElement("button");
   button.textContent = t("admin.catalog.add_button");
-  button.addEventListener("click", () => addDownload(entry.uuid, button));
+  button.addEventListener("click", () => addDownload(entry, button, false));
   actions.append(button);
+  if (entry.item_kind === "book") {
+    const indexed = document.createElement("button");
+    indexed.textContent = t("admin.catalog.add_index_button");
+    indexed.title = t("admin.catalog.add_index_hint");
+    indexed.addEventListener("click", () => addDownload(entry, indexed, true));
+    actions.append(indexed);
+  }
   if (entry.reader_url) {
     const reader = document.createElement("a");
     reader.className = "reader-link";
@@ -411,20 +663,58 @@ function sortCatalog(key) {
   renderCatalog();
 }
 
-async function addDownload(uuid, button) {
+async function addDownload(entry, button, index) {
   button.disabled = true;
   try {
     const payload = await fetchJson("/api/admin/downloads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ uuid: uuid }),
+      body: JSON.stringify({
+        uuid: entry.uuid,
+        source_id: entry.source_id,
+        q: document.getElementById("catalog-q").value.trim(),
+        lang: document.getElementById("catalog-lang").value,
+        category: document.getElementById("catalog-category").value,
+        index: index,
+      }),
     });
-    showMessage("downloads-message", t("admin.catalog.added", { id: payload.id }));
+    showMessage("catalog-message", t("admin.catalog.added", { id: payload.id }));
   } catch (error) {
-    showMessage("downloads-message", errorText("admin.catalog.add_error", error));
+    showMessage("catalog-message", errorText("admin.catalog.add_error", error));
     button.disabled = false;
     return;
   }
+  loadDownloads();
+}
+
+async function addManualDownload(event) {
+  event.preventDefault();
+  const url = document.getElementById("manual-url").value.trim();
+  if (!url) {
+    return;
+  }
+  let payload;
+  try {
+    payload = await fetchJson("/api/admin/downloads/manual", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: url,
+        name: document.getElementById("manual-name").value.trim(),
+        sha256: document.getElementById("manual-hash").value.trim(),
+        item_kind: document.getElementById("manual-kind").value,
+        index: document.getElementById("manual-index").checked,
+      }),
+    });
+  } catch (error) {
+    showMessage("manual-message", errorText("admin.downloads.manual_error", error));
+    return;
+  }
+  document.getElementById("manual-form").reset();
+  showMessage(
+    "manual-message",
+    t("admin.downloads.manual_added", { id: payload.id, filename: payload.filename })
+  );
   loadDownloads();
 }
 
@@ -489,8 +779,16 @@ async function loadDownloads() {
     reading.textContent = percent;
     gauge.append(track, reading);
     progress.append(gauge);
+    const kind = cell(t("admin.downloads.kind." + download.kind));
+    if (download.after_done === "index") {
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = t("admin.downloads.will_index");
+      kind.append(" ", badge);
+    }
     row.append(
       cell(download.filename),
+      kind,
       progress,
       cell(downloadSpeed(download), "num"),
       cell(download.mirror ? new URL(download.mirror).host : "-"),
@@ -726,8 +1024,11 @@ document
 document
   .getElementById("vendor-download-button")
   .addEventListener("click", downloadVendorPieces);
+document.getElementById("manual-form").addEventListener("submit", addManualDownload);
+document.getElementById("source-form").addEventListener("submit", addSource);
+document.getElementById("sources-probe-button").addEventListener("click", probeSources);
 loadStatus();
-loadCatalogFilters();
+loadSources();
 loadDownloads();
 loadZimContent();
 loadVendor(false);

@@ -29,21 +29,30 @@ Comportamiento ante fallos: el proceso de servicio no escribe nada bajo la raíz
 
 Imprime el diagnóstico completo (ver `diagnostics.md`), una línea `[estado] resumen` por comprobación, con impacto y acción indentados cuando el estado no es correcto. Código de salida: 0 sin comprobaciones rotas, 1 con alguna rota, 2 si falta la raíz.
 
-### `arca search [texto] [--lang xxx] [--category c] [--name n]`
+### `arca sources`
 
-Consulta el catálogo OPDS de Kiwix **en el momento** (nunca se persisten URLs de descarga) y lista una línea por entrada: UUID, título, idioma, sabor, tamaño y número de artículos. `--lang` acepta códigos de tres letras (`spa`, `eng`, listas separadas por comas). Sin red, falla con mensaje claro y código 1.
+Lista las fuentes declaradas en `arca.json` —identificador, nombre, tipo, contenido y dirección base— y pregunta a cada una que esté activa para decir si responde y si verifica hash. Ver `downloads.md` para el modelo de fuentes.
+
+### `arca search [texto] [--lang xxx] [--category c] [--source id]`
+
+Consulta **en el momento** (nunca se persisten URLs de descarga) todas las fuentes activas, o solo una con `--source`, y lista una línea por resultado: identificador, fuente, título, idioma, sabor, tamaño y número de artículos. `--lang` acepta lo que acepte la fuente (Kiwix, códigos de tres letras: `spa`, `eng`, listas separadas por comas) y se omite en las fuentes que no filtren por idioma. Una fuente caída se anuncia por `stderr` y no impide ver las demás; el código de salida es 1 solo si **ninguna** contestó.
 
 ```
 arca search wikipedia --lang spa
+arca search --source standard-ebooks meditations
 ```
 
-### `arca add <uuid>`
+### `arca add <uuid> [--source id] [--index]`
 
-Resuelve la entrada del catálogo por UUID, descarga su `.meta4` (con `?country=ES`) para obtener tamaño, sha-256 y espejos por prioridad, registra el ZIM en `zim_files` (estado `missing`) y encola la descarga en `downloads`. Si el `.meta4` no existe, degrada: encola sin hash de origen, avisa, y el hash calculado al terminar se guarda para verificaciones locales futuras.
+Vuelve a preguntar a la fuente, localiza el elemento por su identificador y lo encola. Para una fuente de colecciones ZIM descarga su `.meta4` (con `?country=ES`) para obtener tamaño, sha-256 y espejos por prioridad, y registra el ZIM en `zim_files` (estado `missing`). Si el `.meta4` no existe, degrada: encola sin hash de origen y avisa. Para una fuente de libros encola a `<raíz>/books/`, y con `--index` deja anotado que al terminar hay que ingerirlo. Sin `--source` se usa `kiwix`.
+
+### `arca add --url <dirección> [--name f] [--sha256 h] [--kind book|zim] [--index]`
+
+La fuente manual desde la línea de órdenes: mete una dirección directa en la cola. Sin `--name`, el nombre de fichero sale de la propia dirección; sin `--sha256`, la descarga se hace igual y se declara no verificada. Rechaza con código 2 —y sin encolar nada— un esquema que no sea `http`/`https`, una dirección de la que no sale un nombre de fichero seguro, un sha-256 que no sean 64 hexadecimales o un `--kind` desconocido.
 
 ### `arca run [--concurrency N]`
 
-Atiende la cola: reclama descargas `queued` (concurrencia por defecto 2, configurable en `arca.json` o con `--concurrency`) y las ejecuta con el motor reanudable (ver `downloads.md`). Muestra progreso, porcentaje y velocidad. Al empezar, re-encola las filas `running`/`verifying` huérfanas de un proceso muerto: el tamaño real del `.part` manda sobre lo que diga la base de datos. Código de salida 1 si alguna descarga terminó `failed`.
+Atiende la cola: reclama descargas `queued` (concurrencia por defecto 2, configurable en `arca.json` o con `--concurrency`) y las ejecuta con el motor reanudable (ver `downloads.md`). Muestra progreso, porcentaje y velocidad. Al empezar, re-encola las filas `running`/`verifying` huérfanas de un proceso muerto: el tamaño real del `.part` manda sobre lo que diga la base de datos. Un libro encolado con `--index` se ingiere al terminar su descarga y se dice en qué lote quedó; si el servidor de embeddings no responde, se avisa y el fichero se queda descargado para indexarlo después. Código de salida 1 si alguna descarga terminó `failed`.
 
 ### `arca import <rutas>`
 

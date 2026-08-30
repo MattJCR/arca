@@ -6,12 +6,9 @@ import pytest
 
 from arca.catalog import (
     CatalogError,
-    EntryNotFoundError,
     entries_url,
     fetch_categories,
-    fetch_entries,
     fetch_languages,
-    find_entry,
     format_size,
     http_get,
     parse_categories,
@@ -111,21 +108,6 @@ def test_parse_entries_marks_missing_fulltext_index() -> None:
 def test_parse_entries_rejects_invalid_xml() -> None:
     with pytest.raises(CatalogError):
         parse_entries(b"this is not xml")
-
-
-def test_find_entry_raises_for_unknown_uuid() -> None:
-    entries = parse_entries(_feed())
-    assert find_entry(entries, "0c45160e-f917-760a-9159-dfe3c53cdcdd").book_name
-    with pytest.raises(EntryNotFoundError):
-        find_entry(entries, "missing-uuid")
-
-
-def test_fetch_entries_wraps_network_errors() -> None:
-    def failing_get(url: str) -> bytes:
-        raise urllib.error.URLError("unreachable")
-
-    with pytest.raises(CatalogError):
-        fetch_entries("https://example.org/feed", failing_get)
 
 
 def test_parse_meta4_orders_mirrors_by_priority() -> None:

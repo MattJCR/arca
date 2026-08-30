@@ -12,6 +12,7 @@ Módulo: `arca/diagnostics.py`. Tres estados por comprobación: `ok`, `degraded`
 | `clock` | Fecha del sistema anterior a la época de construcción (`BUILD_EPOCH`) → broken; ficheros de la biblioteca con mtime más de 48 h en el futuro → degraded | ok / degraded / broken |
 | `zim_integrity` | Por cada fila de `zim_files`: presencia del fichero, presencia del sidecar `.sha256` y estado `corrupt` marcado por la última verificación | ok / degraded |
 | `incomplete_downloads` | Ficheros `.part` bajo la raíz sin descarga activa (`queued`/`running`/`paused`/`verifying`) asociada | ok / degraded |
+| `remote_sources` | Las fuentes remotas declaradas: cuántas están activas, cuáles no respondieron la última vez que se les preguntó y cuáles no publican hash. Sin ninguna fuente activa también degrada, porque entonces no se puede añadir nada. **No toca la red**: enseña el estado observado (ver `downloads.md`) | ok / degraded |
 | `doc_drift` | Versión instalada de cada dependencia directa contra `sources.lock`; lock ilegible también degrada | ok / degraded |
 | `undocumented_dependency` | Dependencia directa instalada sin entrada en el lock | ok / degraded |
 | `fulltext_index` | Cuáles de los ZIM traen índice de texto completo y cuáles solo títulos | ok / degraded |

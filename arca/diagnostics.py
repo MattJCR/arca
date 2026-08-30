@@ -45,6 +45,7 @@ from arca.shards import (
     ShardState,
     layout_drift,
 )
+from arca.sources import STATUS_DOWN, SourceState, source_states
 from arca.vendor import VendorError, check_drift, default_lock_path, load_lock
 from arca.zim import ZimInfo, ZimLibrary, index_mode
 
@@ -81,6 +82,7 @@ def run_checks(
     server: LlamaServer | None = None,
     zim: ZimLibrary | None = None,
     shards: ShardLibrary | None = None,
+    sources: Sequence[SourceState] | None = None,
 ) -> list[CheckResult]:
     moment = now if now is not None else datetime.now(UTC)
     path_check = _check_library_path(root)
@@ -99,6 +101,7 @@ def run_checks(
         _check_provisional_shards(states),
         _check_embedding_server(root, config),
         _check_incomplete_downloads(root),
+        _check_sources(sources if sources is not None else source_states(config.sources)),
         *_check_vendor_lock(),
         *_check_llama(root, config, server),
     ]
@@ -196,6 +199,22 @@ def _check_incomplete_downloads(root: Path) -> CheckResult:
             {"count": str(len(orphans)), "first": orphans[0].name},
         )
     return CheckResult("incomplete_downloads", CheckState.OK)
+
+
+def _check_sources(states: Sequence[SourceState]) -> CheckResult:
+    enabled = [state for state in states if state.enabled]
+    down = [state for state in enabled if state.status == STATUS_DOWN]
+    unverified = [state for state in enabled if not state.verifies_hash]
+    params = {
+        "count": str(len(enabled)),
+        "declared": str(len(states)),
+        "down": str(len(down)),
+        "unverified": str(len(unverified)),
+        "detail": ", ".join(state.name for state in (down or unverified)),
+    }
+    if not enabled or down or unverified:
+        return CheckResult("remote_sources", CheckState.DEGRADED, params)
+    return CheckResult("remote_sources", CheckState.OK, params)
 
 
 def _check_vendor_lock() -> list[CheckResult]:

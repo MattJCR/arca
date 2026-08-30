@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from arca import __version__
-from arca.catalog import EntryNotFoundError, Resolution, find_entry, parse_entries
 from arca.cli import main
 from arca.config import ENV_ROOT, config_path, library_db_path
 from arca.db import open_library_ro, open_library_rw, recent_events
@@ -124,28 +123,58 @@ def _fixture_entries() -> bytes:
     return (FIXTURES / "catalog_entries.xml").read_bytes()
 
 
-def test_search_lists_catalog_results(
+def _serve_kiwix(monkeypatch: pytest.MonkeyPatch) -> None:
+    meta4 = (FIXTURES / "sample.meta4").read_bytes()
+
+    def get(url: str) -> bytes:
+        return meta4 if ".meta4" in url else _fixture_entries()
+
+    monkeypatch.setattr("arca.sources.http_get", get)
+
+
+def test_search_lists_the_results_of_every_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr("arca.cli.fetch_entries", lambda url: parse_entries(_fixture_entries()))
+    _serve_kiwix(monkeypatch)
     assert main(["--root", str(tmp_path), "search", "wikipedia", "--lang", "spa"]) == 0
     output = capsys.readouterr().out
     assert "0c45160e-f917-760a-9159-dfe3c53cdcdd" in output
     assert "Wikipedia (Spanish)" in output
+    assert "[kiwix]" in output
     assert "104.5 GiB" in output
 
 
 def test_search_reports_network_errors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from arca.catalog import CatalogError
+    import urllib.error
 
-    def failing(url: str) -> list[object]:
-        raise CatalogError("offline")
+    def failing(url: str) -> bytes:
+        raise urllib.error.URLError("offline")
 
-    monkeypatch.setattr("arca.cli.fetch_entries", failing)
+    monkeypatch.setattr("arca.sources.http_get", failing)
     assert main(["--root", str(tmp_path), "search", "wikipedia"]) == 1
     assert "offline" in capsys.readouterr().err
+
+
+def test_search_refuses_a_source_that_is_not_declared(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["--root", str(tmp_path), "search", "x", "--source", "nope"]) == 1
+    assert "nope" in capsys.readouterr().err
+
+
+def test_sources_lists_what_is_declared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _serve_kiwix(monkeypatch)
+    root = tmp_path / "library"
+    main(["--root", str(root), "init"])
+    capsys.readouterr()
+    assert main(["--root", str(root), "sources"]) == 0
+    output = capsys.readouterr().out
+    assert "kiwix" in output
+    assert "opds/zim" in output
 
 
 def test_add_queues_the_download_and_records_the_zim(
@@ -154,12 +183,8 @@ def test_add_queues_the_download_and_records_the_zim(
     root = tmp_path / "library"
     main(["--root", str(root), "init"])
     capsys.readouterr()
+    _serve_kiwix(monkeypatch)
     uuid = "0c45160e-f917-760a-9159-dfe3c53cdcdd"
-    entry = find_entry(parse_entries(_fixture_entries()), uuid)
-    resolution = Resolution(
-        size_bytes=100, sha256="a" * 64, mirrors=("https://m1/x.zim",), hash_missing=False
-    )
-    monkeypatch.setattr("arca.cli.resolve_entry", lambda requested: (entry, resolution))
     assert main(["--root", str(root), "add", uuid]) == 0
     assert "encolada" in capsys.readouterr().out
     connection = open_library_ro(library_db_path(root))
@@ -167,10 +192,13 @@ def test_add_queues_the_download_and_records_the_zim(
         download = connection.execute("SELECT * FROM downloads").fetchone()
         assert download["ref"] == uuid
         assert download["status"] == "queued"
-        assert download["sha256"] == "a" * 64
+        assert download["sha256"] == (
+            "0f2c71a0ec1cd0edaa4ba2f7cfa4dc02aa77c1efd279b1f28c05e2cf7a391a1e"
+        )
         zim = connection.execute("SELECT * FROM zim_files").fetchone()
         assert zim["uuid"] == uuid
         assert zim["status"] == "missing"
+        assert zim["tags"].startswith("wikipedia;")
     finally:
         connection.close()
 
@@ -181,13 +209,51 @@ def test_add_reports_unknown_uuids(
     root = tmp_path / "library"
     main(["--root", str(root), "init"])
     capsys.readouterr()
-
-    def not_found(requested: str) -> object:
-        raise EntryNotFoundError(requested)
-
-    monkeypatch.setattr("arca.cli.resolve_entry", not_found)
+    _serve_kiwix(monkeypatch)
     assert main(["--root", str(root), "add", "unknown-uuid"]) == 1
     assert "unknown-uuid" in capsys.readouterr().err
+
+
+def test_add_takes_a_url_pasted_by_hand(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    root = tmp_path / "library"
+    main(["--root", str(root), "init"])
+    capsys.readouterr()
+    url = "https://elsewhere.example/files/handbook.pdf"
+    assert main(["--root", str(root), "add", "--url", url, "--index"]) == 0
+    output = capsys.readouterr().out
+    assert "handbook.pdf" in output
+    connection = open_library_ro(library_db_path(root))
+    try:
+        download = connection.execute("SELECT * FROM downloads").fetchone()
+        assert download["kind"] == "book"
+        assert download["after_done"] == "index"
+        assert download["dest_path"].endswith("handbook.pdf")
+        assert Path(download["dest_path"]).parent.name == "books"
+    finally:
+        connection.close()
+
+
+def test_add_refuses_a_url_it_cannot_use(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "library"
+    main(["--root", str(root), "init"])
+    capsys.readouterr()
+    assert main(["--root", str(root), "add", "--url", "file:///C:/Windows/win.ini"]) == 2
+    assert main(["--root", str(root), "add", "--url", "https://x.example/files/"]) == 2
+    assert (
+        main(["--root", str(root), "add", "--url", "https://x.example/a.pdf", "--sha256", "nope"])
+        == 2
+    )
+    assert (
+        main(["--root", str(root), "add", "--url", "https://x.example/a.pdf", "--kind", "map"]) == 2
+    )
+    assert main(["--root", str(root), "add"]) == 2
+    connection = open_library_ro(library_db_path(root))
+    try:
+        assert connection.execute("SELECT COUNT(*) FROM downloads").fetchone()[0] == 0
+    finally:
+        connection.close()
 
 
 def test_run_with_an_empty_queue_says_so(
@@ -314,3 +380,41 @@ def test_import_reports_when_there_is_nothing_to_do(
     empty.mkdir()
     assert main(["--root", str(root), "--lang", "en", "import", str(empty)]) == 0
     assert "No document to import" in capsys.readouterr().out
+
+
+def test_run_downloads_a_book_and_indexes_it(
+    tmp_path: Path, server: DownloadServer, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    from tests.support import EmbeddingServer, build_epub
+
+    root = tmp_path / "library"
+    main(["--root", str(root), "init"])
+    capsys.readouterr()
+    book = build_epub(
+        tmp_path / "source" / "handbook.epub",
+        ["A paragraph about the maintenance of a hand water pump."] * 4,
+        title="A handbook",
+    )
+    server.add("/handbook.epub", Behavior(payload=book.read_bytes()))
+    embeddings = EmbeddingServer(dims=8)
+    embeddings.start()
+    try:
+        document = json.loads(config_path(root).read_text("utf-8"))
+        document["embed_url"] = embeddings.url
+        document["embed_dims"] = 8
+        config_path(root).write_text(json.dumps(document), "utf-8")
+        queued = main(
+            ["--root", str(root), "add", "--url", server.url("/handbook.epub"), "--index"]
+        )
+        assert queued == 0
+        capsys.readouterr()
+        assert main(["--root", str(root), "run"]) == 0
+    finally:
+        embeddings.stop()
+    output = capsys.readouterr().out
+    assert "handbook.epub" in output
+    assert (root / "books" / "handbook.epub").is_file()
+    assert list((root / "docs" / "shards").glob("*/text.sqlite"))
+    assert embeddings.texts()

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:dc="http://purl.org/dc/terms/">
+  <id>books-feed</id>
+  <title>A books catalogue</title>
+  <entry>
+    <id>urn:uuid:aaaa1111-2222-3333-4444-555566667777</id>
+    <title>Meditations</title>
+    <updated>2026-04-02T00:00:00Z</updated>
+    <summary>Marcus Aurelius, translated by George Long</summary>
+    <dc:language>eng</dc:language>
+    <author><name>Marcus Aurelius</name></author>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          type="image/jpeg"
+          href="https://books.example.org/covers/meditations.jpg"/>
+    <link rel="http://opds-spec.org/acquisition/open-access"
+          type="application/epub+zip"
+          href="https://books.example.org/ebooks/meditations.epub"
+          length="431200"/>
+  </entry>
+  <entry>
+    <id>urn:uuid:bbbb1111-2222-3333-4444-555566667777</id>
+    <title>The Republic</title>
+    <updated>2026-03-11T00:00:00Z</updated>
+    <summary>Plato, translated by Benjamin Jowett</summary>
+    <dc:language>eng</dc:language>
+    <link rel="http://opds-spec.org/acquisition"
+          type="application/epub+zip"
+          href="https://books.example.org/ebooks/the-republic.epub"/>
+  </entry>
+  <entry>
+    <id>urn:uuid:cccc1111-2222-3333-4444-555566667777</id>
+    <title>A page, not a book</title>
+    <updated>2026-03-11T00:00:00Z</updated>
+    <link rel="alternate" type="text/html" href="https://books.example.org/about"/>
+  </entry>
+</feed>

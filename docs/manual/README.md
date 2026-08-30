@@ -20,12 +20,14 @@ Manual vivo del proyecto. Documenta **únicamente la realidad actual**: lo que e
 
 **Fase 10 (libros y otros formatos) completada.** Funciona hoy: la ingesta ya no es solo de PDF. Entran **PDF, XPS, OXPS, EPUB, MOBI, FB2 y TXT**, y —con `ocrmypdf` instalado— **CBZ, PNG, JPG, JPEG y PPM**, cada extensión con un test que ingiere un fichero real de ese formato. Los formatos sin páginas propias se maquetan con un layout fijo (`595x842@11`) que se graba en el manifiesto del lote y que `arca verify` contrasta, de modo que el ancla sigue siendo `p:PPPP:OO` y los lotes ya sellados no se enteran; que ese ancla es determinista está medido en `docs/gates/f10-anchors.md`. El original se guarda con su extensión real y se sirve con su tipo: el PDF abre en su visor por la página exacta, el resto se descarga intacto. Un formato que no entra se rechaza diciendo cuál es y por qué, con código estable y mensaje accionable en los dos catálogos. Y el idioma elegido deja de vivir solo en la URL: se recuerda en una cookie que sobrevive a la navegación, a recargar y a teclear una dirección, también en los mensajes de `/api/*`.
 
+**Fase 11 (catálogos remotos) completada.** Funciona hoy: «el catálogo» ha pasado a ser «las fuentes». Ninguna vive en el código — Kiwix es la única declarada de fábrica, y añadir otra es una entrada en `sources` de `arca.json` o un formulario en la pestaña **Fuentes** del panel, sin tocar una línea. Hay tres tipos (`opds`, `json` y `manual`) y dos destinos (`zim` a `zim/`, `book` a `books/`). Se busca en varias a la vez con los resultados intercalados y la procedencia a la vista; una fuente caída se declara y no tumba la búsqueda en las demás; los filtros que una fuente no soporta se esconden para ella. El hash se exige o se declara que no lo hay: lo que llega de una fuente que no publica hash queda **marcado como no verificado** en vez de fingir una garantía. Un libro se descarga por el mismo motor reanudable y verificado que un ZIM y, si se pide «descargar e indexar», encadena con la ingesta de la fase 10 y queda buscable al párrafo. Una dirección pegada a mano entra en la cola como cualquier otra descarga. **Sin torrents**, por decisión escrita. El estado de cada fuente aparece en el diagnóstico.
+
 ## Índice de funcionalidades
 
-- [CLI `arca`](cli.md) — comandos `init`, `serve`, `diagnostics`, `search`, `add`, `run`, `verify`, `vendor`.
+- [CLI `arca`](cli.md) — comandos `init`, `serve`, `diagnostics`, `sources`, `search`, `add`, `run`, `verify`, `import`, `vendor`.
 - [Configuración y estructura en disco](configuration.md) — `arca.json`, resolución de la raíz, directorio de sesión, detección de entorno, logging.
 - [Base de datos](database.md) — `library.db`, aperturas RW/RO, eventos, matiz WAL del invariante 1.
-- [Catálogo y descargas](downloads.md) — cliente OPDS, resolución meta4, motor reanudable, cola, verificación local.
+- [Fuentes, catálogo y descargas](downloads.md) — el modelo de fuentes declaradas, núcleo OPDS y sabor Kiwix, libros, direcciones pegadas a mano, motor reanudable, cola, verificación local.
 - [Vendorizado](vendor.md) — `sources.lock`, verificación sin red, deriva de versiones, captura de `llama-server --help`.
 - [Lectura de colecciones ZIM](zim.md) — metadatos reales, los tres modos de índice, búsqueda, lectura de entradas, servido de artículos, `ZimLibrary`.
 - [Interfaz de consulta](interface.md) — pantalla partida, sello de procedencia, visor, estados honestos, dirección visual, tipografías vendorizadas y la prueba de navegador que ejerce todo eso de verdad.
@@ -40,5 +42,5 @@ Manual vivo del proyecto. Documenta **únicamente la realidad actual**: lo que e
 - [Conversación libre](talk.md) — el segundo cliente del mismo motor: historial fuera de la raíz, imágenes por número mágico, detección de visión y respuesta token a token con cancelación.
 - [Manual en la aplicación](manual-browser.md) — el manual servido desde la propia ARCA, con su renderizador de Markdown acotado.
 - [Mantenimiento](maintenance.md) — rutas en uso, registro y rotación, verificación integral elemento a elemento, exportar e importar configuración.
-- [Diagnóstico](diagnostics.md) — las dieciséis comprobaciones, estados y dónde se consumen.
+- [Diagnóstico](diagnostics.md) — las diecisiete comprobaciones, estados y dónde se consumen.
 - [Interfaz web y API](web.md) — rutas, API de administración, dashboard, bilingüe es/en.

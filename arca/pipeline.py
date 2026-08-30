@@ -179,6 +179,32 @@ def ingest_documents(
     return IngestReport(shard_id, manifest is not None, manifest, results)
 
 
+def ingest_downloaded_book(
+    root: Path, connection: sqlite3.Connection, source: Path, client: EmbeddingClient
+) -> IngestReport | None:
+    try:
+        outcome = receive_document(root, source, connection)
+        if not client.available():
+            record_event(
+                connection,
+                "warning",
+                "ingest",
+                f"book downloaded but not indexed: {source.name}",
+                "the embedding server did not answer",
+            )
+            return None
+        return ingest_documents(root, connection, [outcome.record.path], client, default_ocr())
+    except (IngestError, EmbeddingError, OSError) as error:
+        record_event(
+            connection,
+            "error",
+            "ingest",
+            f"book downloaded but not indexed: {source.name}",
+            str(error),
+        )
+        return None
+
+
 def seal_batch(
     root: Path,
     connection: sqlite3.Connection,

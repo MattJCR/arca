@@ -113,3 +113,81 @@ def test_utc_timestamps_are_iso_and_zulu() -> None:
     stamp = utc_now_iso()
     assert stamp.endswith("Z")
     assert len(stamp) == 20
+
+
+SCHEMA_VERSION_ONE = """
+CREATE TABLE downloads (
+    id            INTEGER PRIMARY KEY,
+    kind          TEXT NOT NULL,
+    ref           TEXT NOT NULL,
+    filename      TEXT NOT NULL,
+    dest_path     TEXT NOT NULL,
+    size_bytes    INTEGER,
+    sha256        TEXT,
+    mirrors       TEXT,
+    mirror_index  INTEGER DEFAULT 0,
+    bytes_done    INTEGER DEFAULT 0,
+    status        TEXT NOT NULL,
+    attempts      INTEGER DEFAULT 0,
+    last_error    TEXT,
+    started_at    TEXT,
+    updated_at    TEXT
+);
+CREATE TABLE events (
+    id INTEGER PRIMARY KEY, ts TEXT, level TEXT, area TEXT, message TEXT, detail TEXT
+);
+"""
+
+
+def _library_at_version_one(path: Path) -> None:
+    connection = sqlite3.connect(path)
+    try:
+        connection.executescript(SCHEMA_VERSION_ONE)
+        connection.execute(
+            "INSERT INTO downloads (kind, ref, filename, dest_path, status) "
+            "VALUES ('zim', 'uuid-1', 'old.zim', 'C:/old.zim', 'done')"
+        )
+        connection.execute("PRAGMA user_version = 1")
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def test_an_older_library_is_migrated_in_place_without_losing_rows(tmp_path: Path) -> None:
+    path = tmp_path / "library.db"
+    _library_at_version_one(path)
+    connection = open_library_rw(path)
+    try:
+        assert schema_version(connection) == SCHEMA_VERSION
+        row = connection.execute("SELECT * FROM downloads").fetchone()
+        assert row["ref"] == "uuid-1"
+        assert row["after_done"] == ""
+        connection.execute("UPDATE downloads SET after_done = 'index' WHERE ref = 'uuid-1'")
+        connection.commit()
+    finally:
+        connection.close()
+    again = open_library_rw(path)
+    try:
+        assert schema_version(again) == SCHEMA_VERSION
+        assert again.execute("SELECT after_done FROM downloads").fetchone()[0] == "index"
+    finally:
+        again.close()
+
+
+def test_migrating_twice_does_not_try_to_add_the_column_again(tmp_path: Path) -> None:
+    path = tmp_path / "library.db"
+    _library_at_version_one(path)
+    first = open_library_rw(path)
+    first.close()
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute("PRAGMA user_version = 1")
+        connection.commit()
+    finally:
+        connection.close()
+    second = open_library_rw(path)
+    try:
+        assert schema_version(second) == SCHEMA_VERSION
+        assert second.execute("SELECT COUNT(*) FROM downloads").fetchone()[0] == 1
+    finally:
+        second.close()

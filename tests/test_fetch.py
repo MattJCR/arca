@@ -441,3 +441,82 @@ def test_downloads_still_work_without_a_release_hook(
     download_id, dest = _enqueue(connection, tmp_path, (server.url("/sample.zim"),))
     assert _claim_and_run(connection, download_id) == "done"
     assert dest.read_bytes() == PAYLOAD
+
+
+def test_a_book_lands_in_its_own_directory_and_carries_what_to_do_next(
+    server: DownloadServer, connection: sqlite3.Connection, tmp_path: Path
+) -> None:
+    from arca.catalog import Resolution
+    from arca.fetch import AFTER_INDEX, queue_book_download
+
+    server.add("/handbook.epub", Behavior(payload=PAYLOAD))
+    resolution = Resolution(
+        size_bytes=len(PAYLOAD),
+        sha256=hashlib.sha256(PAYLOAD).hexdigest(),
+        mirrors=(server.url("/handbook.epub"),),
+        hash_missing=False,
+    )
+    download_id = queue_book_download(
+        connection,
+        tmp_path,
+        ref="books:1",
+        filename="handbook.epub",
+        resolution=resolution,
+        after_done=AFTER_INDEX,
+    )
+    row = connection.execute("SELECT * FROM downloads WHERE id = ?", (download_id,)).fetchone()
+    assert row["kind"] == "book"
+    assert row["after_done"] == AFTER_INDEX
+    assert Path(row["dest_path"]) == tmp_path / "books" / "handbook.epub"
+    assert _claim_and_run(connection, download_id) == "done"
+    assert (tmp_path / "books" / "handbook.epub").read_bytes() == PAYLOAD
+
+
+def test_a_book_with_an_unusable_name_is_never_queued(
+    connection: sqlite3.Connection, tmp_path: Path
+) -> None:
+    from arca.catalog import Resolution
+    from arca.fetch import queue_book_download
+
+    resolution = Resolution(size_bytes=None, sha256="", mirrors=("https://x/a",), hash_missing=True)
+    for name in ("../escape.epub", "dir/inner.epub", ""):
+        with pytest.raises(ValueError):
+            queue_book_download(connection, tmp_path, ref="r", filename=name, resolution=resolution)
+    assert connection.execute("SELECT COUNT(*) FROM downloads").fetchone()[0] == 0
+
+
+def test_a_step_that_explodes_after_a_download_never_stops_the_queue(
+    server: DownloadServer, tmp_path: Path
+) -> None:
+    db_path = tmp_path / "library.db"
+    connection = open_library_rw(db_path)
+    seen: list[str] = []
+    try:
+        for index in (1, 2):
+            payload = PAYLOAD + bytes([index])
+            server.add(f"/file{index}.zim", Behavior(payload=payload))
+            enqueue(
+                connection,
+                kind="zim",
+                ref=f"uuid-{index}",
+                filename=f"file{index}.zim",
+                dest_path=tmp_path / "zim" / f"file{index}.zim",
+                size_bytes=len(payload),
+                sha256=hashlib.sha256(payload).hexdigest(),
+                mirrors=(server.url(f"/file{index}.zim"),),
+            )
+
+        def exploding(result: fetch.QueueResult) -> None:
+            seen.append(result.filename)
+            raise RuntimeError("the indexing step blew up")
+
+        results = run_queue(db_path, concurrency=1, sleep=lambda _: None, on_done=exploding)
+        assert sorted(result.status for result in results) == ["done", "done"]
+        assert sorted(seen) == ["file1.zim", "file2.zim"]
+        events = connection.execute(
+            "SELECT detail FROM events WHERE message LIKE 'post-download step failed%'"
+        ).fetchall()
+        assert len(events) == 2
+        assert "the indexing step blew up" in str(events[0]["detail"])
+    finally:
+        connection.close()

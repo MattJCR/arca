@@ -4,7 +4,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 LIBRARY_SCHEMA = """
 CREATE TABLE zim_files (
@@ -38,6 +38,7 @@ CREATE TABLE downloads (
     status        TEXT NOT NULL,
     attempts      INTEGER DEFAULT 0,
     last_error    TEXT,
+    after_done    TEXT NOT NULL DEFAULT '',
     started_at    TEXT,
     updated_at    TEXT
 );
@@ -90,6 +91,15 @@ CREATE TABLE events (
     id INTEGER PRIMARY KEY, ts TEXT, level TEXT, area TEXT, message TEXT, detail TEXT
 );
 """
+
+MIGRATIONS: tuple[tuple[int, str, str, str], ...] = (
+    (
+        2,
+        "downloads",
+        "after_done",
+        "ALTER TABLE downloads ADD COLUMN after_done TEXT NOT NULL DEFAULT ''",
+    ),
+)
 
 
 class LibraryDatabaseMissingError(FileNotFoundError):
@@ -160,9 +170,20 @@ def recent_events(connection: sqlite3.Connection, limit: int = 20) -> list[sqlit
     return list(cursor.fetchall())
 
 
+def _column_missing(connection: sqlite3.Connection, table: str, column: str) -> bool:
+    rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
+    return all(str(row[1]) != column for row in rows)
+
+
 def _migrate(connection: sqlite3.Connection) -> None:
-    if schema_version(connection) >= SCHEMA_VERSION:
+    current = schema_version(connection)
+    if current >= SCHEMA_VERSION:
         return
-    connection.executescript(LIBRARY_SCHEMA)
+    if current == 0:
+        connection.executescript(LIBRARY_SCHEMA)
+    else:
+        for version, table, column, script in MIGRATIONS:
+            if current < version and _column_missing(connection, table, column):
+                connection.executescript(script)
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     connection.commit()

@@ -6,20 +6,13 @@ import sys
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import uvicorn
 
 from arca import __version__
 from arca.api import create_app
-from arca.catalog import (
-    CatalogEntry,
-    CatalogError,
-    EntryNotFoundError,
-    entries_url,
-    fetch_entries,
-    format_size,
-    resolve_entry,
-)
+from arca.catalog import CatalogError, format_size
 from arca.config import (
     ArcaConfig,
     init_library,
@@ -34,8 +27,14 @@ from arca.db import open_library_rw, record_event
 from arca.diagnostics import CheckState, render, run_checks, worst_state
 from arca.embed import EmbeddingClient
 from arca.fetch import (
+    AFTER_INDEX,
+    KIND_BOOK,
     ProgressCallback,
     ProgressUpdate,
+    QueueResult,
+    is_sha256,
+    queue_book_download,
+    queue_manual_download,
     queue_zim_download,
     run_queue,
     verify_library,
@@ -43,8 +42,23 @@ from arca.fetch import (
 from arca.formats import IngestError, UnsupportedFormatError, known_suffixes
 from arca.i18n import Catalog, load_catalog, normalize_language
 from arca.ingest import receive_document
-from arca.pipeline import ingest_vendor
+from arca.opds import ALLOWED_URL_SCHEMES
+from arca.pipeline import ingest_downloaded_book, ingest_vendor
 from arca.shards import STATE_PROVISIONAL, STATE_SEALED, ShardLibrary, layout_drift
+from arca.sources import (
+    ITEM_KINDS,
+    ITEM_ZIM,
+    KIWIX_SOURCE_ID,
+    RemoteItem,
+    Source,
+    SourceError,
+    catalog_entry,
+    filename_from_url,
+    find_item,
+    probe,
+    resolve,
+)
+from arca.sources import search as search_source
 from arca.vendor import (
     LockEntry,
     VendorError,
@@ -76,9 +90,16 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("query", nargs="?", default="")
     search.add_argument("--lang", dest="filter_lang", default="")
     search.add_argument("--category", default="")
-    search.add_argument("--name", default="")
+    search.add_argument("--source", dest="source_id", default="")
+    subparsers.add_parser("sources")
     add = subparsers.add_parser("add")
-    add.add_argument("uuid")
+    add.add_argument("uuid", nargs="?", default="")
+    add.add_argument("--source", dest="source_id", default="")
+    add.add_argument("--url", default="")
+    add.add_argument("--name", default="")
+    add.add_argument("--sha256", dest="digest", default="")
+    add.add_argument("--kind", dest="item_kind", default="book")
+    add.add_argument("--index", action="store_true")
     run = subparsers.add_parser("run")
     run.add_argument("--concurrency", type=int)
     subparsers.add_parser("verify")
@@ -112,9 +133,13 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         return _run_serve(root, config, catalog, host, port)
     if args.command == "search":
-        return _run_search(catalog, args.query, args.filter_lang, args.category, args.name)
+        return _run_search(
+            config, catalog, args.query, args.filter_lang, args.category, args.source_id
+        )
+    if args.command == "sources":
+        return _run_sources(config, catalog)
     if args.command == "add":
-        return _run_add(root, catalog, args.uuid)
+        return _run_add(root, config, catalog, args)
     if args.command == "run":
         return _run_downloads(root, config, catalog, args.concurrency)
     if args.command == "verify":
@@ -167,63 +192,197 @@ def _run_diagnostics(root: Path, config: ArcaConfig, catalog: Catalog) -> int:
     return 1 if worst_state(results) is CheckState.BROKEN else 0
 
 
-def _run_search(catalog: Catalog, query: str, filter_lang: str, category: str, name: str) -> int:
-    url = entries_url(query=query, lang=filter_lang, category=category, name=name)
-    try:
-        entries = fetch_entries(url)
-    except CatalogError as error:
-        print(catalog.text("cli.search.error", error=str(error)), file=sys.stderr)
+def _chosen_sources(config: ArcaConfig, source_id: str) -> list[Source]:
+    return [
+        source
+        for source in config.sources
+        if source.enabled and source.searchable and (not source_id or source.source_id == source_id)
+    ]
+
+
+def _run_search(
+    config: ArcaConfig,
+    catalog: Catalog,
+    query: str,
+    filter_lang: str,
+    category: str,
+    source_id: str,
+) -> int:
+    chosen = _chosen_sources(config, source_id)
+    if not chosen:
+        print(catalog.text("cli.search.no_source", source=source_id or "-"), file=sys.stderr)
         return 1
-    if not entries:
+    found: list[tuple[Source, RemoteItem]] = []
+    failures = 0
+    for source in chosen:
+        try:
+            items = search_source(source, query=query, language=filter_lang, category=category)
+        except SourceError as error:
+            failures += 1
+            print(
+                catalog.text("cli.search.source_error", source=source.name, error=str(error)),
+                file=sys.stderr,
+            )
+            continue
+        found.extend((source, item) for item in items)
+    if failures == len(chosen):
+        return 1
+    if not found:
         print(catalog.text("cli.search.empty"))
         return 0
-    print(catalog.text("cli.search.header", count=len(entries)))
-    for entry in entries:
-        print(_search_line(catalog, entry))
+    print(catalog.text("cli.search.header", count=len(found)))
+    for source, item in found:
+        print(_search_line(catalog, source, item))
     return 0
 
 
-def _search_line(catalog: Catalog, entry: CatalogEntry) -> str:
-    articles = str(entry.article_count) if entry.article_count is not None else "?"
+def _search_line(catalog: Catalog, source: Source, item: RemoteItem) -> str:
+    articles = str(item.article_count) if item.article_count is not None else "?"
     return catalog.text(
         "cli.search.entry",
-        uuid=entry.uuid,
-        title=entry.title,
-        language=entry.language or "?",
-        flavour=entry.flavour or "-",
-        size=format_size(entry.size_bytes),
+        uuid=item.item_id,
+        source=source.source_id,
+        title=item.title,
+        language=item.language or "?",
+        flavour=item.flavour or "-",
+        size=format_size(item.size_bytes),
         articles=articles,
     )
 
 
-def _run_add(root: Path, catalog: Catalog, uuid: str) -> int:
-    try:
-        entry, resolution = resolve_entry(uuid)
-    except EntryNotFoundError:
-        print(catalog.text("cli.add.not_found", uuid=uuid), file=sys.stderr)
+def _run_sources(config: ArcaConfig, catalog: Catalog) -> int:
+    if not config.sources:
+        print(catalog.text("cli.sources.empty"))
+        return 0
+    print(catalog.text("cli.sources.header", count=len(config.sources)))
+    for source in config.sources:
+        state = "unknown"
+        if source.searchable and source.enabled:
+            try:
+                probe(source)
+            except SourceError as error:
+                state = "down"
+                print(
+                    catalog.text("cli.sources.error", source=source.name, error=str(error)),
+                    file=sys.stderr,
+                )
+            else:
+                state = "ok" if source.verifies_hash else "unverified"
+        print(
+            catalog.text(
+                "cli.sources.entry",
+                source=source.source_id,
+                name=source.name,
+                kind=source.kind,
+                item_kind=source.item_kind,
+                url=source.base_url or "-",
+                state=catalog.text(f"cli.sources.state.{state}"),
+            )
+        )
+    return 0
+
+
+def _run_add(root: Path, config: ArcaConfig, catalog: Catalog, args: argparse.Namespace) -> int:
+    after = AFTER_INDEX if args.index else ""
+    if args.url:
+        return _add_url(root, catalog, args, after)
+    if not args.uuid:
+        print(catalog.text("cli.add.nothing_to_add"), file=sys.stderr)
+        return 2
+    chosen = _chosen_sources(config, args.source_id or KIWIX_SOURCE_ID)
+    if not chosen:
+        print(
+            catalog.text("cli.add.unknown_source", source=args.source_id or KIWIX_SOURCE_ID),
+            file=sys.stderr,
+        )
         return 1
+    source = chosen[0]
+    try:
+        item = find_item(search_source(source), args.uuid)
+        if item is None:
+            print(catalog.text("cli.add.not_found", uuid=args.uuid), file=sys.stderr)
+            return 1
+        resolution = resolve(source, item)
     except CatalogError as error:
         print(catalog.text("cli.add.error", error=str(error)), file=sys.stderr)
         return 1
     connection = open_library_rw(library_db_path(root))
     try:
-        download_id = queue_zim_download(connection, root, entry, resolution)
+        if source.item_kind == ITEM_ZIM:
+            download_id = queue_zim_download(connection, root, catalog_entry(item), resolution)
+        else:
+            download_id = queue_book_download(
+                connection,
+                root,
+                ref=item.ref,
+                filename=item.filename,
+                resolution=resolution,
+                after_done=after,
+            )
+    except ValueError as error:
+        print(catalog.text("cli.add.bad_url", error=str(error)), file=sys.stderr)
+        return 1
     finally:
         connection.close()
     if resolution.hash_missing:
-        print(catalog.text("cli.add.no_hash_warning", filename=entry.filename))
-    print(catalog.text("cli.add.queued", id=download_id, filename=entry.filename))
+        print(catalog.text("cli.add.no_hash_warning", filename=item.filename))
+    print(catalog.text("cli.add.queued", id=download_id, filename=item.filename))
+    return 0
+
+
+def _add_url(root: Path, catalog: Catalog, args: argparse.Namespace, after: str) -> int:
+    if urlsplit(args.url).scheme not in ALLOWED_URL_SCHEMES:
+        print(catalog.text("cli.add.bad_url", error=args.url), file=sys.stderr)
+        return 2
+    filename = Path(args.name).name or filename_from_url(args.url)
+    if not filename:
+        print(catalog.text("cli.add.bad_url", error=args.url), file=sys.stderr)
+        return 2
+    digest = args.digest.strip().lower()
+    if digest and not is_sha256(digest):
+        print(catalog.text("cli.add.bad_hash", digest=args.digest), file=sys.stderr)
+        return 2
+    if args.item_kind not in ITEM_KINDS:
+        print(catalog.text("cli.add.bad_kind", kind=args.item_kind), file=sys.stderr)
+        return 2
+    connection = open_library_rw(library_db_path(root))
+    try:
+        download_id = queue_manual_download(
+            connection,
+            root,
+            url=args.url,
+            filename=filename,
+            item_kind=args.item_kind,
+            sha256=digest,
+            after_done=after,
+        )
+    except ValueError as error:
+        print(catalog.text("cli.add.bad_url", error=str(error)), file=sys.stderr)
+        return 2
+    finally:
+        connection.close()
+    if not digest:
+        print(catalog.text("cli.add.no_hash_warning", filename=filename))
+    print(catalog.text("cli.add.queued", id=download_id, filename=filename))
     return 0
 
 
 def _run_downloads(
     root: Path, config: ArcaConfig, catalog: Catalog, concurrency: int | None
 ) -> int:
+    client = EmbeddingClient(
+        base_url=config.embed_url, model=config.embed_model, dims=config.embed_dims
+    )
+
+    def on_done(result: QueueResult) -> None:
+        _index_downloaded_book(root, client, catalog, result)
+
     results = run_queue(
         library_db_path(root),
         concurrency=concurrency or config.download_concurrency,
         max_attempts=config.download_max_attempts,
         progress=_progress_printer(catalog),
+        on_done=on_done,
     )
     if not results:
         print(catalog.text("cli.run.empty"))
@@ -238,6 +397,22 @@ def _run_downloads(
             failures += 1
             print(catalog.text("cli.run.failed", filename=result.filename))
     return 1 if failures else 0
+
+
+def _index_downloaded_book(
+    root: Path, client: EmbeddingClient, catalog: Catalog, result: QueueResult
+) -> None:
+    if result.kind != KIND_BOOK or result.status != "done" or result.after_done != AFTER_INDEX:
+        return
+    connection = open_library_rw(library_db_path(root))
+    try:
+        report = ingest_downloaded_book(root, connection, Path(result.dest_path), client)
+    finally:
+        connection.close()
+    if report is None or not report.sealed:
+        print(catalog.text("cli.run.not_indexed", filename=result.filename), file=sys.stderr)
+        return
+    print(catalog.text("cli.run.indexed", filename=result.filename, shard=report.shard_id))
 
 
 def _progress_printer(catalog: Catalog) -> ProgressCallback:

@@ -133,9 +133,16 @@ def test_the_interface_never_hardcodes_a_user_facing_string_from_a_catalog() -> 
 
 API_SOURCE = Path(__file__).resolve().parents[1] / "arca" / "api.py"
 ERROR_CODE_KEYS = {
-    "admin.catalog.error": ("unreachable",),
+    "admin.catalog.error": ("unreachable", "no_source"),
     "admin.catalog.filters_error": ("unreachable",),
-    "admin.catalog.add_error": ("unreachable",),
+    "admin.catalog.add_error": (
+        "unreachable",
+        "unknown_source",
+        "unknown_item",
+        "bad_url",
+    ),
+    "admin.sources.error": ("bad_source", "config_write"),
+    "admin.downloads.manual_error": ("bad_url", "bad_hash", "bad_item_kind"),
     "admin.llama.error": (
         "no_binary",
         "no_profile",

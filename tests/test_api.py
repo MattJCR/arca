@@ -229,17 +229,44 @@ def test_admin_status_reports_counts_and_events(tmp_path: Path) -> None:
     assert payload["events"] == []
 
 
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _serve_kiwix(monkeypatch: pytest.MonkeyPatch) -> None:
+    feed = (FIXTURES / "catalog_entries.xml").read_bytes()
+    meta4 = (FIXTURES / "sample.meta4").read_bytes()
+
+    def get(url: str) -> bytes:
+        return meta4 if ".meta4" in url else feed
+
+    monkeypatch.setattr("arca.sources.http_get", get)
+
+
+def _serve_books(monkeypatch: pytest.MonkeyPatch) -> None:
+    feed = (FIXTURES / "opds_books.xml").read_bytes()
+    monkeypatch.setattr("arca.sources.http_get", lambda url: feed)
+
+
+BOOKS_SOURCE = {
+    "source_id": "books",
+    "name": "A books catalogue",
+    "kind": "opds",
+    "base_url": "https://books.example.org",
+    "entries_path": "/opds",
+    "media_type": "application/epub+zip",
+    "item_kind": "book",
+}
+
+
 def test_admin_catalog_marks_library_entries_and_updates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from arca.catalog import parse_entries
     from arca.config import library_db_path
     from arca.db import open_library_rw
 
     root = tmp_path / "library"
     init_library(root)
-    feed = (Path(__file__).parent / "fixtures" / "catalog_entries.xml").read_bytes()
-    monkeypatch.setattr("arca.api.fetch_entries", lambda url: parse_entries(feed))
+    _serve_kiwix(monkeypatch)
     connection = open_library_rw(library_db_path(root))
     try:
         connection.execute(
@@ -253,14 +280,19 @@ def test_admin_catalog_marks_library_entries_and_updates(
     app = create_app(root, ArcaConfig())
     status, body = http_get(app, "/api/admin/catalog", query="q=wikipedia")
     assert status == 200
-    entries = {entry["book_name"]: entry for entry in json.loads(body)["entries"]}
-    assert entries["wikipedia_es_all"]["in_library"] is True
-    assert entries["wikipedia_es_all"]["is_update"] is True
-    assert entries["devdocs_en_python"]["in_library"] is False
-    assert entries["devdocs_en_python"]["is_update"] is False
-    reader = entries["devdocs_en_python"]["reader_url"]
+    payload = json.loads(body)
+    entries = {entry["title"]: entry for entry in payload["entries"]}
+    assert entries["Wikipedia (Spanish)"]["in_library"] is True
+    assert entries["Wikipedia (Spanish)"]["is_update"] is True
+    assert entries["Wikipedia (Spanish)"]["source_id"] == "kiwix"
+    assert entries["Wikipedia (Spanish)"]["verified"] is True
+    assert entries["DevDocs Python"]["in_library"] is False
+    assert entries["DevDocs Python"]["is_update"] is False
+    reader = entries["DevDocs Python"]["reader_url"]
     assert reader.startswith("https://browse.library.kiwix.org/viewer#")
     assert reader.endswith("devdocs_en_python_2026-05")
+    assert [source["source_id"] for source in payload["sources"]] == ["kiwix"]
+    assert payload["sources"][0]["status"] == "ok"
 
 
 def test_admin_catalog_filters_lists_categories_and_languages(
@@ -270,8 +302,8 @@ def test_admin_catalog_filters_lists_categories_and_languages(
 
     categories = (Path(__file__).parent / "fixtures" / "catalog_categories.xml").read_bytes()
     languages = (Path(__file__).parent / "fixtures" / "catalog_languages.xml").read_bytes()
-    monkeypatch.setattr("arca.api.fetch_categories", lambda: parse_categories(categories))
-    monkeypatch.setattr("arca.api.fetch_languages", lambda: parse_languages(languages))
+    monkeypatch.setattr("arca.api.fetch_categories", lambda base: parse_categories(categories))
+    monkeypatch.setattr("arca.api.fetch_languages", lambda base: parse_languages(languages))
     status, body = http_get(_app(tmp_path), "/api/admin/catalog/filters")
     assert status == 200
     payload = json.loads(body)
@@ -286,7 +318,7 @@ def test_admin_catalog_filters_report_network_errors(
 ) -> None:
     from arca.catalog import CatalogError
 
-    def failing() -> list[str]:
+    def failing(base: str) -> list[str]:
         raise CatalogError("offline")
 
     monkeypatch.setattr("arca.api.fetch_categories", failing)
@@ -300,33 +332,22 @@ def test_admin_catalog_filters_report_network_errors(
 def test_admin_catalog_reports_network_errors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from arca.catalog import CatalogError
+    import urllib.error
 
-    def failing(url: str) -> list[object]:
-        raise CatalogError("offline")
+    def failing(url: str) -> bytes:
+        raise urllib.error.URLError("offline")
 
-    monkeypatch.setattr("arca.api.fetch_entries", failing)
+    monkeypatch.setattr("arca.sources.http_get", failing)
     status, body = http_get(_app(tmp_path), "/api/admin/catalog")
     assert status == 502
     payload = json.loads(body)
-    assert payload["error"] == "offline"
+    assert "offline" in payload["error"]
     assert payload["code"] == "unreachable"
-
-
-def _patch_resolve_entry(monkeypatch: pytest.MonkeyPatch, uuid: str) -> None:
-    from arca.catalog import Resolution, find_entry, parse_entries
-
-    feed = (Path(__file__).parent / "fixtures" / "catalog_entries.xml").read_bytes()
-    entry = find_entry(parse_entries(feed), uuid)
-    resolution = Resolution(
-        size_bytes=100, sha256="a" * 64, mirrors=("https://m1/x.zim",), hash_missing=False
-    )
-    monkeypatch.setattr("arca.api.resolve_entry", lambda requested: (entry, resolution))
 
 
 def test_admin_enqueue_records_and_queues(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     uuid = "0c45160e-f917-760a-9159-dfe3c53cdcdd"
-    _patch_resolve_entry(monkeypatch, uuid)
+    _serve_kiwix(monkeypatch)
     monkeypatch.setattr("arca.fetch.QueueWorker.kick", lambda self: None)
     app = _app(tmp_path)
     status, body = http_request(
@@ -341,7 +362,8 @@ def test_admin_enqueue_records_and_queues(tmp_path: Path, monkeypatch: pytest.Mo
     downloads = json.loads(body)["downloads"]
     assert downloads[0]["id"] == download_id
     assert downloads[0]["status"] == "queued"
-    assert downloads[0]["mirror"] == "https://m1/x.zim"
+    assert downloads[0]["kind"] == "zim"
+    assert downloads[0]["mirror"].startswith("https://mirror-one.example.org/")
     from arca.config import library_db_path
     from arca.db import open_library_ro
 
@@ -359,7 +381,7 @@ def test_admin_download_actions_validate_and_apply(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     uuid = "0c45160e-f917-760a-9159-dfe3c53cdcdd"
-    _patch_resolve_entry(monkeypatch, uuid)
+    _serve_kiwix(monkeypatch)
     monkeypatch.setattr("arca.fetch.QueueWorker.kick", lambda self: None)
     app = _app(tmp_path)
     _, body = http_request(
@@ -797,3 +819,272 @@ def test_zim_resources_keep_the_policy_too(tmp_path: Path) -> None:
     headers = http_headers(app, "/zim/" + uuid + "/style/site.css")
     assert "default-src 'none'" in headers["content-security-policy"]
     assert headers["content-type"].startswith("text/css")
+
+
+def test_admin_sources_lists_what_is_declared(tmp_path: Path) -> None:
+    status, body = http_get(_app(tmp_path), "/api/admin/sources")
+    assert status == 200
+    sources = json.loads(body)["sources"]
+    assert [source["source_id"] for source in sources] == ["kiwix"]
+    assert sources[0]["status"] == "unknown"
+    assert sources[0]["verifies_hash"] is True
+    assert sources[0]["filters"] == ["query", "language", "category", "flavour"]
+
+
+def test_a_source_declared_from_the_panel_lands_in_the_configuration(tmp_path: Path) -> None:
+    from arca.config import ArcaConfig as Config
+    from arca.config import config_path, load_config
+
+    root = tmp_path / "library"
+    app = _app(tmp_path)
+    kiwix = json.loads(http_get(app, "/api/admin/sources")[1])["sources"][0]
+    declared = {key: kiwix[key] for key in ("source_id", "name", "kind", "base_url", "flavour")}
+    declared["item_kind"] = "zim"
+    status, body = http_request(
+        app, "PUT", "/api/admin/sources", json_body={"sources": [declared, BOOKS_SOURCE]}
+    )
+    assert status == 200
+    assert [source["source_id"] for source in json.loads(body)["sources"]] == ["kiwix", "books"]
+    written = json.loads(config_path(root).read_text("utf-8"))
+    assert [item["source_id"] for item in written["sources"]] == ["kiwix", "books"]
+    assert written["port"] == Config().port
+    reloaded = load_config(root)
+    assert [source.source_id for source in reloaded.sources] == ["kiwix", "books"]
+
+
+def test_a_declaration_that_makes_no_sense_is_refused(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    refused: list[dict[str, Any]] = [
+        {"sources": []},
+        {"sources": [{"source_id": "x", "kind": "torrent"}]},
+    ]
+    for payload in refused:
+        status, body = http_request(app, "PUT", "/api/admin/sources", json_body=payload)
+        assert status == 400
+        assert json.loads(body)["code"] == "bad_source"
+
+
+def test_probing_records_which_source_answered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import urllib.error
+
+    feed = (FIXTURES / "opds_books.xml").read_bytes()
+
+    def get(url: str) -> bytes:
+        if "books.example.org" in url:
+            return feed
+        raise urllib.error.URLError("no route to host")
+
+    monkeypatch.setattr("arca.sources.http_get", get)
+    app = _app(tmp_path, ArcaConfig(sources=_two_sources()))
+    status, body = http_request(app, "POST", "/api/admin/sources/probe")
+    assert status == 200
+    states = {source["source_id"]: source for source in json.loads(body)["sources"]}
+    assert states["kiwix"]["status"] == "down"
+    assert "no route to host" in states["kiwix"]["detail"]
+    assert states["books"]["status"] == "unverified"
+    assert states["books"]["checked_at"]
+
+
+def test_a_source_that_is_down_does_not_take_the_others_with_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import urllib.error
+
+    feed = (FIXTURES / "opds_books.xml").read_bytes()
+
+    def get(url: str) -> bytes:
+        if "books.example.org" in url:
+            return feed
+        raise urllib.error.URLError("no route to host")
+
+    monkeypatch.setattr("arca.sources.http_get", get)
+    app = _app(tmp_path, ArcaConfig(sources=_two_sources()))
+    status, body = http_get(app, "/api/admin/catalog", query="q=plato")
+    assert status == 200
+    payload = json.loads(body)
+    assert {entry["source_name"] for entry in payload["entries"]} == {"A books catalogue"}
+    assert {entry["verified"] for entry in payload["entries"]} == {False}
+    states = {source["source_id"]: source["status"] for source in payload["sources"]}
+    assert states == {"kiwix": "down", "books": "unverified"}
+
+
+def test_results_from_several_sources_are_interleaved_with_their_origin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    kiwix = (FIXTURES / "catalog_entries.xml").read_bytes()
+    books = (FIXTURES / "opds_books.xml").read_bytes()
+
+    def get(url: str) -> bytes:
+        return books if "books.example.org" in url else kiwix
+
+    monkeypatch.setattr("arca.sources.http_get", get)
+    app = _app(tmp_path, ArcaConfig(sources=_two_sources()))
+    _, body = http_get(app, "/api/admin/catalog")
+    entries = json.loads(body)["entries"]
+    assert [entry["source_id"] for entry in entries] == ["kiwix", "books", "kiwix", "books"]
+    assert all(entry["size_human"] for entry in entries)
+
+
+def test_only_the_selected_sources_are_searched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _serve_books(monkeypatch)
+    app = _app(tmp_path, ArcaConfig(sources=_two_sources()))
+    _, body = http_get(app, "/api/admin/catalog", query="sources=books")
+    assert {entry["source_id"] for entry in json.loads(body)["entries"]} == {"books"}
+    status, body = http_get(app, "/api/admin/catalog", query="sources=nothing")
+    assert status == 400
+    assert json.loads(body)["code"] == "no_source"
+
+
+def test_a_source_without_filters_offers_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = _app(tmp_path, ArcaConfig(sources=_two_sources()))
+    status, body = http_get(app, "/api/admin/catalog/filters", query="source=books")
+    assert status == 200
+    assert json.loads(body) == {"categories": [], "languages": []}
+
+
+def test_a_book_is_queued_into_its_own_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _serve_books(monkeypatch)
+    monkeypatch.setattr("arca.fetch.QueueWorker.kick", lambda self: None)
+    app = _app(tmp_path, ArcaConfig(sources=_two_sources()))
+    _, body = http_get(app, "/api/admin/catalog", query="sources=books")
+    first = json.loads(body)["entries"][0]
+    status, body = http_request(
+        app,
+        "POST",
+        "/api/admin/downloads",
+        json_body={"source_id": "books", "uuid": first["uuid"], "index": True},
+    )
+    assert status == 200
+    assert json.loads(body)["hash_missing"] is True
+    _, body = http_get(app, "/api/admin/downloads")
+    download = json.loads(body)["downloads"][0]
+    assert download["kind"] == "book"
+    assert download["filename"] == "meditations.epub"
+    assert download["after_done"] == "index"
+    assert Path(_dest_path(tmp_path, download["id"])).parent.name == "books"
+
+
+def test_an_unknown_source_or_item_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _serve_books(monkeypatch)
+    app = _app(tmp_path, ArcaConfig(sources=_two_sources()))
+    status, body = http_request(
+        app, "POST", "/api/admin/downloads", json_body={"source_id": "nope", "uuid": "x"}
+    )
+    assert status == 404
+    assert json.loads(body)["code"] == "unknown_source"
+    status, body = http_request(
+        app, "POST", "/api/admin/downloads", json_body={"source_id": "books", "uuid": "x"}
+    )
+    assert status == 404
+    assert json.loads(body)["code"] == "unknown_item"
+
+
+def test_a_pasted_url_is_queued_like_any_other_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("arca.fetch.QueueWorker.kick", lambda self: None)
+    app = _app(tmp_path)
+    status, body = http_request(
+        app,
+        "POST",
+        "/api/admin/downloads/manual",
+        json_body={"url": "https://elsewhere.example/files/handbook.pdf"},
+    )
+    assert status == 200
+    payload = json.loads(body)
+    assert payload["filename"] == "handbook.pdf"
+    assert payload["hash_missing"] is True
+    _, body = http_get(app, "/api/admin/downloads")
+    download = json.loads(body)["downloads"][0]
+    assert download["kind"] == "book"
+    assert download["mirror"] == "https://elsewhere.example/files/handbook.pdf"
+
+
+def test_a_pasted_url_with_a_hash_is_verified_like_any_other(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("arca.fetch.QueueWorker.kick", lambda self: None)
+    app = _app(tmp_path)
+    status, body = http_request(
+        app,
+        "POST",
+        "/api/admin/downloads/manual",
+        json_body={
+            "url": "https://elsewhere.example/files/handbook.pdf",
+            "name": "manual.pdf",
+            "sha256": "B" * 64,
+        },
+    )
+    assert status == 200
+    assert json.loads(body) == {"id": 1, "hash_missing": False, "filename": "manual.pdf"}
+
+
+def test_a_pasted_url_that_makes_no_sense_is_refused_before_queueing(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    refusals = {
+        "file:///C:/Windows/win.ini": "bad_url",
+        "https://elsewhere.example/files/": "bad_url",
+    }
+    for url, code in refusals.items():
+        status, body = http_request(
+            app, "POST", "/api/admin/downloads/manual", json_body={"url": url}
+        )
+        assert status == 400, url
+        assert json.loads(body)["code"] == code, url
+    status, body = http_request(
+        app,
+        "POST",
+        "/api/admin/downloads/manual",
+        json_body={"url": "https://x.example/a.pdf", "sha256": "short"},
+    )
+    assert status == 400
+    assert json.loads(body)["code"] == "bad_hash"
+    status, body = http_request(
+        app,
+        "POST",
+        "/api/admin/downloads/manual",
+        json_body={"url": "https://x.example/a.pdf", "item_kind": "map"},
+    )
+    assert status == 400
+    assert json.loads(body)["code"] == "bad_item_kind"
+    _, body = http_get(app, "/api/admin/downloads")
+    assert json.loads(body)["downloads"] == []
+
+
+def test_the_diagnostics_report_the_state_of_every_source(tmp_path: Path) -> None:
+    _, body = http_get(_app(tmp_path, ArcaConfig(sources=_two_sources())), "/api/diagnostics")
+    checks = {check["id"]: check for check in json.loads(body)["checks"]}
+    assert checks["remote_sources"]["state"] == "degraded"
+    assert "A books catalogue" in checks["remote_sources"]["summary"]
+
+
+def _two_sources() -> tuple[Any, ...]:
+    from arca.sources import default_sources, parse_source
+
+    books = parse_source(BOOKS_SOURCE)
+    assert books is not None
+    return (*default_sources(), books)
+
+
+def _dest_path(tmp_path: Path, download_id: int) -> str:
+    from arca.config import library_db_path
+    from arca.db import open_library_ro
+
+    connection = open_library_ro(library_db_path(tmp_path / "library"))
+    try:
+        row = connection.execute(
+            "SELECT dest_path FROM downloads WHERE id = ?", (download_id,)
+        ).fetchone()
+        return str(row["dest_path"])
+    finally:
+        connection.close()

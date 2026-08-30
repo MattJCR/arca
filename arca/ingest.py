@@ -11,7 +11,7 @@ from math import ceil
 from pathlib import Path
 
 from arca.db import record_event, utc_now_iso
-from arca.fetch import file_sha256
+from arca.fetch import file_sha256, is_sha256
 from arca.formats import (
     CODE_UNSUPPORTED_FORMAT,
     FORMATS,
@@ -36,8 +36,6 @@ TOKENS_PER_WORD = 2.0
 MIN_CHUNK_TOKENS = 270
 MAX_CHUNK_TOKENS = 450
 OVERLAP_BLOCKS = 1
-DOC_ID_LENGTH = 64
-DOC_ID_ALPHABET = "0123456789abcdef"
 SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+")
 
 
@@ -86,7 +84,7 @@ def page_anchor(page: int) -> str:
 
 
 def is_doc_id(value: str) -> bool:
-    return len(value) == DOC_ID_LENGTH and all(character in DOC_ID_ALPHABET for character in value)
+    return is_sha256(value)
 
 
 def render_readable(

@@ -1,6 +1,6 @@
 # Base de datos
 
-Módulo: `arca/db.py`. Fichero: `<raiz>/library.db`, esquema completo de §7.1 (tablas `zim_files`, `downloads`, `shards`, `ingest_jobs`, `deep_index_scope`, `settings`, `llama_profiles`, `events`), versionado con `PRAGMA user_version` (actual: 1).
+Módulo: `arca/db.py`. Fichero: `<raiz>/library.db`, esquema completo de §7.1 (tablas `zim_files`, `downloads`, `shards`, `ingest_jobs`, `deep_index_scope`, `settings`, `llama_profiles`, `events`), versionado con `PRAGMA user_version` (actual: 2). Una base en la versión 1 se migra en su sitio al abrirla en lectura-escritura: la versión 2 añade `downloads.after_done`, la nota de «qué hacer cuando esta descarga termine» (hoy solo `index`, para los libros que se piden descargar e indexar).
 
 ## Dos modos de apertura
 

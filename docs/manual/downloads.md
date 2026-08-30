@@ -1,20 +1,92 @@
-# Catálogo y descargas
+# Fuentes, catálogo y descargas
 
-Módulos: `arca/catalog.py` (cliente OPDS + resolución meta4) y `arca/fetch.py` (motor de descarga, cola y verificación local).
+Módulos: `arca/opds.py` (núcleo Atom/OPDS genérico), `arca/catalog.py` (sabor Kiwix: `articleCount`, `flavour`, `_ftindex:yes`, resolución `.meta4`, URL del lector), `arca/sources.py` (el modelo de fuentes y sus adaptadores) y `arca/fetch.py` (motor de descarga, cola y verificación local).
 
-## Cliente del catálogo (`catalog.py`)
+## El modelo: fuentes, no «el catálogo»
 
-- `entries_url()` construye la URL de `https://library.kiwix.org/catalog/v2/entries` con `count=-1` y los filtros `q`, `lang`, `category`, `name`, `start`.
-- `parse_entries()` parsea el feed Atom/OPDS con `ElementTree` comparando por nombre local, de modo que tolera que Kiwix sirva `name`, `flavour`, `tags` o `articleCount` con o sin el espacio de nombres `http://www.kiwix.org/opds/`. Entradas sin enlace de adquisición se descartan.
-- `has_fulltext` se deriva de la etiqueta `_ftindex:yes` en `tags`.
-- Validación de entrada externa: solo se aceptan URLs `http`/`https` (en el feed, el `.meta4` y cada espejo; un esquema distinto, como `file://`, se rechaza), y el nombre de fichero derivado del `href` remoto se sanea — separadores de ruta o `..` invalidan la entrada. `queue_zim_download` lo re-comprueba antes de construir la ruta de destino, como defensa en profundidad.
-- Ninguna URL de descarga se persiste (trampa 5): el catálogo se consulta en el momento y `arca add` resuelve entonces.
+**Ninguna fuente vive en el código.** Standard Ebooks, Gutenberg, OpenStax o la que le interese a un operador concreto son configuración, no constantes. Una fuente se declara en la lista `sources` de `arca.json` o desde la pestaña **Fuentes** del panel, y con eso ya es buscable: no hay una línea de código que conozca su dominio.
+
+Sin lista declarada, ARCA arranca con una sola fuente: la biblioteca de Kiwix (`kiwix`, `https://library.kiwix.org`, contenido `zim`). Una lista vacía o entera inválida vuelve a esa misma por defecto, para que un `arca.json` mal editado no deje el sistema sin poder descargar nada.
+
+Campos de una fuente:
+
+| Campo | Para qué |
+| --- | --- |
+| `source_id` | identificador corto en minúsculas (`a-z0-9-_`, máximo 40). Es la clave: si se repite, gana la primera |
+| `name` | lo que se ve en el panel y en la columna «Fuente» de los resultados |
+| `kind` | `opds` (feed Atom), `json` (documento JSON) o `manual` (no se busca: solo recibe direcciones pegadas a mano) |
+| `base_url` | dirección base. Obligatoria salvo para `manual` |
+| `flavour` | `kiwix` para el sabor de Kiwix, `plain` para OPDS genérico. Una fuente `kiwix` es siempre de contenido `zim` |
+| `item_kind` | `zim` (va a `<raíz>/zim/`) o `book` (va a `<raíz>/books/`) |
+| `entries_path` | ruta del listado que se cuelga de `base_url` |
+| `query_param` | nombre del parámetro de búsqueda por texto (por defecto `q`) |
+| `language_param` | nombre del parámetro de idioma. Vacío significa que la fuente **no** filtra por idioma, y el filtro se esconde para ella |
+| `media_type` | tipo de fichero del enlace de adquisición que hay que elegir (por ejemplo `application/epub+zip`) |
+| `suffixes` | alternativa al anterior: elegir el enlace por extensión |
+| `items_key` | fuentes `json`: clave del documento que contiene la lista |
+| `fields` | fuentes `json`: correspondencia entre los nombres de la fuente y `id`, `title`, `summary`, `language`, `url`, `sha256`, `size`, `filename` |
+| `enabled` | una fuente desactivada no se busca ni se comprueba, pero se conserva declarada |
+
+Una declaración incompleta o con un `kind` desconocido **se descarta al cargar** en vez de romper el arranque (invariante 5). Desde el panel, en cambio, se rechaza con código `bad_source`: allí hay alguien mirando a quien se le puede decir qué falta.
+
+## Estado de una fuente
+
+Tres estados, y ninguno tumba a los demás:
+
+- **`ok`** — respondió la última vez que se le preguntó **y** publica hash, así que lo que venga de ella se verifica.
+- **`unverified`** — respondió, pero no publica hash. La descarga se hace igual y queda **marcada como no verificada**: se prefiere decirlo a fingir una garantía que no existe. Se guarda el sha-256 calculado al terminar, que sirve para reverificar en local aunque no diga nada del origen.
+- **`down`** — no respondió; el detalle del error se conserva y se enseña.
+- **`unknown`** — todavía no se le ha preguntado en esta sesión.
+
+El estado observado **vive en memoria** (`SourceRegistry`), no en disco: se actualiza cuando se busca en la fuente o cuando se pulsa «Comprobar fuentes» (`POST /api/admin/sources/probe`, que pide un listado mínimo). Consultar no escribe, tampoco aquí. La comprobación `remote_sources` del diagnóstico enseña ese estado y baja a **degradado** si alguna fuente activa no responde o no verifica hash — y también si no queda ninguna activa, porque entonces no se puede añadir nada.
+
+## Buscar en varias fuentes a la vez
+
+`GET /api/admin/catalog?q=&lang=&category=&sources=a,b` pregunta a cada fuente elegida, **intercala** los resultados por posición (el primero de cada una, luego el segundo…) y devuelve en cada uno su `source_id` y su `source_name`. Una fuente caída se anota como `down` y se sigue con las demás; solo se responde 502 (`unreachable`) cuando **ninguna** contestó. Los filtros que una fuente no soporta se esconden para ella en vez de fallar: el panel toma la unión de los filtros de las fuentes marcadas.
+
+## Sin torrents
+
+Decidido el 2026-08-30: **no se desarrolla**. Se pierde con ello la única vía estable y verificable hacia las colecciones que solo se publican así. Queda escrito para que no se vuelva a discutir por olvido, sino por decisión.
+
+## Núcleo OPDS (`opds.py`)
+
+- `parse_feed()` lee cualquier feed Atom comparando por **nombre local**, de modo que tolera espacios de nombres arbitrarios (`kiwix:name`, `dc:language`). Cada entrada conserva su `id`, sus campos directos y **todos** sus enlaces con `rel`, `type` y `length`.
+- `OpdsEntry.acquisition(media_types, suffixes)` elige el enlace de descarga por tipo, por extensión o, sin pistas, por la relación `http://opds-spec.org/acquisition`.
+- Validación de entrada externa: solo se aceptan URLs `http`/`https` (en el feed, el `.meta4` y cada espejo; un esquema distinto, como `file://`, se rechaza).
+
+## Sabor Kiwix (`catalog.py`)
+
+- `entries_url()` construye la URL de `/catalog/v2/entries` con `count=-1` y los filtros `q`, `lang`, `category`, `name`, `start`.
+- `has_fulltext` se deriva de la etiqueta `_ftindex:yes` en `tags`; `articleCount` y `flavour` salen del espacio de nombres de Kiwix.
+- El nombre de fichero derivado del `href` remoto se sanea — separadores de ruta o `..` invalidan la entrada. `queue_zim_download` lo re-comprueba antes de construir la ruta de destino, como defensa en profundidad.
+- Ninguna URL de descarga se persiste (trampa 5): la fuente se consulta en el momento, y encolar vuelve a preguntar.
 - `resolve_downloads(meta4_url)` descarga el `.meta4` con `?country=ES` y devuelve tamaño, sha-256 y espejos ordenados por `priority`. Si el servidor responde un error HTTP (meta4 ausente), degrada al camino sin meta4: un único espejo (la URL sin `.meta4`), sin hash, con `hash_missing=True` (trampa 6). Si no hay red, lanza `CatalogError`.
 - `record_zim_entry()` vuelca la entrada en `zim_files` (upsert por UUID) sin tocar el `status` de una fila existente.
+- Los filtros de idioma y categoría (`GET /api/admin/catalog/filters?source=…`) **solo existen para una fuente Kiwix**; para cualquier otra se devuelven listas vacías, y el panel esconde esos campos.
+
+## Libros (`kind = "book"`)
+
+El quinto tipo de la cola, junto a `zim`, `model`, `vendor` y `git`. Destino `<raíz>/books/<fichero>`. Descarga reanudable, con espejos y verificada por el mismo motor: un libro no es un caso especial, es otra fila de `downloads`.
+
+**Descargar e indexar** es una petición explícita, nunca automática: encolar con `index` marcado guarda `after_done = "index"` en la fila. Al completarse la descarga, el enganche `on_done` de la cola llama a `ingest_downloaded_book()` (`pipeline.py`), que mete el fichero por la ingesta de la fase 10 —custodia por sha-256, extracción, anclas, troceado, embeddings y sellado— y lo deja buscable al párrafo. Si el servidor de embeddings no responde, **el fichero no se pierde**: queda descargado en `books/` y se registra un evento diciendo por qué no se indexó.
+
+## Direcciones pegadas a mano
+
+Para lo que no publica catálogo. `POST /api/admin/downloads/manual` y `arca add --url` aceptan una dirección, opcionalmente un nombre de fichero y un sha-256, y la meten en la cola como cualquier otra descarga. Se rechaza **antes de encolar nada**:
+
+| Código | Cuándo |
+| --- | --- |
+| `bad_url` | esquema distinto de `http`/`https`, o ninguna forma de sacar un nombre de fichero seguro de la dirección |
+| `bad_hash` | el sha-256 no son 64 caracteres hexadecimales |
+| `bad_item_kind` | el destino no es `zim` ni `book` |
+
+Sin hash, la descarga se hace igual y queda declarada no verificada.
+
+Un ZIM pegado a mano **no se registra en `zim_files`**: no hay UUID de catálogo del que sacar la ficha. Se descarga, se verifica y `ZimLibrary` lo encuentra al explorar la carpeta —se lee y se busca como cualquier otro—, pero el catálogo del panel no podrá decir de él «en la biblioteca» ni «versión nueva», porque esas dos insignias se calculan contra esa tabla.
 
 ## Motor de descarga (`fetch.py`)
 
-Estados de una fila de `downloads`: `queued → running → verifying → done`, con `paused` y `failed` como desvíos. Transiciones del operador: `request_pause` (queued/running→paused), `request_resume` (paused→queued), `request_cancel` (activa→failed con `last_error='cancelled'`), `request_retry` (failed→queued con contadores a cero), y `request_delete` (cualquier estado): elimina la fila de la cola y borra su `.part` parcial si existe — es contenido recuperable con red porque el catálogo re-resuelve —, pero **nunca** toca el fichero final ya completado y verificado ni su sidecar. Un motor en marcha sobre esa fila se detiene solo en su siguiente persistencia de progreso; si el `.part` estaba bloqueado en ese instante, queda como huérfano y lo señala el diagnóstico.
+Estados de una fila de `downloads`: `queued → running → verifying → done`, con `paused` y `failed` como desvíos. Transiciones del operador: `request_pause` (queued/running→paused), `request_resume` (paused→queued), `request_cancel` (activa→failed con `last_error='cancelled'`), `request_retry` (failed→queued con contadores a cero), y `request_delete` (cualquier estado): elimina la fila de la cola y borra su `.part` parcial si existe — es contenido recuperable con red porque la fuente re-resuelve —, pero **nunca** toca el fichero final ya completado y verificado ni su sidecar. Un motor en marcha sobre esa fila se detiene solo en su siguiente persistencia de progreso; si el `.part` estaba bloqueado en ese instante, queda como huérfano y lo señala el diagnóstico.
 
 Reglas del motor (`run_download`), en correspondencia con §8.2:
 
@@ -25,6 +97,7 @@ Reglas del motor (`run_download`), en correspondencia con §8.2:
 5. El progreso se persiste periódicamente (cada 8 MiB o 2 s). En cada persistencia se relee el estado: si el operador pausó o canceló, el motor se detiene sin pisar ese estado.
 6. Al completar: estado `verifying`, sha256 por **relectura completa** del fichero, comparación con el hash esperado. Si coincide (o no había hash de origen): se avisa al enganche `before_replace` (que en el servidor suelta ese fichero del caché de `ZimLibrary`, ver `zim.md`), `os.replace()` al nombre final —con tres reintentos cortos, porque el destino puede estar bloqueado un instante—, sidecar `<fichero>.sha256` al lado, estado `done`; sin hash de origen se guarda el calculado y se registra un evento de aviso. Si no coincide: `failed`, el `.part` **no se borra** y se registra el evento.
 7. `run_queue()` re-encola al arrancar las filas `running`/`verifying` huérfanas de un proceso muerto; al reanudar manda el tamaño real del `.part`. Solo debe haber un proceso descargando a la vez (CLI `arca run` o el worker del servidor, no ambos).
+8. Terminada cada fila, el enganche `on_done` recibe el resultado con su `dest_path` y su `after_done`. Es lo único que sabe de libros: el motor no importa nada de la ingesta.
 
 `QueueWorker` es el worker en segundo plano del servidor: `kick()` lanza un hilo que drena la cola y muere al vaciarla; encolar, reanudar o reintentar desde el dashboard lo despiertan.
 
@@ -35,5 +108,6 @@ Para cada fila de `zim_files`: si el fichero falta → `missing`; si no hay `.sh
 ## Ficheros en disco
 
 - `<raíz>/zim/<fichero>.zim` — el ZIM verificado.
-- `<raíz>/zim/<fichero>.zim.sha256` — sidecar en formato `sha256sum` para reverificar sin red.
-- `<raíz>/zim/<fichero>.zim.part` — descarga en curso o interrumpida; nunca se borra automáticamente.
+- `<raíz>/books/<fichero>` — el libro tal como lo sirvió su fuente. Si se pidió indexar, la ingesta guarda **además** su propia copia inmutable en `docs/originals/<sha256>.<ext>`; el fichero de `books/` no se toca.
+- `<fichero>.sha256` — sidecar en formato `sha256sum` para reverificar sin red.
+- `<fichero>.part` — descarga en curso o interrumpida; nunca se borra automáticamente.

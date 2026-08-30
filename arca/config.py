@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 import logging
 import logging.handlers
+import os
 import tempfile
+import threading
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from arca.i18n import DEFAULT_LANGUAGE, normalize_language
+from arca.sources import Source, default_sources, parse_sources
 
 CONFIG_FILENAME = "arca.json"
 LIBRARY_DB_FILENAME = "library.db"
@@ -30,6 +33,7 @@ LOG_BACKUP_COUNT = 3
 
 LIBRARY_SUBDIRS: tuple[str, ...] = (
     "zim",
+    "books",
     "docs/originals",
     "docs/shards",
     "docs/vendor",
@@ -60,6 +64,7 @@ class ArcaConfig:
     hub_url: str = DEFAULT_HUB_URL
     hub_token: str = ""
     auto_engine: bool = True
+    sources: tuple[Source, ...] = field(default_factory=default_sources)
 
 
 @dataclass(frozen=True)
@@ -124,6 +129,7 @@ def load_config(root: Path) -> ArcaConfig:
         hub_url=_read_str(parsed, "hub_url", defaults.hub_url) or defaults.hub_url,
         hub_token=_read_str(parsed, "hub_token", defaults.hub_token),
         auto_engine=_read_bool(parsed, "auto_engine", defaults.auto_engine),
+        sources=parse_sources(parsed.get("sources")),
     )
 
 
@@ -136,6 +142,21 @@ def init_library(root: Path) -> bool:
     payload = json.dumps(asdict(ArcaConfig()), indent=2, ensure_ascii=False)
     config_path(root).write_text(payload + "\n", "utf-8")
     return True
+
+
+def save_sources(root: Path, sources: tuple[Source, ...]) -> None:
+    path = config_path(root)
+    try:
+        parsed: object = json.loads(path.read_text("utf-8"))
+    except (OSError, ValueError):
+        parsed = {}
+    document = parsed if isinstance(parsed, dict) else {}
+    document["sources"] = [asdict(source) for source in sources]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.part")
+    payload = json.dumps(document, indent=2, ensure_ascii=False)
+    temporary.write_text(payload + "\n", "utf-8")
+    os.replace(temporary, path)
 
 
 def session_dir(root: Path, config: ArcaConfig) -> Path:

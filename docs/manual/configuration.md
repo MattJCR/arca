@@ -28,8 +28,11 @@ Texto plano editable a mano, en la raíz. Claves reconocidas y valores por defec
 | `hub_url` | `"https://huggingface.co"` | hub de modelos que consulta el buscador de 12.6; admite un espejo propio |
 | `hub_token` | `""` | credencial para modelos cuya licencia hay que aceptar. **No sale en la exportación de configuración ni en el log** |
 | `auto_engine` | `true` | pone el chat en marcha sola al arrancar el servidor: consigue el motor `llama-server`, lo despliega, crea el perfil y lo prueba (ver `engine.md`). A `false` solo se hace cuando se pulsa el botón del panel |
+| `sources` | la biblioteca de Kiwix | lista de fuentes remotas declaradas; **ninguna vive en el código**. Campos y semántica en `downloads.md`. Una entrada inválida se descarta al cargar; una lista vacía o entera inválida vuelve a la de por defecto |
 
 Robustez deliberada: un `arca.json` ausente, corrupto o con tipos equivocados nunca impide arrancar — cada valor inválido cae a su defecto (invariante 5). Las claves desconocidas se ignoran.
+
+La pestaña **Fuentes** del panel escribe `sources` y solo `sources`: lee el fichero, sustituye esa clave y lo vuelve a escribir por reemplazo atómico, de modo que lo que el operador haya puesto a mano en el resto del fichero sigue ahí.
 
 ## Directorio de sesión
 

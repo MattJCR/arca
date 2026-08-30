@@ -431,3 +431,23 @@ def test_the_original_of_a_book_comes_down_as_a_file(
         fresh_page.click("#search-results .result-actions a:last-child")
     download = caught.value
     assert download.suggested_filename.endswith(".epub")
+
+
+def test_a_source_declared_in_the_panel_shows_up_where_it_is_searched(
+    fresh_page: Page, server: Server
+) -> None:
+    fresh_page.goto(f"{server.url}/admin", wait_until="domcontentloaded")
+    fresh_page.click("button[data-tab='sources-section']")
+    fresh_page.wait_for_selector("#sources-body tr")
+    assert "Kiwix" in fresh_page.inner_text("#sources-body")
+    fresh_page.fill("#source-id", "books")
+    fresh_page.fill("#source-name", "A books catalogue")
+    fresh_page.fill("#source-url", "https://books.example.org")
+    fresh_page.fill("#source-path", "/opds")
+    fresh_page.fill("#source-media", "application/epub+zip")
+    fresh_page.click("#source-form button[type=submit]")
+    fresh_page.wait_for_function("document.querySelectorAll('#sources-body tr').length === 2")
+    assert "A books catalogue" in fresh_page.inner_text("#sources-body")
+    fresh_page.click("button[data-tab='catalog-section']")
+    fresh_page.wait_for_selector("#catalog-source-choices input")
+    assert "A BOOKS CATALOGUE" in fresh_page.inner_text("#catalog-sources").upper()

@@ -3,13 +3,12 @@ from __future__ import annotations
 import sqlite3
 import urllib.error
 import urllib.parse
-import urllib.request
-from collections.abc import Callable
 from dataclasses import dataclass
 from xml.etree import ElementTree
 
-from arca import __version__
 from arca.db import utc_now_iso
+from arca.opds import HttpGet, OpdsEntry, OpdsError, entry_fields, feed_url, parse_feed
+from arca.opds import http_get as opds_http_get
 
 CATALOG_BASE_URL = "https://library.kiwix.org"
 ENTRIES_PATH = "/catalog/v2/entries"
@@ -19,22 +18,13 @@ READER_BASE_URL = "https://browse.library.kiwix.org"
 VIEWER_PATH = "/viewer#"
 ZIM_SUFFIX = ".zim"
 MIRROR_COUNTRY = "ES"
-REQUEST_TIMEOUT_SECONDS = 30
-USER_AGENT = f"arca/{__version__}"
-UUID_PREFIX = "urn:uuid:"
 META4_SUFFIX = ".meta4"
 ZIM_MEDIA_TYPE = "application/x-zim"
 FULLTEXT_TAG = "_ftindex:yes"
 METALINK_NAMESPACE = "{urn:ietf:params:xml:ns:metalink}"
 
-HttpGet = Callable[[str], bytes]
 
-
-class CatalogError(Exception):
-    pass
-
-
-class EntryNotFoundError(CatalogError):
+class CatalogError(OpdsError):
     pass
 
 
@@ -69,15 +59,11 @@ class CatalogLanguage:
     book_count: int | None
 
 
-ALLOWED_URL_SCHEMES = ("http", "https")
-
-
 def http_get(url: str) -> bytes:
-    if urllib.parse.urlsplit(url).scheme not in ALLOWED_URL_SCHEMES:
-        raise CatalogError(f"unsupported url scheme: {url}")
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-        return bytes(response.read())
+    try:
+        return opds_http_get(url)
+    except OpdsError as error:
+        raise CatalogError(str(error)) from error
 
 
 def book_slug(entry: CatalogEntry) -> str:
@@ -114,60 +100,31 @@ def entries_url(
         params.append(("name", name))
     if start is not None:
         params.append(("start", str(start)))
-    return f"{base_url}{ENTRIES_PATH}?{urllib.parse.urlencode(params)}"
-
-
-def fetch_entries(url: str, get: HttpGet = http_get) -> list[CatalogEntry]:
-    try:
-        payload = get(url)
-    except urllib.error.URLError as error:
-        raise CatalogError(str(error)) from error
-    return parse_entries(payload)
+    return feed_url(base_url, ENTRIES_PATH, params)
 
 
 def parse_entries(payload: bytes) -> list[CatalogEntry]:
     entries = []
-    for element in _entry_elements(payload):
-        entry = _parse_entry(element)
+    for element in _feed(payload):
+        entry = _from_opds(element)
         if entry is not None:
             entries.append(entry)
     return entries
 
 
-def find_entry(entries: list[CatalogEntry], uuid: str) -> CatalogEntry:
-    for entry in entries:
-        if entry.uuid == uuid:
-            return entry
-    raise EntryNotFoundError(uuid)
-
-
-def resolve_entry(uuid: str, get: HttpGet = http_get) -> tuple[CatalogEntry, Resolution]:
-    entries = fetch_entries(entries_url(), get)
-    entry = find_entry(entries, uuid)
-    return entry, resolve_downloads(entry.meta4_url, get)
-
-
 def fetch_categories(base_url: str = CATALOG_BASE_URL, get: HttpGet = http_get) -> list[str]:
-    try:
-        payload = get(f"{base_url}{CATEGORIES_PATH}")
-    except urllib.error.URLError as error:
-        raise CatalogError(str(error)) from error
-    return parse_categories(payload)
+    return parse_categories(_download(f"{base_url}{CATEGORIES_PATH}", get))
 
 
 def fetch_languages(
     base_url: str = CATALOG_BASE_URL, get: HttpGet = http_get
 ) -> list[CatalogLanguage]:
-    try:
-        payload = get(f"{base_url}{LANGUAGES_PATH}")
-    except urllib.error.URLError as error:
-        raise CatalogError(str(error)) from error
-    return parse_languages(payload)
+    return parse_languages(_download(f"{base_url}{LANGUAGES_PATH}", get))
 
 
 def parse_categories(payload: bytes) -> list[str]:
     categories = []
-    for fields in _entry_field_maps(payload):
+    for fields in _fields(payload):
         title = fields.get("title", "")
         if title:
             categories.append(title)
@@ -176,7 +133,7 @@ def parse_categories(payload: bytes) -> list[str]:
 
 def parse_languages(payload: bytes) -> list[CatalogLanguage]:
     languages = []
-    for fields in _entry_field_maps(payload):
+    for fields in _fields(payload):
         code = fields.get("language", "")
         name = fields.get("title", "")
         if not code:
@@ -191,18 +148,6 @@ def parse_languages(payload: bytes) -> list[CatalogLanguage]:
         )
     languages.sort(key=lambda language: language.name.lower())
     return languages
-
-
-def _entry_elements(payload: bytes) -> list[ElementTree.Element]:
-    try:
-        root = ElementTree.fromstring(payload)
-    except ElementTree.ParseError as error:
-        raise CatalogError(str(error)) from error
-    return [element for element in root.iter() if _local_name(element.tag) == "entry"]
-
-
-def _entry_field_maps(payload: bytes) -> list[dict[str, str]]:
-    return [_direct_children_text(element) for element in _entry_elements(payload)]
 
 
 def resolve_downloads(meta4_url: str, get: HttpGet = http_get) -> Resolution:
@@ -297,34 +242,6 @@ def format_size(size_bytes: int | None) -> str:
     return f"{value:.1f} GiB"
 
 
-def _parse_entry(element: ElementTree.Element) -> CatalogEntry | None:
-    fields = _direct_children_text(element)
-    uuid = fields.get("id", "")
-    uuid = uuid.removeprefix(UUID_PREFIX)
-    meta4_url, declared_size = _acquisition_link(element)
-    if not uuid or not meta4_url:
-        return None
-    filename = safe_filename(meta4_url)
-    if not filename:
-        return None
-    article_count_text = fields.get("articleCount", "")
-    tags = fields.get("tags", "")
-    return CatalogEntry(
-        uuid=uuid,
-        book_name=fields.get("name", ""),
-        filename=filename,
-        title=fields.get("title", ""),
-        description=fields.get("summary", ""),
-        language=fields.get("language", ""),
-        flavour=fields.get("flavour", ""),
-        tags=tags,
-        article_count=int(article_count_text) if article_count_text.isdigit() else None,
-        size_bytes=declared_size,
-        has_fulltext=FULLTEXT_TAG in tags,
-        meta4_url=meta4_url,
-    )
-
-
 def safe_filename(meta4_url: str) -> str:
     raw = urllib.parse.unquote(meta4_url.rsplit("/", 1)[-1]).removesuffix(META4_SUFFIX)
     if not raw or raw in (".", "..") or "/" in raw or "\\" in raw:
@@ -332,26 +249,50 @@ def safe_filename(meta4_url: str) -> str:
     return raw
 
 
-def _direct_children_text(element: ElementTree.Element) -> dict[str, str]:
-    fields: dict[str, str] = {}
-    for child in element:
-        name = _local_name(child.tag)
-        if name not in fields:
-            fields[name] = (child.text or "").strip()
-    return fields
+def _download(url: str, get: HttpGet) -> bytes:
+    try:
+        return get(url)
+    except urllib.error.URLError as error:
+        raise CatalogError(str(error)) from error
 
 
-def _acquisition_link(element: ElementTree.Element) -> tuple[str, int | None]:
-    for child in element:
-        if _local_name(child.tag) != "link":
-            continue
-        href = child.get("href", "")
-        is_zim = child.get("type") == ZIM_MEDIA_TYPE or href.endswith(META4_SUFFIX)
-        if not is_zim or not href:
-            continue
-        length = child.get("length", "")
-        return href, int(length) if length.isdigit() else None
-    return "", None
+def _feed(payload: bytes) -> list[OpdsEntry]:
+    try:
+        return parse_feed(payload)
+    except OpdsError as error:
+        raise CatalogError(str(error)) from error
+
+
+def _fields(payload: bytes) -> list[dict[str, str]]:
+    try:
+        return entry_fields(payload)
+    except OpdsError as error:
+        raise CatalogError(str(error)) from error
+
+
+def _from_opds(entry: OpdsEntry) -> CatalogEntry | None:
+    link = entry.acquisition((ZIM_MEDIA_TYPE,), (META4_SUFFIX,))
+    if not entry.entry_id or link is None:
+        return None
+    filename = safe_filename(link.href)
+    if not filename:
+        return None
+    article_count_text = entry.fields.get("articleCount", "")
+    tags = entry.fields.get("tags", "")
+    return CatalogEntry(
+        uuid=entry.entry_id,
+        book_name=entry.fields.get("name", ""),
+        filename=filename,
+        title=entry.title,
+        description=entry.summary,
+        language=entry.language,
+        flavour=entry.fields.get("flavour", ""),
+        tags=tags,
+        article_count=int(article_count_text) if article_count_text.isdigit() else None,
+        size_bytes=link.length,
+        has_fulltext=FULLTEXT_TAG in tags,
+        meta4_url=link.href,
+    )
 
 
 def _fallback_resolution(meta4_url: str) -> Resolution:
@@ -361,10 +302,6 @@ def _fallback_resolution(meta4_url: str) -> Resolution:
         mirrors=(meta4_url.removesuffix(META4_SUFFIX),),
         hash_missing=True,
     )
-
-
-def _local_name(tag: str) -> str:
-    return tag.rsplit("}", 1)[-1]
 
 
 def _priority(value: str | None) -> int:

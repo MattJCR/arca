@@ -31,6 +31,7 @@ $lang_selector
 <button type="button" role="tab" data-tab="status-section" data-family="content" aria-selected="true" data-i18n="admin.nav.status"></button>
 <button type="button" role="tab" data-tab="catalog-section" data-family="content" aria-selected="false" data-i18n="admin.nav.catalog"></button>
 <button type="button" role="tab" data-tab="downloads-section" data-family="content" aria-selected="false" data-i18n="admin.nav.downloads"></button>
+<button type="button" role="tab" data-tab="sources-section" data-family="content" aria-selected="false" data-i18n="admin.nav.sources"></button>
 <button type="button" role="tab" data-tab="content-section" data-family="content" aria-selected="false" data-i18n="admin.nav.content"></button>
 <button type="button" role="tab" data-tab="documents-section" data-family="content" aria-selected="false" data-i18n="admin.nav.documents"></button>
 <button type="button" role="tab" data-tab="scope-section" data-family="content" aria-selected="false" data-i18n="admin.nav.scope"></button>
@@ -64,6 +65,10 @@ $lang_selector
 <h2 data-i18n="admin.catalog.heading"></h2>
 <p class="note" data-i18n="admin.catalog.read_online_note"></p>
 <form id="catalog-form">
+<fieldset id="catalog-sources" class="field field-wide">
+<legend data-i18n="admin.catalog.sources_label"></legend>
+<div id="catalog-source-choices"></div>
+</fieldset>
 <div class="field field-wide">
 <label for="catalog-q" data-i18n="admin.catalog.query_label"></label>
 <input id="catalog-q" type="search" data-i18n-placeholder="admin.catalog.query_placeholder">
@@ -96,6 +101,7 @@ $lang_selector
 <table class="data" id="catalog-table">
 <thead><tr>
 <th data-sort="title" data-i18n="admin.catalog.col.title"></th>
+<th data-sort="source_name" data-i18n="admin.catalog.col.source"></th>
 <th data-sort="language" data-i18n="admin.catalog.col.language"></th>
 <th data-sort="flavour" data-i18n="admin.catalog.col.flavour"></th>
 <th data-sort="size_bytes" class="num" data-i18n="admin.catalog.col.size"></th>
@@ -109,6 +115,37 @@ $lang_selector
 </section>
 <section id="downloads-section" role="tabpanel">
 <h2 data-i18n="admin.downloads.heading"></h2>
+<h3 data-i18n="admin.downloads.manual_heading"></h3>
+<p class="note" data-i18n="admin.downloads.manual_note"></p>
+<form id="manual-form">
+<div class="field field-wide">
+<label for="manual-url" data-i18n="admin.downloads.manual_url_label"></label>
+<input id="manual-url" type="url" required data-i18n-placeholder="admin.downloads.manual_url_placeholder">
+</div>
+<div class="field">
+<label for="manual-name" data-i18n="admin.downloads.manual_name_label"></label>
+<input id="manual-name" type="text">
+</div>
+<div class="field">
+<label for="manual-hash" data-i18n="admin.downloads.manual_hash_label"></label>
+<input id="manual-hash" type="text">
+</div>
+<div class="field">
+<label for="manual-kind" data-i18n="admin.downloads.manual_kind_label"></label>
+<select id="manual-kind">
+<option value="book" data-i18n="admin.sources.item.book"></option>
+<option value="zim" data-i18n="admin.sources.item.zim"></option>
+</select>
+</div>
+<div class="field field-check">
+<input id="manual-index" type="checkbox">
+<label for="manual-index" data-i18n="admin.downloads.manual_index_label"></label>
+</div>
+<div class="field">
+<button type="submit" data-i18n="admin.downloads.manual_button"></button>
+</div>
+</form>
+<p id="manual-message" class="message" hidden aria-live="polite"></p>
 <p><button id="verify-button" data-i18n="admin.verify.button"></button></p>
 <p id="verify-message" class="message" hidden aria-live="polite"></p>
 <p id="downloads-message" class="message" hidden aria-live="polite"></p>
@@ -116,6 +153,7 @@ $lang_selector
 <table class="data" id="downloads-table">
 <thead><tr>
 <th data-i18n="admin.downloads.col.file"></th>
+<th data-i18n="admin.downloads.col.kind"></th>
 <th data-i18n="admin.downloads.col.progress"></th>
 <th data-i18n="admin.downloads.col.speed"></th>
 <th data-i18n="admin.downloads.col.mirror"></th>
@@ -125,6 +163,79 @@ $lang_selector
 <tbody id="downloads-body"></tbody>
 </table>
 </div>
+</section>
+<section id="sources-section" role="tabpanel">
+<h2 data-i18n="admin.sources.heading"></h2>
+<p class="note" data-i18n="admin.sources.note"></p>
+<p><button id="sources-probe-button" data-i18n="admin.sources.probe_button"></button></p>
+<p id="sources-message" class="message" hidden aria-live="polite"></p>
+<div class="table-scroll" id="sources-table-wrap" hidden>
+<table class="data" id="sources-table">
+<thead><tr>
+<th data-i18n="admin.sources.col.name"></th>
+<th data-i18n="admin.sources.col.kind"></th>
+<th data-i18n="admin.sources.col.item"></th>
+<th data-i18n="admin.sources.col.url"></th>
+<th data-i18n="admin.sources.col.state"></th>
+<th data-i18n="admin.sources.col.actions"></th>
+</tr></thead>
+<tbody id="sources-body"></tbody>
+</table>
+</div>
+<h3 data-i18n="admin.sources.add_heading"></h3>
+<p class="note" data-i18n="admin.sources.json_note"></p>
+<form id="source-form">
+<div class="field">
+<label for="source-id" data-i18n="admin.sources.field.source_id"></label>
+<input id="source-id" type="text" required>
+</div>
+<div class="field">
+<label for="source-name" data-i18n="admin.sources.field.name"></label>
+<input id="source-name" type="text">
+</div>
+<div class="field">
+<label for="source-kind" data-i18n="admin.sources.field.kind"></label>
+<select id="source-kind">
+<option value="opds" data-i18n="admin.sources.kind.opds"></option>
+<option value="json" data-i18n="admin.sources.kind.json"></option>
+<option value="manual" data-i18n="admin.sources.kind.manual"></option>
+</select>
+</div>
+<div class="field field-wide">
+<label for="source-url" data-i18n="admin.sources.field.base_url"></label>
+<input id="source-url" type="url">
+</div>
+<div class="field">
+<label for="source-path" data-i18n="admin.sources.field.entries_path"></label>
+<input id="source-path" type="text">
+</div>
+<div class="field">
+<label for="source-query" data-i18n="admin.sources.field.query_param"></label>
+<input id="source-query" type="text">
+</div>
+<div class="field">
+<label for="source-language" data-i18n="admin.sources.field.language_param"></label>
+<input id="source-language" type="text">
+</div>
+<div class="field">
+<label for="source-media" data-i18n="admin.sources.field.media_type"></label>
+<input id="source-media" type="text">
+</div>
+<div class="field">
+<label for="source-items-key" data-i18n="admin.sources.field.items_key"></label>
+<input id="source-items-key" type="text">
+</div>
+<div class="field">
+<label for="source-item-kind" data-i18n="admin.sources.field.item_kind"></label>
+<select id="source-item-kind">
+<option value="book" data-i18n="admin.sources.item.book"></option>
+<option value="zim" data-i18n="admin.sources.item.zim"></option>
+</select>
+</div>
+<div class="field">
+<button type="submit" data-i18n="admin.sources.add_button"></button>
+</div>
+</form>
 </section>
 <section id="content-section" role="tabpanel">
 <h2 data-i18n="admin.content.heading"></h2>

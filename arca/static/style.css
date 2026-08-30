@@ -983,6 +983,8 @@ form#catalog-form,
 form#hub-form,
 form#llama-new-profile,
 form#llama-commit-form,
+form#manual-form,
+form#source-form,
 form#documents-upload {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
@@ -994,8 +996,52 @@ form#catalog-form .field-wide,
 form#hub-form .field-wide,
 form#llama-new-profile .field-wide,
 form#llama-commit-form .field-wide,
+form#manual-form .field-wide,
+form#source-form .field-wide,
 form#documents-upload .field-wide {
   grid-column: 1 / -1;
+}
+
+fieldset#catalog-sources {
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.4rem 0.7rem 0.6rem;
+}
+
+fieldset#catalog-sources legend {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding: 0 0.3rem;
+}
+
+#catalog-source-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.1rem;
+}
+
+.field-check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.field-check span,
+.field-check label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+
+.field-check input {
+  width: auto;
+  flex: none;
 }
 
 input,

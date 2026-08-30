@@ -15,14 +15,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from arca.catalog import (
-    ALLOWED_URL_SCHEMES,
-    USER_AGENT,
-    CatalogEntry,
-    Resolution,
-    record_zim_entry,
-)
+from arca.catalog import CatalogEntry, Resolution, record_zim_entry
 from arca.db import open_library_rw, record_event, utc_now_iso
+from arca.opds import ALLOWED_URL_SCHEMES, USER_AGENT
 
 PART_SUFFIX = ".part"
 SHA256_SUFFIX = ".sha256"
@@ -38,13 +33,21 @@ DEFAULT_MAX_ATTEMPTS = 5
 DEFAULT_CONCURRENCY = 2
 REQUEST_TIMEOUT_SECONDS = 30
 CANCELLED_ERROR = "cancelled"
+SHA256_LENGTH = 64
+SHA256_ALPHABET = "0123456789abcdef"
 HASH_MISMATCH_ERROR = "hash mismatch"
 
 ACTIVE_STATUSES = ("queued", "running", "paused", "verifying")
+ZIM_SUBDIR = "zim"
+BOOKS_SUBDIR = "books"
+KIND_ZIM = "zim"
+KIND_BOOK = "book"
+AFTER_INDEX = "index"
 
 ProgressCallback = Callable[["ProgressUpdate"], None]
 SleepFunction = Callable[[float], None]
 ReplaceHook = Callable[[Path], None]
+DoneHook = Callable[["QueueResult"], None]
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,8 @@ class QueueResult:
     ref: str
     filename: str
     status: str
+    dest_path: str = ""
+    after_done: str = ""
 
 
 class _DownloadInterrupted(Exception):
@@ -81,6 +86,7 @@ def enqueue(
     size_bytes: int | None,
     sha256: str,
     mirrors: tuple[str, ...],
+    after_done: str = "",
 ) -> int:
     existing = connection.execute(
         "SELECT id, status FROM downloads WHERE kind = ? AND ref = ? ORDER BY id DESC LIMIT 1",
@@ -92,10 +98,21 @@ def enqueue(
     cursor = connection.execute(
         """
         INSERT INTO downloads (
-            kind, ref, filename, dest_path, size_bytes, sha256, mirrors, status, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?)
+            kind, ref, filename, dest_path, size_bytes, sha256, mirrors, status,
+            after_done, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)
         """,
-        (kind, ref, filename, str(dest_path), size_bytes, sha256, json.dumps(list(mirrors)), now),
+        (
+            kind,
+            ref,
+            filename,
+            str(dest_path),
+            size_bytes,
+            sha256,
+            json.dumps(list(mirrors)),
+            after_done,
+            now,
+        ),
     )
     connection.commit()
     return int(cursor.lastrowid or 0)
@@ -112,15 +129,77 @@ def queue_zim_download(
     record_zim_entry(connection, entry)
     download_id = enqueue(
         connection,
-        kind="zim",
+        kind=KIND_ZIM,
         ref=entry.uuid,
         filename=entry.filename,
-        dest_path=root / "zim" / entry.filename,
+        dest_path=root / ZIM_SUBDIR / entry.filename,
         size_bytes=resolution.size_bytes or entry.size_bytes,
         sha256=resolution.sha256,
         mirrors=resolution.mirrors,
     )
     record_event(connection, "info", "fetch", f"queued download: {entry.filename}")
+    return download_id
+
+
+def queue_book_download(
+    connection: sqlite3.Connection,
+    root: Path,
+    *,
+    ref: str,
+    filename: str,
+    resolution: Resolution,
+    after_done: str = "",
+) -> int:
+    if not filename or filename != Path(filename).name:
+        raise ValueError(f"unsafe filename: {filename}")
+    download_id = enqueue(
+        connection,
+        kind=KIND_BOOK,
+        ref=ref,
+        filename=filename,
+        dest_path=root / BOOKS_SUBDIR / filename,
+        size_bytes=resolution.size_bytes,
+        sha256=resolution.sha256,
+        mirrors=resolution.mirrors,
+        after_done=after_done,
+    )
+    record_event(connection, "info", "fetch", f"queued download: {filename}")
+    return download_id
+
+
+def queue_manual_download(
+    connection: sqlite3.Connection,
+    root: Path,
+    *,
+    url: str,
+    filename: str,
+    item_kind: str,
+    sha256: str,
+    after_done: str = "",
+) -> int:
+    resolution = Resolution(size_bytes=None, sha256=sha256, mirrors=(url,), hash_missing=not sha256)
+    if item_kind != KIND_ZIM:
+        return queue_book_download(
+            connection,
+            root,
+            ref=f"manual:{url}",
+            filename=filename,
+            resolution=resolution,
+            after_done=after_done,
+        )
+    if not filename or filename != Path(filename).name:
+        raise ValueError(f"unsafe filename: {filename}")
+    download_id = enqueue(
+        connection,
+        kind=KIND_ZIM,
+        ref=f"manual:{url}",
+        filename=filename,
+        dest_path=root / ZIM_SUBDIR / filename,
+        size_bytes=None,
+        sha256=sha256,
+        mirrors=resolution.mirrors,
+    )
+    record_event(connection, "info", "fetch", f"queued download: {filename}")
     return download_id
 
 
@@ -253,6 +332,7 @@ def run_queue(
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     sleep: SleepFunction = time.sleep,
     before_replace: ReplaceHook | None = None,
+    on_done: DoneHook | None = None,
 ) -> list[QueueResult]:
     results: list[QueueResult] = []
     results_lock = threading.Lock()
@@ -281,6 +361,7 @@ def run_queue(
                 if result is not None:
                     with results_lock:
                         results.append(result)
+                    _run_hook(connection, on_done, result)
         finally:
             connection.close()
 
@@ -300,11 +381,13 @@ class QueueWorker:
         concurrency: int,
         max_attempts: int,
         before_replace: ReplaceHook | None = None,
+        on_done: DoneHook | None = None,
     ) -> None:
         self._db_path = db_path
         self._concurrency = concurrency
         self._max_attempts = max_attempts
         self._before_replace = before_replace
+        self._on_done = on_done
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
 
@@ -325,7 +408,12 @@ class QueueWorker:
             concurrency=self._concurrency,
             max_attempts=self._max_attempts,
             before_replace=self._before_replace,
+            on_done=self._on_done,
         )
+
+
+def is_sha256(value: str) -> bool:
+    return len(value) == SHA256_LENGTH and all(character in SHA256_ALPHABET for character in value)
 
 
 def file_sha256(path: Path) -> str:
@@ -373,7 +461,7 @@ def verify_library(connection: sqlite3.Connection, root: Path) -> list[VerifyOut
 def _verify_zim(connection: sqlite3.Connection, root: Path, row: sqlite3.Row) -> VerifyOutcome:
     uuid = str(row["uuid"])
     filename = str(row["filename"])
-    path = root / "zim" / filename
+    path = root / ZIM_SUBDIR / filename
     if not path.is_file():
         _set_zim_status(connection, uuid, "missing")
         return VerifyOutcome(uuid, filename, "missing")
@@ -569,6 +657,23 @@ def _fail(connection: sqlite3.Connection, download_id: int, error: str) -> str:
     return "failed"
 
 
+def _run_hook(
+    connection: sqlite3.Connection, on_done: DoneHook | None, result: QueueResult
+) -> None:
+    if on_done is None:
+        return
+    try:
+        on_done(result)
+    except Exception as error:
+        record_event(
+            connection,
+            "error",
+            "fetch",
+            f"post-download step failed: {result.filename}",
+            f"{type(error).__name__}: {error}",
+        )
+
+
 def _finalize(connection: sqlite3.Connection, download_id: int, status: str) -> QueueResult | None:
     row = get_download(connection, download_id)
     if row is None:
@@ -579,8 +684,10 @@ def _finalize(connection: sqlite3.Connection, download_id: int, status: str) -> 
         ref=str(row["ref"]),
         filename=str(row["filename"]),
         status=status,
+        dest_path=str(row["dest_path"]),
+        after_done=str(row["after_done"] or ""),
     )
-    if result.kind == "zim" and status == "done":
+    if result.kind == KIND_ZIM and status == "done":
         connection.execute(
             """
             UPDATE zim_files SET status = 'present', sha256 = ?, size_bytes = ?

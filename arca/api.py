@@ -11,7 +11,7 @@ from pathlib import Path
 from secrets import token_urlsafe
 from string import Template
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from uuid import uuid4
 
 from fastapi import Body, FastAPI, Request, Response
@@ -25,15 +25,11 @@ from fastapi.staticfiles import StaticFiles
 
 from arca import __version__
 from arca.catalog import (
-    CatalogEntry,
     CatalogError,
-    entries_url,
+    Resolution,
     fetch_categories,
-    fetch_entries,
     fetch_languages,
     format_size,
-    reader_url,
-    resolve_entry,
 )
 from arca.chat import (
     ChatEngine,
@@ -56,6 +52,7 @@ from arca.config import (
     config_path,
     library_db_path,
     log_dir,
+    save_sources,
     scan_root,
     session_dir,
 )
@@ -72,9 +69,15 @@ from arca.diagnostics import IntegrityItem, render, run_checks, verify_integrity
 from arca.embed import EmbeddingClient, EmbeddingError
 from arca.engine import EngineBringup
 from arca.fetch import (
+    AFTER_INDEX,
+    KIND_BOOK,
+    QueueResult,
     QueueWorker,
     enqueue,
+    is_sha256,
     list_downloads,
+    queue_book_download,
+    queue_manual_download,
     queue_zim_download,
     request_cancel,
     request_delete,
@@ -165,6 +168,7 @@ from arca.llama import (
     vision_support,
 )
 from arca.manual import list_pages, render_document
+from arca.opds import ALLOWED_URL_SCHEMES
 from arca.pipeline import (
     DEFAULT_DOC_SCOPE,
     DEFAULT_ZIM_SCOPE,
@@ -177,6 +181,7 @@ from arca.pipeline import (
     default_ocr,
     estimate_scope,
     ingest_documents,
+    ingest_downloaded_book,
     ingest_vendor,
     provisional_shards,
     read_scope,
@@ -198,6 +203,24 @@ from arca.search import (
     write_search_settings,
 )
 from arca.shards import STATE_INCOMPATIBLE, Shard, ShardLibrary, ShardState
+from arca.sources import (
+    ITEM_KINDS,
+    ITEM_ZIM,
+    KIWIX_SOURCE_ID,
+    RemoteItem,
+    Source,
+    SourceError,
+    SourceRegistry,
+    catalog_entry,
+    filename_from_url,
+    find_item,
+    item_payload,
+    parse_source,
+    probe,
+    resolve,
+    state_payload,
+)
+from arca.sources import search as search_source
 from arca.talk import (
     STATE_UNAVAILABLE,
     CancelBoard,
@@ -315,11 +338,17 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
     embeddings = EmbeddingClient(
         base_url=config.embed_url, model=config.embed_model, dims=config.embed_dims
     )
+    registry = SourceRegistry(config.sources)
+
+    def after_download(result: QueueResult) -> None:
+        _index_book(root, embeddings, shard_library, result)
+
     worker = QueueWorker(
         library_db_path(root),
         concurrency=config.download_concurrency,
         max_attempts=config.download_max_attempts,
         before_replace=_releaser(zim_library),
+        on_done=after_download,
     )
     bringup = EngineBringup(root, config, llama, worker, embed_server=embed_server)
     binaries: dict[str, BinaryInfo] = {}
@@ -384,7 +413,7 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
     @app.get("/api/diagnostics")
     def api_diagnostics(lang: str | None = None) -> JSONResponse:
         catalog = _catalog_for(config, lang)
-        results = run_checks(root, config, server=llama)
+        results = run_checks(root, config, server=llama, sources=registry.states())
         payload = {
             "language": catalog.language,
             "checks": [render(result, catalog) for result in results],
@@ -393,7 +422,7 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
 
     @app.get("/api/admin/status")
     def api_admin_status(lang: str | None = None) -> JSONResponse:
-        return JSONResponse(_admin_status(root, config, shard_library, llama))
+        return JSONResponse(_admin_status(root, config, shard_library, llama, registry))
 
     @app.get("/api/search")
     def api_search(
@@ -686,22 +715,89 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
             }
         )
 
+    @app.get("/api/admin/sources")
+    def api_admin_sources() -> JSONResponse:
+        return JSONResponse(_sources_payload(registry))
+
+    @app.put("/api/admin/sources")
+    def api_admin_set_sources(payload: dict[str, Any] = JSON_BODY) -> JSONResponse:
+        declared = payload.get("sources")
+        if not isinstance(declared, list) or not declared:
+            return JSONResponse(
+                {"error": "at least one source is required", "code": "bad_source"}, status_code=400
+            )
+        parsed: list[Source] = []
+        seen: set[str] = set()
+        for position, item in enumerate(declared):
+            source = parse_source(item)
+            if source is None or source.source_id in seen:
+                return JSONResponse(
+                    {"error": f"invalid source at position {position}", "code": "bad_source"},
+                    status_code=400,
+                )
+            seen.add(source.source_id)
+            parsed.append(source)
+        sources = tuple(parsed)
+        try:
+            save_sources(root, sources)
+        except OSError as error:
+            return JSONResponse({"error": str(error), "code": "config_write"}, status_code=500)
+        registry.replace(sources)
+        connection = open_library_rw(library_db_path(root))
+        try:
+            record_event(connection, "info", "sources", f"sources declared: {len(sources)}")
+        finally:
+            connection.close()
+        return JSONResponse(_sources_payload(registry))
+
+    @app.post("/api/admin/sources/probe")
+    def api_admin_probe_sources() -> JSONResponse:
+        for source in registry.enabled():
+            if not source.searchable:
+                continue
+            try:
+                probe(source)
+            except SourceError as error:
+                registry.observe(source.source_id, False, str(error))
+            else:
+                registry.observe(source.source_id, True)
+        return JSONResponse(_sources_payload(registry))
+
     @app.get("/api/admin/catalog")
     def api_admin_catalog(
-        q: str = "", lang: str = "", category: str = "", name: str = ""
+        q: str = "", lang: str = "", category: str = "", sources: str = ""
     ) -> JSONResponse:
-        try:
-            entries = fetch_entries(entries_url(query=q, lang=lang, category=category, name=name))
-        except CatalogError as error:
-            return JSONResponse({"error": str(error), "code": "unreachable"}, status_code=502)
+        chosen = _chosen_sources(registry, sources)
+        if not chosen:
+            return JSONResponse(
+                {"error": "no searchable source selected", "code": "no_source"}, status_code=400
+            )
         local = _local_zim_filenames(root)
-        return JSONResponse({"entries": [_entry_payload(entry, local) for entry in entries]})
+        gathered: list[list[dict[str, Any]]] = []
+        failures = 0
+        for source in chosen:
+            try:
+                items = search_source(source, query=q, language=lang, category=category)
+            except SourceError as error:
+                registry.observe(source.source_id, False, str(error))
+                failures += 1
+                continue
+            registry.observe(source.source_id, True)
+            gathered.append([item_payload(item, source.name, local) for item in items])
+        if failures == len(chosen):
+            return JSONResponse(
+                {"error": _first_detail(registry, chosen), "code": "unreachable"}, status_code=502
+            )
+        return JSONResponse({"entries": _interleave(gathered), **_sources_payload(registry)})
 
     @app.get("/api/admin/catalog/filters")
-    def api_admin_catalog_filters() -> JSONResponse:
+    def api_admin_catalog_filters(source: str = "") -> JSONResponse:
+        chosen = registry.get(source) if source else _kiwix_source(registry)
+        if chosen is None or not chosen.is_kiwix:
+            return JSONResponse({"categories": [], "languages": []})
         try:
-            categories = fetch_categories()
-            languages = fetch_languages()
+            categories = fetch_categories(chosen.base_url)
+            languages = fetch_languages(chosen.base_url)
         except CatalogError as error:
             return JSONResponse({"error": str(error), "code": "unreachable"}, status_code=502)
         return JSONResponse(
@@ -737,20 +833,90 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
 
     @app.post("/api/admin/downloads")
     def api_admin_enqueue(payload: dict[str, Any] = JSON_BODY) -> JSONResponse:
-        uuid = str(payload.get("uuid", ""))
-        if not uuid:
+        item_id = str(payload.get("uuid", ""))
+        if not item_id:
             return JSONResponse({"error": "uuid required"}, status_code=400)
+        source = registry.get(str(payload.get("source_id", "")) or KIWIX_SOURCE_ID)
+        if source is None or not source.searchable:
+            return JSONResponse(
+                {"error": "unknown source", "code": "unknown_source"}, status_code=404
+            )
         try:
-            entry, resolution = resolve_entry(uuid)
-        except CatalogError as error:
+            items = search_source(
+                source,
+                query=str(payload.get("q", "")),
+                language=str(payload.get("lang", "")),
+                category=str(payload.get("category", "")),
+            )
+            item = find_item(items, item_id)
+            if item is None:
+                return JSONResponse(
+                    {"error": f"unknown item: {item_id}", "code": "unknown_item"}, status_code=404
+                )
+            resolution = resolve(source, item)
+        except SourceError as error:
+            registry.observe(source.source_id, False, str(error))
             return JSONResponse({"error": str(error), "code": "unreachable"}, status_code=502)
+        registry.observe(source.source_id, True)
+        after = AFTER_INDEX if payload.get("index") is True else ""
         connection = open_library_rw(library_db_path(root))
         try:
-            download_id = queue_zim_download(connection, root, entry, resolution)
+            download_id = _queue_item(connection, root, source, item, resolution, after)
+        except ValueError as error:
+            return JSONResponse({"error": str(error), "code": "bad_url"}, status_code=400)
         finally:
             connection.close()
         worker.kick()
-        return JSONResponse({"id": download_id, "hash_missing": resolution.hash_missing})
+        return JSONResponse(
+            {
+                "id": download_id,
+                "hash_missing": resolution.hash_missing,
+                "filename": item.filename,
+            }
+        )
+
+    @app.post("/api/admin/downloads/manual")
+    def api_admin_enqueue_manual(payload: dict[str, Any] = JSON_BODY) -> JSONResponse:
+        url = str(payload.get("url", "")).strip()
+        if urlsplit(url).scheme not in ALLOWED_URL_SCHEMES:
+            return JSONResponse(
+                {"error": f"unsupported url: {url}", "code": "bad_url"}, status_code=400
+            )
+        filename = Path(str(payload.get("name", "")).strip()).name or filename_from_url(url)
+        if not filename or filename != Path(filename).name:
+            return JSONResponse(
+                {"error": f"no usable file name in {url}", "code": "bad_url"}, status_code=400
+            )
+        sha256 = str(payload.get("sha256", "")).strip().lower()
+        if sha256 and not is_sha256(sha256):
+            return JSONResponse(
+                {"error": "sha256 must be 64 hexadecimal characters", "code": "bad_hash"},
+                status_code=400,
+            )
+        item_kind = str(payload.get("item_kind", "")) or KIND_BOOK
+        if item_kind not in ITEM_KINDS:
+            return JSONResponse(
+                {"error": f"unknown item kind: {item_kind}", "code": "bad_item_kind"},
+                status_code=400,
+            )
+        after = AFTER_INDEX if payload.get("index") is True else ""
+        connection = open_library_rw(library_db_path(root))
+        try:
+            download_id = queue_manual_download(
+                connection,
+                root,
+                url=url,
+                filename=filename,
+                item_kind=item_kind,
+                sha256=sha256,
+                after_done=after,
+            )
+        except ValueError as error:
+            return JSONResponse({"error": str(error), "code": "bad_url"}, status_code=400)
+        finally:
+            connection.close()
+        worker.kick()
+        return JSONResponse({"id": download_id, "hash_missing": not sha256, "filename": filename})
 
     @app.post("/api/admin/downloads/{download_id}/{action}")
     def api_admin_download_action(download_id: int, action: str) -> JSONResponse:
@@ -1334,7 +1500,11 @@ def _embedded_i18n(catalog: Catalog, *prefixes: str) -> str:
 
 
 def _admin_status(
-    root: Path, config: ArcaConfig, library: ShardLibrary, server: LlamaServer
+    root: Path,
+    config: ArcaConfig,
+    library: ShardLibrary,
+    server: LlamaServer,
+    registry: SourceRegistry,
 ) -> dict[str, Any]:
     scan = scan_root(root)
     states = library.refresh()
@@ -1369,7 +1539,7 @@ def _admin_status(
             events = []
         finally:
             connection.close()
-    results = run_checks(root, config, server=server)
+    results = run_checks(root, config, server=server, sources=registry.states())
     return {
         "free_bytes": disk.free if disk else 0,
         "total_bytes": disk.total if disk else 0,
@@ -1397,24 +1567,82 @@ def _local_zim_filenames(root: Path) -> dict[str, str]:
     return {str(row["book_name"]): str(row["filename"]) for row in rows}
 
 
-def _entry_payload(entry: CatalogEntry, local: dict[str, str]) -> dict[str, Any]:
-    local_filename = local.get(entry.book_name, "")
+def _sources_payload(registry: SourceRegistry) -> dict[str, Any]:
+    declared = {source.source_id: asdict(source) for source in registry.all()}
     return {
-        "uuid": entry.uuid,
-        "book_name": entry.book_name,
-        "filename": entry.filename,
-        "title": entry.title,
-        "description": entry.description,
-        "language": entry.language,
-        "flavour": entry.flavour,
-        "size_bytes": entry.size_bytes,
-        "size_human": format_size(entry.size_bytes),
-        "article_count": entry.article_count,
-        "has_fulltext": entry.has_fulltext,
-        "in_library": bool(local_filename),
-        "is_update": bool(local_filename) and local_filename != entry.filename,
-        "reader_url": reader_url(entry),
+        "sources": [
+            {**declared.get(state.source_id, {}), **state_payload(state)}
+            for state in registry.states()
+        ]
     }
+
+
+def _chosen_sources(registry: SourceRegistry, selection: str) -> list[Source]:
+    wanted = {part for part in selection.split(",") if part}
+    return [
+        source
+        for source in registry.enabled()
+        if source.searchable and (not wanted or source.source_id in wanted)
+    ]
+
+
+def _kiwix_source(registry: SourceRegistry) -> Source | None:
+    for source in registry.enabled():
+        if source.is_kiwix:
+            return source
+    return None
+
+
+def _first_detail(registry: SourceRegistry, chosen: list[Source]) -> str:
+    wanted = {source.source_id for source in chosen}
+    for state in registry.states():
+        if state.source_id in wanted and state.detail:
+            return state.detail
+    return "no source answered"
+
+
+def _interleave(gathered: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    mixed: list[dict[str, Any]] = []
+    for position in range(max((len(group) for group in gathered), default=0)):
+        for group in gathered:
+            if position < len(group):
+                entry = group[position]
+                mixed.append({**entry, "size_human": format_size(entry["size_bytes"])})
+    return mixed
+
+
+def _queue_item(
+    connection: sqlite3.Connection,
+    root: Path,
+    source: Source,
+    item: RemoteItem,
+    resolution: Resolution,
+    after: str,
+) -> int:
+    if source.item_kind == ITEM_ZIM:
+        return queue_zim_download(connection, root, catalog_entry(item), resolution)
+    return queue_book_download(
+        connection,
+        root,
+        ref=item.ref,
+        filename=item.filename,
+        resolution=resolution,
+        after_done=after,
+    )
+
+
+def _index_book(
+    root: Path, client: EmbeddingClient, library: ShardLibrary, result: QueueResult
+) -> None:
+    if result.kind != KIND_BOOK or result.status != "done" or result.after_done != AFTER_INDEX:
+        return
+    connection = open_library_rw(library_db_path(root))
+    try:
+        report = ingest_downloaded_book(root, connection, Path(result.dest_path), client)
+    finally:
+        connection.close()
+    if report is not None:
+        library.refresh()
 
 
 def _download_payload(row: sqlite3.Row) -> dict[str, Any]:
@@ -1438,6 +1666,7 @@ def _download_payload(row: sqlite3.Row) -> dict[str, Any]:
         "size_human": format_size(row["size_bytes"]),
         "done_human": format_size(int(row["bytes_done"] or 0)),
         "mirror": mirror,
+        "after_done": str(row["after_done"] or ""),
         "attempts": int(row["attempts"] or 0),
         "last_error": str(row["last_error"] or ""),
         "updated_at": str(row["updated_at"] or ""),
