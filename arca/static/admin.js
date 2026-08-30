@@ -6,7 +6,7 @@ const STATUS_POLL_MS = 15000;
 const ENGINE_POLL_MS = 4000;
 const speedSnapshots = new Map();
 const catalogState = { entries: [], sortKey: "size_bytes", sortDir: -1, flavour: "" };
-const sourcesState = { sources: [], selected: new Set() };
+const sourcesState = { sources: [], selected: new Set(), editing: "" };
 
 function t(key, params) {
   let template = I18N[key];
@@ -298,6 +298,13 @@ function renderSourceChoices() {
   applyFilterVisibility();
 }
 
+function listingUrl(source) {
+  if (!source.base_url) {
+    return "-";
+  }
+  return source.base_url + (source.entries_path || "");
+}
+
 function sourceRow(source) {
   const row = document.createElement("tr");
   const name = cell(source.name);
@@ -311,10 +318,14 @@ function sourceRow(source) {
     name,
     cell(t("admin.sources.kind." + source.kind)),
     cell(t("admin.sources.item." + source.item_kind)),
-    cell(source.base_url || "-"),
+    cell(listingUrl(source)),
     cell(t("admin.sources.state." + source.status))
   );
   const actions = document.createElement("td");
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.textContent = t("admin.sources.edit");
+  edit.addEventListener("click", () => editSource(source.source_id));
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.textContent = t(source.enabled ? "admin.sources.disable" : "admin.sources.enable");
@@ -323,8 +334,11 @@ function sourceRow(source) {
   remove.type = "button";
   remove.textContent = t("admin.sources.remove");
   remove.addEventListener("click", () => removeSource(source.source_id));
-  actions.append(toggle, remove);
+  actions.append(edit, toggle, remove);
   row.append(actions);
+  if (source.source_id === sourcesState.editing) {
+    row.classList.add("editing");
+  }
   if (source.detail) {
     row.title = source.detail;
   }
@@ -447,11 +461,9 @@ function removeSource(id) {
   saveSources(declared);
 }
 
-async function addSource(event) {
-  event.preventDefault();
+function formValues() {
   const value = (id) => document.getElementById(id).value.trim();
-  const declared = sourcesState.sources.map(declaration);
-  declared.push({
+  return {
     source_id: value("source-id"),
     name: value("source-name") || value("source-id"),
     kind: document.getElementById("source-kind").value,
@@ -461,11 +473,71 @@ async function addSource(event) {
     language_param: value("source-language"),
     media_type: value("source-media"),
     items_key: value("source-items-key"),
+    probe_query: value("source-probe-query"),
+    requires_query: document.getElementById("source-requires-query").checked,
     item_kind: document.getElementById("source-item-kind").value,
-    enabled: true,
-  });
-  if (await saveSources(declared)) {
+  };
+}
+
+function fillForm(source) {
+  const set = (id, text) => {
+    document.getElementById(id).value = text || "";
+  };
+  set("source-id", source.source_id);
+  set("source-name", source.name);
+  set("source-url", source.base_url);
+  set("source-path", source.entries_path);
+  set("source-query", source.query_param);
+  set("source-language", source.language_param);
+  set("source-media", source.media_type);
+  set("source-items-key", source.items_key);
+  set("source-probe-query", source.probe_query);
+  document.getElementById("source-kind").value = source.kind || "opds";
+  document.getElementById("source-item-kind").value = source.item_kind || "book";
+  document.getElementById("source-requires-query").checked = source.requires_query === true;
+}
+
+function editingMode(source) {
+  sourcesState.editing = source ? source.source_id : "";
+  const heading = document.getElementById("source-form-heading");
+  const submit = document.getElementById("source-submit");
+  const cancel = document.getElementById("source-cancel");
+  heading.textContent = t(source ? "admin.sources.edit_heading" : "admin.sources.add_heading");
+  submit.textContent = t(source ? "admin.sources.save_button" : "admin.sources.add_button");
+  cancel.hidden = !source;
+  if (source) {
+    fillForm(source);
+  } else {
     document.getElementById("source-form").reset();
+  }
+  renderSources();
+}
+
+function editSource(id) {
+  const source = sourcesState.sources.find((candidate) => candidate.source_id === id);
+  if (!source) {
+    return;
+  }
+  editingMode(source);
+  showMessage("sources-message", t("admin.sources.editing", { name: source.name }));
+  document.getElementById("source-id").focus();
+}
+
+async function addSource(event) {
+  event.preventDefault();
+  const edited = sourcesState.editing;
+  const values = formValues();
+  const declared = sourcesState.sources.map((source) => {
+    if (source.source_id !== edited) {
+      return declaration(source);
+    }
+    return { ...declaration(source), ...values };
+  });
+  if (!edited) {
+    declared.push({ ...values, enabled: true });
+  }
+  if (await saveSources(declared)) {
+    editingMode(null);
   }
 }
 
@@ -1026,6 +1098,10 @@ document
   .addEventListener("click", downloadVendorPieces);
 document.getElementById("manual-form").addEventListener("submit", addManualDownload);
 document.getElementById("source-form").addEventListener("submit", addSource);
+document.getElementById("source-cancel").addEventListener("click", () => {
+  editingMode(null);
+  showMessage("sources-message", "");
+});
 document.getElementById("sources-probe-button").addEventListener("click", probeSources);
 loadStatus();
 loadSources();

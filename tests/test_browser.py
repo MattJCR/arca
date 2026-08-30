@@ -455,3 +455,33 @@ def test_a_source_declared_in_the_panel_shows_up_where_it_is_searched(
     fresh_page.click("button[data-tab='catalog-section']")
     fresh_page.wait_for_selector("#catalog-source-choices input")
     assert "A BOOKS CATALOGUE" in fresh_page.inner_text("#catalog-sources").upper()
+
+
+def test_an_existing_source_can_be_read_and_edited_from_the_panel(
+    fresh_page: Page, server: Server, library: Path
+) -> None:
+    fresh_page.goto(f"{server.url}/admin", wait_until="domcontentloaded")
+    fresh_page.click("button[data-tab='sources-section']")
+    fresh_page.wait_for_selector("#sources-body tr")
+    rows = fresh_page.locator("#sources-body tr")
+    gutenberg = rows.filter(has_text="Gutenberg").first
+    assert "/ebooks/search.opds/" in gutenberg.inner_text()
+
+    gutenberg.get_by_role("button", name=load_catalog("es").text("admin.sources.edit")).click()
+    fresh_page.wait_for_function("document.getElementById('source-id').value === 'gutenberg'")
+    assert fresh_page.input_value("#source-media") == "application/epub+zip"
+    assert fresh_page.is_checked("#source-requires-query")
+    assert not fresh_page.is_hidden("#source-cancel")
+
+    fresh_page.fill("#source-name", "Gutenberg, renombrada")
+    fresh_page.click("#source-submit")
+    fresh_page.wait_for_function(
+        "document.getElementById('sources-body').innerText.includes('renombrada')"
+    )
+    assert fresh_page.is_hidden("#source-cancel")
+
+    written = json.loads((library / "arca.json").read_text("utf-8"))
+    edited = next(item for item in written["sources"] if item["source_id"] == "gutenberg")
+    assert edited["name"] == "Gutenberg, renombrada"
+    assert edited["acquisition_via"] == "subsection"
+    assert edited["item_pattern"]

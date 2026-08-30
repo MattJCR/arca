@@ -182,7 +182,7 @@ $lang_selector
 <tbody id="sources-body"></tbody>
 </table>
 </div>
-<h3 data-i18n="admin.sources.add_heading"></h3>
+<h3 id="source-form-heading" data-i18n="admin.sources.add_heading"></h3>
 <p class="note" data-i18n="admin.sources.json_note"></p>
 <form id="source-form">
 <div class="field">
@@ -226,6 +226,14 @@ $lang_selector
 <input id="source-items-key" type="text">
 </div>
 <div class="field">
+<label for="source-probe-query" data-i18n="admin.sources.field.probe_query"></label>
+<input id="source-probe-query" type="text">
+</div>
+<div class="field field-check">
+<input id="source-requires-query" type="checkbox">
+<label for="source-requires-query" data-i18n="admin.sources.field.requires_query"></label>
+</div>
+<div class="field">
 <label for="source-item-kind" data-i18n="admin.sources.field.item_kind"></label>
 <select id="source-item-kind">
 <option value="book" data-i18n="admin.sources.item.book"></option>
@@ -233,7 +241,8 @@ $lang_selector
 </select>
 </div>
 <div class="field">
-<button type="submit" data-i18n="admin.sources.add_button"></button>
+<button type="submit" id="source-submit" data-i18n="admin.sources.add_button"></button>
+<button type="button" id="source-cancel" hidden data-i18n="admin.sources.cancel"></button>
 </div>
 </form>
 </section>

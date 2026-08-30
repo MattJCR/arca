@@ -1002,6 +1002,11 @@ form#documents-upload .field-wide {
   grid-column: 1 / -1;
 }
 
+table.data tr.editing {
+  outline: 2px solid var(--accent, currentColor);
+  outline-offset: -2px;
+}
+
 fieldset#catalog-sources {
   border: 1px solid var(--rule);
   border-radius: 3px;

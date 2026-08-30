@@ -26,11 +26,20 @@ Ninguna de las tres nuevas publica hash, así que lo que venga de ellas queda ma
 ARCA_LIVE=1 pytest tests/test_live_sources.py
 ```
 
-### Cómo se declara una desde el panel
+### Cómo se declara y se edita una desde el panel
 
-`/admin` → familia **Contenido** → pestaña **Fuentes** → «Añadir una fuente». Solo el identificador es obligatorio, y la dirección base para todo lo que no sea `manual`. Al guardar se reescribe la clave `sources` de `arca.json` y la fuente aparece ya en las casillas del buscador. El botón **Comprobar fuentes** pregunta a cada una si responde.
+`/admin` → familia **Contenido** → pestaña **Fuentes**. La tabla lista lo que hay con su tipo, su contenido, **la dirección del listado** (base + ruta, que es la que se consulta de verdad) y su estado. Cada fila tiene tres acciones: **Editar**, **Activar/Desactivar** y **Quitar**. El botón **Comprobar fuentes** pregunta a cada una si responde.
 
-El formulario no expone tres cosas, que se editan a mano en `arca.json` porque son de dialecto y no de uso diario: `flavour` (el sabor `kiwix`), `suffixes` (elegir el enlace por extensión en vez de por tipo) y `fields` (la correspondencia de campos de una fuente JSON).
+- **Añadir**: rellena el formulario de abajo. Solo el identificador es obligatorio, y la dirección base para todo lo que no sea `manual`.
+- **Editar**: carga esa fuente en el mismo formulario, que pasa a «Guardar cambios» y ofrece cancelar. Los campos que el formulario **no** enseña —`flavour`, `acquisition_via`, `item_pattern`, `suffixes` y `fields`— **se conservan tal como estaban**: editar el nombre de Gutenberg no le quita su patrón de ítem.
+
+Al guardar se reescribe la clave `sources` de `arca.json` —y solo esa clave— y la fuente aparece ya en las casillas del buscador.
+
+Los cinco campos que el formulario no expone son de dialecto y no de uso diario, así que se editan a mano en `arca.json`: `flavour` (el sabor `kiwix`), `acquisition_via` e `item_pattern` (feeds de dos niveles), `suffixes` (elegir el enlace por extensión en vez de por tipo) y `fields` (la correspondencia de campos de una fuente JSON).
+
+### Lo que no es una fuente
+
+Una fuente es un **catálogo**: OPDS en Atom, OPDS en JSON o una API JSON. La página de búsqueda de un sitio web no lo es, por mucho que su URL lleve parámetros: es HTML pensado para un navegador. ARCA no raspa HTML y no va a hacerlo — un raspador se rompe con cada rediseño y no da ni tipo de fichero, ni tamaño, ni hash, ni licencia. Si un sitio no publica feed ni API, la vía es pegar la dirección directa del fichero en **Descargas → Descargar de una dirección pegada a mano**.
 
 Campos de una fuente:
 
