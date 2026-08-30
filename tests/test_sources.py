@@ -403,9 +403,21 @@ def test_a_download_name_that_no_format_would_accept_is_rewritten_from_its_media
 def test_download_filename_leaves_a_usable_name_alone() -> None:
     assert download_filename("https://x.org/a/book.epub", EPUB_MEDIA_TYPE) == "book.epub"
     assert download_filename("https://x.org/a/notes.pdf", "application/pdf") == "notes.pdf"
-    assert download_filename("https://x.org/a/11.epub3.images", EPUB_MEDIA_TYPE) == "11.epub"
     assert download_filename("https://x.org/a/thing.bin", "application/x-thing") == "thing.bin"
     assert download_filename("https://x.org/a/", EPUB_MEDIA_TYPE) == ""
+
+
+def test_a_name_the_format_is_buried_in_is_cut_back_to_it() -> None:
+    assert download_filename("https://x.org/a/11.epub.noimages", EPUB_MEDIA_TYPE) == "11.epub"
+
+
+def test_a_name_with_no_extension_at_all_keeps_its_whole_identity() -> None:
+    pdf = "application/pdf"
+    assert download_filename("https://x.org/pdf/1107.0191v1", pdf) == "1107.0191v1.pdf"
+    assert download_filename("https://x.org/pdf/1107.9999v2", pdf) == "1107.9999v2.pdf"
+    assert download_filename("https://x.org/a/11.epub3.images", EPUB_MEDIA_TYPE) == (
+        "11.epub3.images.epub"
+    )
 
 
 def test_a_second_feed_with_nothing_to_download_is_reported() -> None:
@@ -469,15 +481,16 @@ def test_a_listing_path_that_already_carries_a_query_keeps_it() -> None:
 
 def test_the_shipped_sources_come_declared_but_switched_off() -> None:
     sources = {source.source_id: source for source in default_sources()}
-    assert set(sources) == {"kiwix", "standard-ebooks", "gutenberg", "openstax"}
+    assert set(sources) == {"kiwix", "standard-ebooks", "gutenberg", "arxiv", "openstax"}
     assert sources["kiwix"].enabled is True
-    for source_id in ("standard-ebooks", "gutenberg", "openstax"):
+    for source_id in ("standard-ebooks", "gutenberg", "arxiv", "openstax"):
         assert sources[source_id].enabled is False, source_id
         assert sources[source_id].item_kind == ITEM_BOOK
         assert sources[source_id].verifies_hash is False
     assert sources["gutenberg"].two_step is True
     assert sources["standard-ebooks"].requires_query is True
     assert sources["openstax"].kind == KIND_JSON
+    assert sources["arxiv"].probe_query
 
 
 def test_a_source_with_an_impossible_pattern_or_mode_is_refused() -> None:

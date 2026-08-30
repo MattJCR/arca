@@ -8,13 +8,16 @@ Módulos: `arca/opds.py` (núcleo Atom/OPDS genérico), `arca/catalog.py` (sabor
 
 ### Las que vienen declaradas
 
-`arca init` escribe cuatro fuentes en `arca.json`. **Solo Kiwix viene activada**; las otras tres están declaradas y apagadas, para que se vean y se enciendan con un clic sin que el producto salga a sitios que nadie ha pedido. Una lista vacía o entera inválida vuelve a estas cuatro, para que un `arca.json` mal editado no deje el sistema sin poder descargar nada.
+`arca init` escribe cinco fuentes en `arca.json`. **Solo Kiwix viene activada**; las otras cuatro están declaradas y apagadas, para que se vean y se enciendan con un clic sin que el producto salga a sitios que nadie ha pedido. Una lista vacía o entera inválida vuelve a estas cinco, para que un `arca.json` mal editado no deje el sistema sin poder descargar nada.
+
+Las cinco son de acceso abierto: dominio público (Standard Ebooks, Gutenberg), licencia abierta (OpenStax, Kiwix) o depósito de acceso abierto (arXiv). Es el criterio con el que se eligen las que vienen de fábrica; para cualquier otra cosa está el formulario.
 
 | Fuente | Tipo | Contenido | Activa | Qué hay que saber |
 | --- | --- | --- | --- | --- |
 | **Kiwix Library** (`kiwix`) | `opds`, sabor `kiwix` | `zim` | sí | la única que **verifica hash**, por su metalink |
 | **Standard Ebooks** (`standard-ebooks`) | `opds` | `book` (EPUB) | no | el listado completo pide credenciales; **solo responde a búsquedas**, así que la fuente lleva `requires_query` |
 | **Project Gutenberg** (`gutenberg`) | `opds` de **dos niveles** | `book` (EPUB) | no | ver abajo: la búsqueda solo devuelve punteros, y sus ficheros se llaman `1497.epub.images` |
+| **arXiv** (`arxiv`) | `opds` | `book` (PDF) | no | rechaza la búsqueda vacía con un 400, así que lleva `probe_query`; sus URLs no traen extensión |
 | **OpenStax** (`openstax`) | `json` | `book` (PDF) | no | libros de texto completos; los PDF van de 20 MB a más de 150 MB |
 
 Ninguna de las tres nuevas publica hash, así que lo que venga de ellas queda marcado **no verificado**. Que las cuatro contestan, y que de cada una se puede descargar un fichero real, lo comprueba `tests/test_live_sources.py`, que **solo se ejecuta con `ARCA_LIVE=1`** porque sale a la red de verdad:
@@ -47,6 +50,7 @@ Campos de una fuente:
 | `items_key` | fuentes `json`: clave del documento que contiene la lista |
 | `fields` | fuentes `json`: correspondencia entre los nombres de la fuente y `id`, `title`, `summary`, `language`, `url`, `sha256`, `size`, `filename` |
 | `requires_query` | la fuente **exige** su parámetro de búsqueda: se manda siempre, aunque vaya vacío. Sin esto, Standard Ebooks responde 401 al listado desnudo |
+| `probe_query` | el término con el que se comprueba la fuente, para las que ni siquiera aceptan una búsqueda vacía. arXiv devuelve 400 a `search_query=` |
 | `acquisition_via` | `entry` (por defecto): el enlace de descarga está en la propia entrada. `subsection`: la entrada solo trae un puntero a un segundo feed, que es donde vive el enlace |
 | `item_pattern` | expresión regular que el `href` del enlace debe cumplir para que la entrada cuente como ítem. Sirve para separar los libros de las entradas de navegación cuando el feed no las distingue de ninguna otra forma. Una expresión que no compila invalida la fuente |
 | `enabled` | una fuente desactivada no se busca ni se comprueba, pero se conserva declarada |
@@ -97,7 +101,12 @@ Eso se resuelve en dos pasos, y el segundo **no ocurre al buscar**:
 1. `search()` devuelve el puntero, con el nombre de fichero vacío. Buscar cuesta una petición, no veintisiete.
 2. `acquire()` se llama **al encolar**, sigue el puntero, elige el enlace por tipo y devuelve el ítem ya resuelto. Es el mismo sitio donde el sabor Kiwix baja su `.meta4`: nada de esto se persiste (trampa 5).
 
-El nombre del fichero sale de la URL, pero Gutenberg sirve `1497.epub.noimages` y `1497.epub3.images` — sufijos que la ingesta rechazaría. `download_filename()` lo arregla de forma general: si el sufijo del nombre **no es un formato conocido** y el tipo de medio del enlace **sí lo es**, se recorta el nombre a su raíz y se le pone la extensión de ese formato. `1497.epub.noimages` con `application/epub+zip` queda en `1497.epub`, y un nombre que ya era bueno no se toca.
+El nombre del fichero sale de la URL, y hay dos formas de que salga inservible: que traiga basura detrás de la extensión buena —Gutenberg sirve `1497.epub.noimages`— o que no traiga extensión ninguna —arXiv sirve `https://arxiv.org/pdf/1107.0191v1`—. `download_filename()` cubre las dos, y solo actúa cuando el sufijo del nombre **no es un formato conocido** y el tipo de medio del enlace **sí lo es**:
+
+1. Si alguna de las partes del nombre **es ya** la extensión de ese formato, el nombre se corta justo ahí: `1497.epub.noimages` → `1497.epub`.
+2. Si no, la extensión se **añade** sin tocar el resto: `1107.0191v1` → `1107.0191v1.pdf`.
+
+La segunda regla es añadir y no recortar por una razón concreta: recortando, `1107.0191v1` y `1107.9999v2` acabarían los dos en `1107.pdf` y un artículo pisaría al otro en `books/`. Un nombre que ya era bueno no se toca.
 
 ## Libros (`kind = "book"`)
 

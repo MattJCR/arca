@@ -245,6 +245,53 @@ def test_openstax_resumes_a_real_pdf_from_a_half_written_part(library: Path) -> 
 
 
 @live
+def test_arxiv_downloads_a_paper_whose_url_says_nothing_about_its_format(library: Path) -> None:
+    root = library
+    source = _source("arxiv")
+    probe(source)
+    items = search(source, query="water purification")
+    assert items, "the api answered with no paper"
+    chosen = items[0]
+    assert chosen.size_bytes is None
+    assert not filename_from_url(chosen.url).endswith(".pdf")
+    assert chosen.filename.endswith(".pdf")
+    assert filename_from_url(chosen.url) in chosen.filename
+
+    connection = open_library_rw(library_db_path(root))
+    try:
+        download_id = queue_book_download(
+            connection,
+            root,
+            ref=chosen.ref,
+            filename=chosen.filename,
+            resolution=resolve(source, chosen),
+        )
+    finally:
+        connection.close()
+    results = run_queue(library_db_path(root), concurrency=1)
+    assert [result.status for result in results] == ["done"]
+
+    downloaded = root / "books" / chosen.filename
+    assert downloaded.is_file()
+    assert detect_format(downloaded) is PDF
+    assert read_sha256_sidecar(downloaded) == file_sha256(downloaded)
+    connection = open_library_ro(library_db_path(root))
+    try:
+        row = connection.execute(
+            "SELECT size_bytes, bytes_done FROM downloads WHERE id = ?", (download_id,)
+        ).fetchone()
+        assert row["size_bytes"] == downloaded.stat().st_size
+        assert row["bytes_done"] == downloaded.stat().st_size
+    finally:
+        connection.close()
+    document = open_document(downloaded)
+    try:
+        assert document.page_count > 0
+    finally:
+        document.close()
+
+
+@live
 def test_every_shipped_source_answers_and_declares_whether_it_verifies() -> None:
     for source in default_sources():
         if not source.searchable:

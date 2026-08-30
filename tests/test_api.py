@@ -826,7 +826,7 @@ def test_admin_sources_lists_what_is_declared(tmp_path: Path) -> None:
     status, body = http_get(_app(tmp_path), "/api/admin/sources")
     assert status == 200
     sources = {source["source_id"]: source for source in json.loads(body)["sources"]}
-    assert set(sources) == {"kiwix", "standard-ebooks", "gutenberg", "openstax"}
+    assert set(sources) == {"kiwix", "standard-ebooks", "gutenberg", "arxiv", "openstax"}
     assert sources["kiwix"]["status"] == "unknown"
     assert sources["kiwix"]["verifies_hash"] is True
     assert sources["kiwix"]["enabled"] is True

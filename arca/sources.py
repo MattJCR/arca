@@ -56,6 +56,7 @@ JSON_FIELDS = ("id", "title", "summary", "language", "url", "sha256", "size", "f
 EPUB_MEDIA_TYPE = "application/epub+zip"
 GUTENBERG_BOOK_PATTERN = r"^/ebooks/[0-9]+\.opds$"
 OPENSTAX_BOOKS_PATH = "/apps/cms/api/v2/pages/?type=books.Book&fields=*"
+ARXIV_PROBE_QUERY = "all:electron"
 SOURCE_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789-_"
 MAX_SOURCE_ID = 40
 
@@ -80,6 +81,7 @@ class Source:
     items_key: str = ""
     fields: dict[str, str] = field(default_factory=dict)
     requires_query: bool = False
+    probe_query: str = ""
     acquisition_via: str = ACQUISITION_ENTRY
     item_pattern: str = ""
     enabled: bool = True
@@ -198,6 +200,19 @@ def default_sources() -> tuple[Source, ...]:
             enabled=False,
         ),
         Source(
+            source_id="arxiv",
+            name="arXiv",
+            kind=KIND_OPDS,
+            base_url="https://export.arxiv.org",
+            entries_path="/api/query",
+            query_param="search_query",
+            requires_query=True,
+            probe_query=ARXIV_PROBE_QUERY,
+            media_type="application/pdf",
+            item_kind=ITEM_BOOK,
+            enabled=False,
+        ),
+        Source(
             source_id="openstax",
             name="OpenStax",
             kind=KIND_JSON,
@@ -287,10 +302,11 @@ def download_filename(url: str, media_type: str) -> str:
     entry = format_for_mime(media_type)
     if entry is None:
         return name
-    stem = Path(name)
-    while stem.suffix:
-        stem = stem.with_suffix("")
-    return f"{stem.name}{entry.suffix}"
+    parts = name.split(".")
+    for index in range(1, len(parts)):
+        if f".{parts[index]}".lower() == entry.suffix:
+            return ".".join(parts[: index + 1])
+    return f"{name}{entry.suffix}"
 
 
 def search(
@@ -318,7 +334,7 @@ def probe(source: Source, get: HttpGet | None = None) -> None:
     if source.is_kiwix:
         _download(entries_url(source.base_url or CATALOG_BASE_URL, count=1), getter)
         return
-    params = _search_params(source, "", "")
+    params = _search_params(source, source.probe_query, "")
     _download(feed_url(source.base_url, source.entries_path, params), getter)
 
 
@@ -650,6 +666,7 @@ def _build_source(raw: object) -> Source | None:
         items_key=_text(raw, "items_key"),
         fields=_field_map(raw.get("fields")),
         requires_query=raw.get("requires_query") is True,
+        probe_query=_text(raw, "probe_query"),
         acquisition_via=acquisition_via,
         item_pattern=item_pattern,
         enabled=raw.get("enabled") is not False,
