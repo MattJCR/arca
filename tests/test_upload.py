@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from arca.api import create_app
 from arca.config import ArcaConfig, init_library
 from arca.ingest import list_originals, original_path
-from tests.support import EmbeddingServer, build_pdf, write_gguf
+from tests.support import EmbeddingServer, build_cbz_bytes, build_pdf, write_gguf
 from tests.test_api import http_get, http_request
 
 DIMS = 8
@@ -75,16 +75,44 @@ def test_the_same_pdf_twice_is_stored_once(tmp_path: Path, library: tuple[Path, 
     assert first["doc_id"] == second["doc_id"]
 
 
-def test_nothing_but_a_pdf_is_accepted(tmp_path: Path, library: tuple[Path, FastAPI]) -> None:
+def test_only_a_whitelisted_format_is_accepted(
+    tmp_path: Path, library: tuple[Path, FastAPI]
+) -> None:
     _, app = library
-    forged = _upload(app, "notes.txt", b"plain text")
+    accepted = _upload(app, "notes.txt", b"Plain text that carries real words to index.")
+    unknown = _upload(app, "sheet.xlsx", b"not a document")
+    scanned = _upload(app, "album.tiff", b"not a scan either")
     traversal = _upload(app, "../escape.pdf", _pdf(tmp_path))
     disguised = _upload(app, "fake.pdf", b"not a pdf at all")
-    assert forged[0] == 400
-    assert json.loads(forged[1])["code"] == "bad_file"
+    assert accepted[0] == 200
+    assert unknown[0] == 400
+    assert json.loads(unknown[1])["code"] == "unsupported_format"
+    assert scanned[0] == 400
+    assert json.loads(scanned[1])["code"] == "unverified_format"
     assert traversal[0] == 400
+    assert json.loads(traversal[1])["code"] == "bad_file"
     assert disguised[0] == 400
     assert json.loads(disguised[1])["code"] == "bad_file"
+
+
+def test_a_comic_is_refused_while_the_ocr_binary_is_missing(
+    library: tuple[Path, FastAPI], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, app = library
+    monkeypatch.setattr("arca.formats.ocr_available", lambda: False)
+    refused = _upload(app, "story.cbz", build_cbz_bytes(["A page of the comic."]))
+    assert refused[0] == 400
+    assert json.loads(refused[1])["code"] == "no_ocr_binary"
+
+
+def test_a_comic_is_taken_in_once_the_ocr_binary_is_there(
+    library: tuple[Path, FastAPI], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, app = library
+    monkeypatch.setattr("arca.formats.ocr_available", lambda: True)
+    accepted = _upload(app, "story.cbz", build_cbz_bytes(["A page of the comic."]))
+    assert accepted[0] == 200
+    assert json.loads(accepted[1])["created"] is True
 
 
 def test_an_upload_leaves_no_staging_file_behind(

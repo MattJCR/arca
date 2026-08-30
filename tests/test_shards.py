@@ -9,7 +9,8 @@ import numpy as np
 import pytest
 
 from arca.embed import EMBED_DIMS, EMBED_MODEL, PASSAGE_PREFIX, QUERY_PREFIX
-from arca.ingest import Block, Chunk, OriginalRecord, anchor
+from arca.formats import Block
+from arca.ingest import Chunk, OriginalRecord, anchor
 from arca.shards import (
     MANIFEST_FILENAME,
     STATE_CORRUPT,

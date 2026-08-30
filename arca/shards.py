@@ -12,7 +12,8 @@ from pathlib import Path
 
 from arca.embed import EMBED_DIMS, EMBED_MODEL, PASSAGE_PREFIX, QUERY_PREFIX
 from arca.fetch import file_sha256
-from arca.ingest import Block, Chunk, OriginalRecord
+from arca.formats import FIXED_LAYOUT, Block
+from arca.ingest import Chunk, OriginalRecord
 from arca.vectors import (
     IDS_FILENAME,
     QUERY_SCALE,
@@ -102,6 +103,7 @@ class Manifest:
     query_scale: float
     chunk_count: int
     doc_count: int
+    layout: str = ""
     files: dict[str, str] = field(default_factory=dict)
 
 
@@ -234,6 +236,7 @@ class ShardWriter:
         chunk_ids: Sequence[int],
         embed_model: str = EMBED_MODEL,
         embed_dims: int = EMBED_DIMS,
+        layout: str = "",
         now: datetime | None = None,
     ) -> Manifest:
         self._connection.execute(
@@ -257,6 +260,7 @@ class ShardWriter:
             query_scale=QUERY_SCALE,
             chunk_count=chunks,
             doc_count=documents,
+            layout=layout,
             files=_hash_files(self.directory),
         )
         write_manifest(self.directory, manifest)
@@ -279,6 +283,7 @@ def write_manifest(directory: Path, manifest: Manifest) -> Path:
         "query_scale": manifest.query_scale,
         "chunk_count": manifest.chunk_count,
         "doc_count": manifest.doc_count,
+        "layout": manifest.layout,
         "files": manifest.files,
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", "utf-8")
@@ -307,6 +312,7 @@ def read_manifest(directory: Path) -> Manifest:
         query_scale=_as_float(parsed.get("query_scale"), QUERY_SCALE),
         chunk_count=_as_int(parsed.get("chunk_count")),
         doc_count=_as_int(parsed.get("doc_count")),
+        layout=str(parsed.get("layout", "")),
         files={str(k): str(v) for k, v in files.items()} if isinstance(files, dict) else {},
     )
 
@@ -326,6 +332,15 @@ class ShardState:
     @property
     def searchable_by_vector(self) -> bool:
         return self.state == STATE_SEALED
+
+
+def layout_drift(manifest: Manifest, layout: str = FIXED_LAYOUT.signature) -> str:
+    if not manifest.layout or manifest.layout == layout:
+        return ""
+    return (
+        f"sealed with the reflowable layout {manifest.layout}, the active layout is {layout}; "
+        "re-importing a reflowable document into a new batch will not reproduce these anchors"
+    )
 
 
 def inspect_shard(

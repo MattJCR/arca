@@ -650,7 +650,27 @@ PSD.
   documento fantasma en la biblioteca que no encuentra nada nunca, y eso es peor que rechazarlo.
   Es la trampa 11 de §17 generalizada más allá del PDF.
 
-**F10.0 — Puerta: ¿es determinista el ancla?** *(pendiente, es una puerta)*
+**Lo que la fase dejó escrito, y no se vuelve a discutir:**
+
+- **El ancla por página vale para los reflowables** con el maquetado fijado en `595x842@11`. Medido
+  con dos pases en procesos distintos sobre copias renombradas: `docs/gates/f10-anchors.md`. No se
+  pasa al ancla por ítem del *spine*.
+- **`.azw3` se queda fuera.** PyMuPDF lo documenta, pero no se ha podido construir un fichero AZW3
+  real con el que probarlo, y la regla de la fase es que sin test que lo ingiera de verdad no entra.
+  Se rechaza con el código `unverified_format`, que dice exactamente eso. Lo mismo para `.tif`,
+  `.tiff`, `.gif`, `.bmp`, `.jp2` y `.psd`.
+- **`.mobi` sí entró**, con un fichero MOBI real generado en la propia suite (cabecera PalmDB +
+  cabecera MOBI de 232 bytes), no con un PalmDOC de mentira.
+- **Deuda que deja la fase, revisada y aceptada:** el detalle que compone `layout_drift`
+  (`arca/shards.py`) va en inglés fijo dentro de un mensaje traducido, igual que ya hacía
+  `state.reason`. No es regresión de esta fase, pero perpetúa la excepción a «ninguna cadena de
+  usuario hardcodeada»; se arregla cuando se traduzcan los `reason` de los lotes, todos a la vez.
+- **Las imágenes entran solo con `ocrmypdf` presente.** El binario no está instalado en la máquina
+  de desarrollo, así que el camino real de OCR está probado con un ejecutor inyectado —igual que ya
+  lo estaba el OCR de PDF desde el hito 3—, y lo que sí está probado de verdad es el renderizado de
+  la página, el borrado del temporal y el rechazo con `no_ocr_binary` cuando falta el binario.
+
+**F10.0 — Puerta: ¿es determinista el ancla?** *(cerrada el 2026-08-30, en verde)*
 Ingerir el mismo EPUB dos veces con el layout fijado y comparar bloque a bloque y ancla a ancla. Un
 script y una comparación de hashes: sin panel, sin interfaz, sin i18n. Se repite con FB2 y TXT, que
 son reflowables igual.
@@ -659,7 +679,7 @@ formatos. Si no coinciden, la fase **cambia al ancla por ítem del spine antes d
 más**, y se documenta qué cuesta eso sobre los lotes ya sellados. Sin esta puerta no se sigue.
 · Loop: **Turn-based** — `verify-anchors`, que existe para esto (trampa 12 de §17).
 
-**F10.1 — El extractor deja de ser el PDF** *(pendiente)*
+**F10.1 — El extractor deja de ser el PDF** *(cerrada el 2026-08-30)*
 Separar de `arca/ingest.py` lo que asume PDF, dejando un extractor con implementaciones por familia.
 La de PDF es la de hoy, sin un solo cambio de comportamiento. Entra con ella el XPS/OXPS, que es de
 paginación fija y no depende de F10.0. De las anclas en adelante —troceado, embeddings, sellado— no
@@ -668,7 +688,7 @@ cambia nada.
 lotes creados antes del cambio, y un XPS ingerido aparece en `/api/search` con su párrafo.
 · Loop: Ninguno.
 
-**F10.2 — Los formatos reflowables** *(pendiente)*
+**F10.2 — Los formatos reflowables** *(cerrada el 2026-08-30)*
 EPUB, MOBI/AZW3, FB2 y TXT por el extractor reflowable, con el layout fijado y grabado. El TXT es el
 que más se va a usar y el más barato: notas, volcados, transcripciones, subtítulos y código.
 · Dep: F10.1 · CA: un EPUB real ingerido produce bloques con ancla, aparece en `/api/search` y el
@@ -676,7 +696,7 @@ chat puede citarlo al párrafo; reingerir el mismo fichero da las mismas anclas;
 queda registrado en el lote y `arca verify` lo comprueba.
 · Loop: Ninguno.
 
-**F10.3 — El original deja de llamarse `.pdf`** *(pendiente)*
+**F10.3 — El original deja de llamarse `.pdf`** *(cerrada el 2026-08-30)*
 Hoy el original se guarda como `<sha256>.pdf` y `/api/doc/{id}/original` devuelve
 `application/pdf` a pelo (`arca/api.py:423`). Pasa a guardarse con su extensión real, con su tipo
 registrado en el lote y servido con ese tipo. `render_readable` ya genera el HTML de lectura desde
@@ -687,7 +707,7 @@ devuelve el fichero con su tipo real y el mismo `sha256` con el que se ingirió;
 original nunca se toca) sigue verificado para todos los formatos.
 · Loop: Ninguno.
 
-**F10.4 — Lista blanca, `arca import` y el panel** *(pendiente)*
+**F10.4 — Lista blanca, `arca import` y el panel** *(cerrada el 2026-08-30)*
 Extender la ingesta por CLI y por panel a las extensiones que el extractor sepa **y que tengan
 test**. Un formato que no sepamos leer se rechaza **diciendo cuál es y por qué**, con código estable
 de la familia de F6.1: un CBZ o un PNG contestan que son imágenes y que hacen falta OCR, no un
@@ -697,14 +717,14 @@ con código y mensaje accionable **en los dos catálogos**; un test recorre la l
 ingiere un fichero real de cada extensión declarada, comprobando que ninguna produce cero bloques.
 · Loop: Ninguno.
 
-**F10.5 — Manual** *(pendiente)*
+**F10.5 — Manual** *(cerrada el 2026-08-30)*
 `docs/manual/documents.md` cuenta qué formatos entran hoy y cuáles no, por qué el ancla sigue siendo
 por página, qué layout se fijó y qué obliga a re-sellar si se cambia.
 · Dep: F10.4 · CA: la página describe el estado real, no el planificado, y la tabla de formatos
 coincide con la lista blanca que ejercita el test de F10.4.
 · Loop: Ninguno.
 
-**F10.6 — OCR de imágenes y cómics** *(pendiente, opcional y al final)*
+**F10.6 — OCR de imágenes y cómics** *(cerrada el 2026-08-30)*
 El OCR de hoy es PDF-puro: `ocrmypdf --force-ocr --pages N <original>` (`arca/ingest.py:132`), que
 recibe el fichero original y un número de página. Para que CBZ, PNG, JPEG y TIFF dejen de ser
 documentos vacíos hay que renderizar la página a imagen y alimentar con eso al OCR que ya existe.
@@ -713,7 +733,7 @@ Depende de un binario externo, así que degrada si no está, como hoy.
 diciendo exactamente que falta el binario; la ausencia del binario no rompe ninguna otra ingesta.
 · Loop: Ninguno.
 
-**F10.7 — El idioma elegido sobrevive a la navegación** *(pendiente, defecto detectado)*
+**F10.7 — El idioma elegido sobrevive a la navegación** *(cerrada el 2026-08-30)*
 Hoy el idioma vive **solo en la URL**: el selector es un `<form method="get">` que añade `?lang=` a
 la página actual, y todos los enlaces de navegación (`href="/"`, `href="/talk"`, `href="/admin"`)
 son rutas desnudas, así que `_catalog_for(config, lang)` cae al idioma por defecto en cuanto se

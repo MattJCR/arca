@@ -313,4 +313,4 @@ def test_import_reports_when_there_is_nothing_to_do(
     empty = tmp_path / "inbox"
     empty.mkdir()
     assert main(["--root", str(root), "--lang", "en", "import", str(empty)]) == 0
-    assert "No PDF to import" in capsys.readouterr().out
+    assert "No document to import" in capsys.readouterr().out

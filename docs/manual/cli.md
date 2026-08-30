@@ -45,9 +45,29 @@ Resuelve la entrada del catálogo por UUID, descarga su `.meta4` (con `?country=
 
 Atiende la cola: reclama descargas `queued` (concurrencia por defecto 2, configurable en `arca.json` o con `--concurrency`) y las ejecuta con el motor reanudable (ver `downloads.md`). Muestra progreso, porcentaje y velocidad. Al empezar, re-encola las filas `running`/`verifying` huérfanas de un proceso muerto: el tamaño real del `.part` manda sobre lo que diga la base de datos. Código de salida 1 si alguna descarga terminó `failed`.
 
+### `arca import <rutas>`
+
+Mete documentos propios en la biblioteca. Acepta ficheros sueltos y carpetas (recursivo, recogiendo
+toda extensión que ARCA conozca, aceptable o no). Cada fichero se copia por su sha256 y el original
+no se toca. Un formato que no entra se rechaza **diciendo cuál es y por qué** —con los mismos
+códigos y mensajes que el panel, incluido «falta `ocrmypdf`» para las imágenes— y **no detiene** a
+los demás. Código de salida 1 si hubo algún rechazo.
+
+**Importar no indexa.** Los documentos quedan guardados y pendientes; quien los indexa y sella es
+el botón «Indexar y sellar» del panel (`documents.md`).
+
 ### `arca verify`
 
-Recomprueba, **sin red**, el hash de cada ZIM registrado contra su `.sha256` guardado. Marca `corrupt`/`missing`/`present` en `zim_files` y registra eventos. Código de salida 1 si hay corruptos o ausentes.
+Recomprueba **sin red** dos cosas:
+
+- **Cada ZIM registrado**: hash contra su `.sha256` guardado. Marca `corrupt`/`missing`/`present` en
+  `zim_files` y registra eventos.
+- **Cada lote de documentos**: estado del manifiesto y **firma del maquetado** con el que se selló,
+  contrastada con la activa. Un lote sin sellar se informa y no cuenta como problema; uno corrupto o
+  incompatible, sí.
+
+Código de salida 1 si hay ZIM corruptos o ausentes, lotes en mal estado o lotes sellados con otro
+maquetado.
 
 ### `arca vendor [--verify | --check-drift]`
 

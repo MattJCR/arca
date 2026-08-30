@@ -10,20 +10,16 @@ import numpy as np
 
 from arca.db import record_event, utc_now_iso
 from arca.embed import EMBED_DIMS, EMBED_MODEL, EmbeddingClient, EmbeddingError
+from arca.extract import OcrRunner, extract_document, run_ocrmypdf
+from arca.formats import FIXED_LAYOUT, Block, IngestError, ocr_available
 from arca.ingest import (
     MAX_CHUNK_TOKENS,
-    Block,
-    IngestError,
-    OcrRunner,
     OriginalRecord,
     anchor,
     chunk_blocks,
-    extract_document,
-    ocr_available,
     original_path,
     read_sidecar,
     receive_document,
-    run_ocrmypdf,
     write_sidecar,
 )
 from arca.search import SearchSettings, read_search_settings
@@ -206,7 +202,7 @@ def seal_batch(
         ids, matrix = stored
         chunk_ids.extend(ids)
         vectors.extend(matrix.tolist())
-    manifest = writer.seal(vectors, chunk_ids, embed_model, embed_dims)
+    manifest = writer.seal(vectors, chunk_ids, embed_model, embed_dims, FIXED_LAYOUT.signature)
     _clear_pending(directory)
     for doc_id in documents:
         record = read_sidecar(root, doc_id)

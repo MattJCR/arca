@@ -10,19 +10,16 @@ import sys
 import tarfile
 import threading
 import zipfile
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from libzim.writer import Creator, Hint, Item, StringProvider
 
-from arca.ingest import (
-    Extraction,
-    OriginalRecord,
-    anchor,
-    render_readable,
-)
+from arca.extract import Extraction
+from arca.ingest import OriginalRecord, anchor, render_readable
 from arca.zim import ZimInfo, archive_info, open_archive
 
 LLAMA_STUB = Path(__file__).resolve().parent / "fixtures" / "llama_server_stub.py"
@@ -272,6 +269,236 @@ def build_pdf(
     document.set_metadata({key: value for key, value in metadata.items() if value})
     document.save(path)
     document.close()
+    return path
+
+
+EPUB_CONTAINER = (
+    '<?xml version="1.0"?><container version="1.0" '
+    'xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>'
+    '<rootfile full-path="OEBPS/content.opf" '
+    'media-type="application/oebps-package+xml"/></rootfiles></container>'
+)
+
+EPUB_PACKAGE = (
+    '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
+    'unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
+    '<dc:identifier id="id">urn:uuid:arca-test</dc:identifier>'
+    "<dc:title>{title}</dc:title><dc:creator>{author}</dc:creator>"
+    "<dc:language>en</dc:language></metadata>"
+    '<manifest><item id="c1" href="text.xhtml" media-type="application/xhtml+xml"/></manifest>'
+    '<spine><itemref idref="c1"/></spine></package>'
+)
+
+FB2_DOCUMENT = (
+    '<?xml version="1.0" encoding="utf-8"?>'
+    '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description>'
+    "<title-info><book-title>{title}</book-title></title-info></description>"
+    "<body>{body}</body></FictionBook>"
+)
+
+
+XPS_CONTENT_TYPES = (
+    '<?xml version="1.0" encoding="utf-8"?><Types '
+    'xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+    '<Default Extension="fdseq" '
+    'ContentType="application/vnd.ms-package.xps-fixeddocumentsequence+xml"/>'
+    '<Default Extension="fdoc" ContentType="application/vnd.ms-package.xps-fixeddocument+xml"/>'
+    '<Default Extension="fpage" ContentType="application/vnd.ms-package.xps-fixedpage+xml"/>'
+    '<Default Extension="rels" '
+    'ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    '<Default Extension="ttf" ContentType="application/vnd.ms-opentype"/></Types>'
+)
+
+XPS_RELATIONSHIPS = (
+    '<?xml version="1.0" encoding="utf-8"?><Relationships '
+    'xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Id="R0" '
+    'Type="http://schemas.microsoft.com/xps/2005/06/fixedrepresentation" '
+    'Target="/FixedDocSeq.fdseq"/></Relationships>'
+)
+
+XPS_SEQUENCE = (
+    '<?xml version="1.0" encoding="utf-8"?><FixedDocumentSequence '
+    'xmlns="http://schemas.microsoft.com/xps/2005/06">'
+    '<DocumentReference Source="/Documents/1/FixedDoc.fdoc"/></FixedDocumentSequence>'
+)
+
+XPS_FONT_URI = "/Documents/1/Resources/Fonts/font.ttf"
+XPS_PAGE_WIDTH = 816
+XPS_PAGE_HEIGHT = 1056
+XPS_FIRST_BASELINE = 120
+XPS_LINE_HEIGHT = 40
+
+
+def build_xps(path: Path, pages: Iterable[Iterable[str]]) -> Path:
+    import pymupdf
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sheets = [list(blocks) for blocks in pages]
+    references = "".join(
+        f'<PageContent Source="Pages/{number}.fpage"/>' for number in range(1, len(sheets) + 1)
+    )
+    document = (
+        '<?xml version="1.0" encoding="utf-8"?><FixedDocument '
+        f'xmlns="http://schemas.microsoft.com/xps/2005/06">{references}</FixedDocument>'
+    )
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("[Content_Types].xml", XPS_CONTENT_TYPES)
+        archive.writestr("_rels/.rels", XPS_RELATIONSHIPS)
+        archive.writestr("FixedDocSeq.fdseq", XPS_SEQUENCE)
+        archive.writestr("Documents/1/FixedDoc.fdoc", document)
+        archive.writestr("Documents/1/Resources/Fonts/font.ttf", pymupdf.Font("helv").buffer)
+        for number, blocks in enumerate(sheets, start=1):
+            archive.writestr(f"Documents/1/Pages/{number}.fpage", _xps_page(blocks))
+    return path
+
+
+def _xps_page(blocks: Sequence[str]) -> str:
+    glyphs = "".join(
+        f'<Glyphs OriginX="96" OriginY="{XPS_FIRST_BASELINE + position * XPS_LINE_HEIGHT}" '
+        f'FontRenderingEmSize="16" FontUri="{XPS_FONT_URI}" '
+        f'UnicodeString="{escape(text, quote=True)}" Fill="#ff000000"/>'
+        for position, text in enumerate(blocks)
+    )
+    return (
+        '<?xml version="1.0" encoding="utf-8"?><FixedPage '
+        f'Width="{XPS_PAGE_WIDTH}" Height="{XPS_PAGE_HEIGHT}" '
+        f'xmlns="http://schemas.microsoft.com/xps/2005/06" xml:lang="en-US">{glyphs}</FixedPage>'
+    )
+
+
+NUL = bytes([0])
+MOBI_RECORD_BYTES = 4096
+MOBI_HEADER_BYTES = 232
+MOBI_UNSET = 0xFFFFFFFF
+MOBI_UTF8 = 65001
+MOBI_ENGLISH = 9
+
+
+def build_mobi(path: Path, paragraphs: Iterable[str], *, title: str = "A book") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = "".join(f"<p>{paragraph}</p>" for paragraph in paragraphs)
+    text = f"<html><head><title>{title}</title></head><body>{body}</body></html>".encode()
+    chunks = [
+        text[start : start + MOBI_RECORD_BYTES] for start in range(0, len(text), MOBI_RECORD_BYTES)
+    ] or [b""]
+    name = title.encode("utf-8")
+    records = [_mobi_record_zero(text, chunks, name), *chunks]
+    path.write_bytes(_palm_database(records))
+    return path
+
+
+def _mobi_record_zero(text: bytes, chunks: Sequence[bytes], name: bytes) -> bytes:
+    palm = struct.pack(">HHIHHHH", 1, 0, len(text), len(chunks), MOBI_RECORD_BYTES, 0, 0)
+    header = struct.pack(">4sIII", b"MOBI", MOBI_HEADER_BYTES, 2, MOBI_UTF8)
+    header += struct.pack(">II", 0, 6)
+    header += struct.pack(">IIII", MOBI_UNSET, MOBI_UNSET, MOBI_UNSET, MOBI_UNSET)
+    header += struct.pack(">IIIIII", *([MOBI_UNSET] * 6))
+    header += struct.pack(">III", len(chunks) + 1, 16 + MOBI_HEADER_BYTES, len(name))
+    header += struct.pack(">III", MOBI_ENGLISH, MOBI_ENGLISH, 0)
+    header += struct.pack(">III", 6, MOBI_UNSET, 0)
+    header += struct.pack(">III", 0, 0, 0)
+    header += bytes(32)
+    header += struct.pack(">IIIII", MOBI_UNSET, MOBI_UNSET, 0, 0, 0)
+    header += bytes(8)
+    header += struct.pack(">HHI", 1, len(chunks), 1)
+    header += struct.pack(">IIII", MOBI_UNSET, 0, MOBI_UNSET, 0)
+    header += bytes(8)
+    header += struct.pack(">II", MOBI_UNSET, 0)
+    return palm + header[:MOBI_HEADER_BYTES].ljust(MOBI_HEADER_BYTES, NUL) + name + bytes(2)
+
+
+def _palm_database(records: Sequence[bytes]) -> bytes:
+    header = b"arcabook".ljust(32, NUL)
+    header += struct.pack(
+        ">HHIIIIII4s4sIIH", 0, 0, 0, 0, 0, 0, 0, 0, b"BOOK", b"MOBI", 0, 0, len(records)
+    )
+    entries = b""
+    offset = 78 + len(records) * 8 + 2
+    for index, record in enumerate(records):
+        entries += struct.pack(">IBBH", offset, 0, 0, index)
+        offset += len(record)
+    return header + entries + bytes(2) + b"".join(records)
+
+
+SCAN_WIDTH = 400
+SCAN_HEIGHT = 300
+SCAN_FONTSIZE = 18
+SCAN_MARGIN = 20
+
+
+def build_scan_pages(texts: Iterable[str]) -> list[bytes]:
+    import pymupdf
+
+    rendered: list[bytes] = []
+    for text in texts:
+        document = pymupdf.open()
+        page = document.new_page(width=SCAN_WIDTH, height=SCAN_HEIGHT)
+        page.insert_textbox(
+            pymupdf.Rect(
+                SCAN_MARGIN, SCAN_MARGIN, SCAN_WIDTH - SCAN_MARGIN, SCAN_HEIGHT - SCAN_MARGIN
+            ),
+            text,
+            fontsize=SCAN_FONTSIZE,
+        )
+        rendered.append(page.get_pixmap(dpi=96).tobytes("png"))
+        document.close()
+    return rendered
+
+
+def build_cbz_bytes(texts: Iterable[str]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for number, payload in enumerate(build_scan_pages(texts), start=1):
+            archive.writestr(f"{number:03d}.png", payload)
+    return buffer.getvalue()
+
+
+def build_cbz(path: Path, texts: Iterable[str]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(build_cbz_bytes(texts))
+    return path
+
+
+def build_image(path: Path, text: str) -> Path:
+    import pymupdf
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    page = build_scan_pages([text])[0]
+    if path.suffix.lower() == ".png":
+        path.write_bytes(page)
+        return path
+    source = pymupdf.open("png", page)
+    try:
+        source[0].get_pixmap(dpi=96).save(path)
+    finally:
+        source.close()
+    return path
+
+
+def build_epub(
+    path: Path, paragraphs: Iterable[str], *, title: str = "A book", author: str = ""
+) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = "".join(f"<p>{paragraph}</p>" for paragraph in paragraphs)
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        archive.writestr("META-INF/container.xml", EPUB_CONTAINER)
+        archive.writestr("OEBPS/content.opf", EPUB_PACKAGE.format(title=title, author=author))
+        archive.writestr("OEBPS/text.xhtml", f"<html><body>{body}</body></html>")
+    return path
+
+
+def build_fb2(path: Path, paragraphs: Iterable[str], *, title: str = "A book") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = "".join(f"<section><p>{paragraph}</p></section>" for paragraph in paragraphs)
+    path.write_text(FB2_DOCUMENT.format(title=title, body=body), "utf-8")
+    return path
+
+
+def build_txt(path: Path, paragraphs: Iterable[str]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n\n".join(paragraphs) + "\n", "utf-8")
     return path
 
 

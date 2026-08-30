@@ -18,6 +18,8 @@ Manual vivo del proyecto. Documenta **únicamente la realidad actual**: lo que e
 
 **Fase 8 (conversación libre) completada.** Funciona hoy: la pantalla `/talk`, tercer enlace de la navegación, con historial persistente fuera de la raíz (`session_dir/talk/talk.sqlite`, degradado a memoria si no es escribible), imágenes adjuntas validadas por número mágico cuando el motor lleva `--mmproj`, ajustes de conversación propios, y respuesta token a token por SSE con botón de detener que para la generación en el servidor y conserva lo ya escrito. Con el servidor sin transmitir, o el navegador sin saber leer un flujo, la pantalla vuelve sola al modo bloqueante.
 
+**Fase 10 (libros y otros formatos) completada.** Funciona hoy: la ingesta ya no es solo de PDF. Entran **PDF, XPS, OXPS, EPUB, MOBI, FB2 y TXT**, y —con `ocrmypdf` instalado— **CBZ, PNG, JPG, JPEG y PPM**, cada extensión con un test que ingiere un fichero real de ese formato. Los formatos sin páginas propias se maquetan con un layout fijo (`595x842@11`) que se graba en el manifiesto del lote y que `arca verify` contrasta, de modo que el ancla sigue siendo `p:PPPP:OO` y los lotes ya sellados no se enteran; que ese ancla es determinista está medido en `docs/gates/f10-anchors.md`. El original se guarda con su extensión real y se sirve con su tipo: el PDF abre en su visor por la página exacta, el resto se descarga intacto. Un formato que no entra se rechaza diciendo cuál es y por qué, con código estable y mensaje accionable en los dos catálogos. Y el idioma elegido deja de vivir solo en la URL: se recuerda en una cookie que sobrevive a la navegación, a recargar y a teclear una dirección, también en los mensajes de `/api/*`.
+
 ## Índice de funcionalidades
 
 - [CLI `arca`](cli.md) — comandos `init`, `serve`, `diagnostics`, `search`, `add`, `run`, `verify`, `vendor`.
@@ -27,7 +29,7 @@ Manual vivo del proyecto. Documenta **únicamente la realidad actual**: lo que e
 - [Vendorizado](vendor.md) — `sources.lock`, verificación sin red, deriva de versiones, captura de `llama-server --help`.
 - [Lectura de colecciones ZIM](zim.md) — metadatos reales, los tres modos de índice, búsqueda, lectura de entradas, servido de artículos, `ZimLibrary`.
 - [Interfaz de consulta](interface.md) — pantalla partida, sello de procedencia, visor, estados honestos, dirección visual, tipografías vendorizadas y la prueba de navegador que ejerce todo eso de verdad.
-- [Documentos propios](documents.md) — ingesta reanudable, anclas, lotes sellados, índice vectorial, franja semántica y alcance del índice profundo.
+- [Documentos propios](documents.md) — formatos que entran y por qué los demás no, maquetado fijado, OCR, ingesta reanudable, anclas, lotes sellados, índice vectorial, franja semántica y alcance del índice profundo.
 - [Búsqueda y fusión](search.md) — los dos niveles, intercalado por rango, procedencia de cada resultado, `GET /api/search`.
 - [Costuras verificables](../gates/review-general.md) — la prueba de que ninguna función del paquete vive solo para los tests (`tests/test_seams.py`), y por qué existe.
 - [Invariantes verificables](invariants.md) — el contrato de «consultar no escribe» y la degradación en caliente, con su suite y su skill.

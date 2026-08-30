@@ -806,14 +806,14 @@ async function uploadDocuments(event) {
     try {
       payload = await fetchJson(
         "/api/admin/documents/upload?filename=" + encodeURIComponent(file.name),
-        { method: "POST", headers: { "Content-Type": "application/pdf" }, body: file }
+        { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file }
       );
     } catch (error) {
       showMessage(
         "documents-message",
         t("admin.documents.upload_error", {
           filename: file.name,
-          error: errorDetail("admin.documents.upload_error", error),
+          error: errorDetail("documents.refusal", error),
         })
       );
       button.disabled = false;

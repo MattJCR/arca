@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from urllib.parse import quote
 
 from arca.db import read_setting, write_setting
-from arca.ingest import MAX_CHUNK_TOKENS, MIN_CHUNK_TOKENS, PDF_MIME
+from arca.formats import PDF_MIME, format_for_mime
+from arca.ingest import MAX_CHUNK_TOKENS, MIN_CHUNK_TOKENS
 from arca.shards import DocumentRow, Shard, ShardHit
 from arca.vectors import VectorHit, hit_order
 from arca.zim import (
@@ -49,6 +50,7 @@ class SearchResult:
     page: int = 0
     snippet: str = ""
     original_url: str = ""
+    original_download: bool = False
     score: float = 0.0
 
 
@@ -270,9 +272,15 @@ def snippet(text: str, limit: int = SNIPPET_CHARS) -> str:
 
 
 def _original_for(document: DocumentRow | None, doc_id: str, page: int) -> str:
-    if document is None or document.mime != PDF_MIME:
+    if document is None or format_for_mime(document.mime) is None:
         return ""
-    return original_url(doc_id, page)
+    return original_url(doc_id, page if document.mime == PDF_MIME else 0)
+
+
+def _original_is_download(document: DocumentRow | None) -> bool:
+    if document is None or format_for_mime(document.mime) is None:
+        return False
+    return document.mime != PDF_MIME
 
 
 def shard_results(
@@ -296,6 +304,7 @@ def shard_results(
                 page=hit.page,
                 snippet=snippet(hit.text, snippet_chars),
                 original_url=_original_for(document, hit.doc_id, hit.page),
+                original_download=_original_is_download(document),
             )
         )
     return results
@@ -374,6 +383,7 @@ def search_shards_by_vector(
                 page=row.page,
                 snippet=snippet(row.text, snippet_chars),
                 original_url=_original_for(document, row.doc_id, row.page),
+                original_download=_original_is_download(document),
                 score=score,
             )
         )

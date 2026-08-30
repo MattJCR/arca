@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import threading
 import time
@@ -12,13 +13,19 @@ import pytest
 import uvicorn
 
 from arca.api import create_app
-from arca.config import ArcaConfig, init_library
-from tests.support import article, build_zim, free_port
+from arca.config import ArcaConfig, init_library, library_db_path
+from arca.db import open_library_rw
+from arca.embed import EmbeddingClient
+from arca.i18n import load_catalog
+from arca.pipeline import ingest_documents
+from tests.support import EmbeddingServer, article, build_epub, build_zim, free_port
 
 pytest.importorskip("playwright.sync_api")
-from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import Browser, Page, sync_playwright
 
 CHANNEL = "chrome"
+HEADED = os.environ.get("ARCA_HEADED", "") not in ("", "0")
+SLOW_MO = int(os.environ.get("ARCA_SLOW_MO", "250" if HEADED else "0"))
 READY_SECONDS = 20.0
 ARTICLE_TEXT = "Photosynthesis turns light into chemical energy inside the chloroplast."
 PIECES = ("Una ", "respuesta ", "que ", "llega ", "en ", "trozos.")
@@ -26,20 +33,20 @@ PIECE_PAUSE = 0.3
 
 
 class Server:
-    def __init__(self, root: Path, chat_url: str = "") -> None:
+    def __init__(self, root: Path, chat_url: str = "", config: ArcaConfig | None = None) -> None:
         self.port = free_port()
-        settings = (
+        settings = config or (
             ArcaConfig(auto_engine=False, chat_url=chat_url)
             if chat_url
             else ArcaConfig(auto_engine=False)
         )
-        config = uvicorn.Config(
+        served = uvicorn.Config(
             create_app(root, settings),
             host="127.0.0.1",
             port=self.port,
             log_level="error",
         )
-        self._server = uvicorn.Server(config)
+        self._server = uvicorn.Server(served)
         self._thread = threading.Thread(target=self._server.run, daemon=True)
 
     @property
@@ -152,17 +159,32 @@ def server(library: Path) -> Iterator[Server]:
 
 
 @pytest.fixture(scope="module")
-def page(server: Server) -> Iterator[Page]:
-    with sync_playwright() as driver:
+def driver() -> Iterator[Browser]:
+    with sync_playwright() as playwright:
         try:
-            browser = driver.chromium.launch(channel=CHANNEL, headless=True)
+            browser = playwright.chromium.launch(
+                channel=CHANNEL, headless=not HEADED, slow_mo=SLOW_MO
+            )
         except Exception as error:
             pytest.skip(f"no system chrome to drive: {error}")
-        context = browser.new_context()
-        opened = context.new_page()
-        yield opened
-        context.close()
+        yield browser
         browser.close()
+
+
+@pytest.fixture(scope="module")
+def page(driver: Browser, server: Server) -> Iterator[Page]:
+    context = driver.new_context()
+    opened = context.new_page()
+    yield opened
+    context.close()
+
+
+@pytest.fixture
+def fresh_page(driver: Browser) -> Iterator[Page]:
+    context = driver.new_context()
+    opened = context.new_page()
+    yield opened
+    context.close()
 
 
 def _open_article(page: Page, server: Server) -> None:
@@ -306,3 +328,106 @@ def test_stopping_the_answer_keeps_the_words_already_written(page: Page, talking
     kept = page.inner_text(".chat-assistant .chat-text")
     assert kept.startswith("Una")
     assert len(kept) < len("".join(PIECES))
+
+
+BOOK_DIMS = 8
+BOOK_TITLE = "Field handbook"
+BOOK_FILLER = "words that the layout engine spreads across the pages of the book "
+BOOK_TERM = "turbine"
+
+
+def _book_paragraphs() -> list[str]:
+    return [
+        f"Paragraph {index} about the {BOOK_TERM}. " + BOOK_FILLER * 8 for index in range(1, 13)
+    ]
+
+
+@pytest.fixture(scope="module")
+def embeddings() -> Iterator[EmbeddingServer]:
+    instance = EmbeddingServer(dims=BOOK_DIMS)
+    instance.start()
+    yield instance
+    instance.stop()
+
+
+@pytest.fixture(scope="module")
+def shelf(tmp_path_factory: pytest.TempPathFactory, embeddings: EmbeddingServer) -> Path:
+    base = tmp_path_factory.mktemp("shelf")
+    root = base / "library"
+    init_library(root)
+    source = build_epub(base / "inbox" / "handbook.epub", _book_paragraphs(), title=BOOK_TITLE)
+    connection = open_library_rw(library_db_path(root))
+    client = EmbeddingClient(base_url=embeddings.url, dims=BOOK_DIMS, timeout=5.0)
+    try:
+        report = ingest_documents(root, connection, [source], client)
+    finally:
+        connection.close()
+    assert report.sealed is True
+    return root
+
+
+@pytest.fixture(scope="module")
+def shelf_server(shelf: Path, embeddings: EmbeddingServer) -> Iterator[Server]:
+    instance = Server(
+        shelf,
+        config=ArcaConfig(auto_engine=False, embed_url=embeddings.url, embed_dims=BOOK_DIMS),
+    )
+    instance.start()
+    yield instance
+    instance.stop()
+
+
+def test_the_language_choice_survives_the_three_screens(fresh_page: Page, server: Server) -> None:
+    english = load_catalog("en")
+    fresh_page.goto(server.url, wait_until="networkidle")
+    assert fresh_page.get_attribute("html", "lang") == "es"
+    fresh_page.select_option("#lang-select", "en")
+    fresh_page.wait_for_function("document.documentElement.lang === 'en'")
+    screens = (
+        ("/", "home.nav.archive"),
+        ("/talk", "home.nav.talk"),
+        ("/admin", "admin.nav.family.content"),
+    )
+    for path, key in screens:
+        fresh_page.goto(f"{server.url}{path}", wait_until="networkidle")
+        assert fresh_page.get_attribute("html", "lang") == "en", path
+        assert english.text(key) in fresh_page.inner_text("body"), path
+
+
+def test_a_typed_address_keeps_the_language_already_chosen(
+    fresh_page: Page, server: Server
+) -> None:
+    fresh_page.goto(f"{server.url}/?lang=en", wait_until="networkidle")
+    fresh_page.goto(f"{server.url}/talk", wait_until="networkidle")
+    fresh_page.reload(wait_until="networkidle")
+    assert fresh_page.get_attribute("html", "lang") == "en"
+
+
+def test_a_book_is_searched_read_and_downloaded(fresh_page: Page, shelf_server: Server) -> None:
+    fresh_page.goto(shelf_server.url, wait_until="networkidle")
+    fresh_page.fill("#search-q", BOOK_TERM)
+    fresh_page.click("#search-form button[type=submit]")
+    fresh_page.wait_for_selector("#search-results .result-title")
+    assert BOOK_TITLE in fresh_page.inner_text("#search-results")
+    assert load_catalog("es").text("home.result.download_original") in fresh_page.inner_text(
+        "#search-results"
+    )
+    fresh_page.click("#search-results .result-actions a:first-child")
+    fresh_page.wait_for_selector("#viewer-pane:not([hidden])")
+    fresh_page.wait_for_function("document.getElementById('viewer-loading').hidden === true")
+    frame = fresh_page.frame_locator("#viewer-frame")
+    assert BOOK_TERM in frame.locator("body").inner_text().lower()
+    assert frame.locator("[id^='p:0001']").first.is_visible()
+
+
+def test_the_original_of_a_book_comes_down_as_a_file(
+    fresh_page: Page, shelf_server: Server
+) -> None:
+    fresh_page.goto(shelf_server.url, wait_until="networkidle")
+    fresh_page.fill("#search-q", BOOK_TERM)
+    fresh_page.click("#search-form button[type=submit]")
+    fresh_page.wait_for_selector("#search-results .result-actions")
+    with fresh_page.expect_download() as caught:
+        fresh_page.click("#search-results .result-actions a:last-child")
+    download = caught.value
+    assert download.suggested_filename.endswith(".epub")

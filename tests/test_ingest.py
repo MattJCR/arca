@@ -8,17 +8,20 @@ import pytest
 
 from arca.config import init_library, library_db_path
 from arca.db import open_library_rw, recent_events
+from arca.extract import extract_document
 from arca.fetch import file_sha256
-from arca.ingest import (
-    MAX_CHUNK_TOKENS,
-    MIN_CHUNK_TOKENS,
+from arca.formats import (
     Block,
     ProtectedDocumentError,
     UnreadableDocumentError,
+    UnsupportedFormatError,
+)
+from arca.ingest import (
+    MAX_CHUNK_TOKENS,
+    MIN_CHUNK_TOKENS,
     anchor,
     chunk_blocks,
     estimate_tokens,
-    extract_document,
     list_originals,
     original_path,
     page_anchor,
@@ -145,13 +148,13 @@ def test_a_truncated_stored_original_is_replaced(tmp_path: Path) -> None:
     assert file_sha256(record.path) == record.doc_id
 
 
-def test_receiving_rejects_what_is_not_a_pdf(tmp_path: Path) -> None:
+def test_receiving_rejects_a_format_that_is_not_on_the_list(tmp_path: Path) -> None:
     root = tmp_path / "library"
     init_library(root)
-    intruder = tmp_path / "inbox" / "notes.txt"
+    intruder = tmp_path / "inbox" / "notes.rtf"
     intruder.parent.mkdir(parents=True, exist_ok=True)
     intruder.write_text("plain text", "utf-8")
-    with pytest.raises(UnreadableDocumentError):
+    with pytest.raises(UnsupportedFormatError):
         receive_document(root, intruder)
     with pytest.raises(UnreadableDocumentError):
         receive_document(root, tmp_path / "inbox" / "missing.pdf")

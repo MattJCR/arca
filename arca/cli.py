@@ -40,9 +40,11 @@ from arca.fetch import (
     run_queue,
     verify_library,
 )
+from arca.formats import IngestError, UnsupportedFormatError, known_suffixes
 from arca.i18n import Catalog, load_catalog, normalize_language
-from arca.ingest import IngestError, receive_document
+from arca.ingest import receive_document
 from arca.pipeline import ingest_vendor
+from arca.shards import STATE_PROVISIONAL, STATE_SEALED, ShardLibrary, layout_drift
 from arca.vendor import (
     LockEntry,
     VendorError,
@@ -116,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run":
         return _run_downloads(root, config, catalog, args.concurrency)
     if args.command == "verify":
-        return _run_verify(root, catalog)
+        return _run_verify(root, config, catalog)
     if args.command == "import":
         return _run_import(root, catalog, args.paths)
     if args.command == "vendor":
@@ -269,22 +271,64 @@ def _progress_printer(catalog: Catalog) -> ProgressCallback:
     return on_progress
 
 
-def _run_verify(root: Path, catalog: Catalog) -> int:
+def _run_verify(root: Path, config: ArcaConfig, catalog: Catalog) -> int:
     connection = open_library_rw(library_db_path(root))
     try:
         outcomes = verify_library(connection, root)
     finally:
         connection.close()
+    problems = 0
     if not outcomes:
         print(catalog.text("cli.verify.empty"))
-        return 0
-    print(catalog.text("cli.verify.header", count=len(outcomes)))
-    problems = 0
-    for outcome in outcomes:
-        print(catalog.text(f"cli.verify.{outcome.result}", filename=outcome.filename))
-        if outcome.result in ("corrupt", "missing"):
-            problems += 1
+    else:
+        print(catalog.text("cli.verify.header", count=len(outcomes)))
+        for outcome in outcomes:
+            print(catalog.text(f"cli.verify.{outcome.result}", filename=outcome.filename))
+            if outcome.result in ("corrupt", "missing"):
+                problems += 1
+    problems += _verify_batches(root, config, catalog)
     return 1 if problems else 0
+
+
+def _verify_batches(root: Path, config: ArcaConfig, catalog: Catalog) -> int:
+    library = ShardLibrary(root, config.embed_model, config.embed_dims)
+    try:
+        states = library.refresh()
+    finally:
+        library.close()
+    if not states:
+        print(catalog.text("cli.verify.batches_empty"))
+        return 0
+    print(catalog.text("cli.verify.batches_header", count=len(states)))
+    problems = 0
+    for state in states:
+        if state.state == STATE_PROVISIONAL:
+            print(catalog.text("cli.verify.batch_provisional", shard=state.shard_id))
+            continue
+        if state.state != STATE_SEALED or state.manifest is None:
+            print(
+                catalog.text(
+                    "cli.verify.batch_bad",
+                    shard=state.shard_id,
+                    state=state.state,
+                    detail=state.reason,
+                )
+            )
+            problems += 1
+            continue
+        drift = layout_drift(state.manifest)
+        if drift:
+            print(catalog.text("cli.verify.batch_layout", shard=state.shard_id, detail=drift))
+            problems += 1
+            continue
+        print(
+            catalog.text(
+                "cli.verify.batch_ok",
+                shard=state.shard_id,
+                layout=state.manifest.layout or "-",
+            )
+        )
+    return problems
 
 
 def _collect_documents(paths: list[str]) -> list[Path]:
@@ -292,7 +336,13 @@ def _collect_documents(paths: list[str]) -> list[Path]:
     for raw in paths:
         candidate = Path(raw)
         if candidate.is_dir():
-            found.extend(sorted(candidate.rglob("*.pdf")))
+            found.extend(
+                sorted(
+                    path
+                    for path in candidate.rglob("*")
+                    if path.is_file() and path.suffix.lower() in known_suffixes()
+                )
+            )
         elif candidate.exists() or not found:
             found.append(candidate)
     unique: list[Path] = []
@@ -315,6 +365,17 @@ def _run_import(root: Path, catalog: Catalog, paths: list[str]) -> int:
         for document in documents:
             try:
                 outcome = receive_document(root, document, connection)
+            except UnsupportedFormatError as error:
+                failures += 1
+                print(
+                    catalog.text(
+                        "cli.import.rejected",
+                        filename=document.name,
+                        reason=catalog.text(f"documents.refusal.{error.code}", suffix=error.suffix),
+                    ),
+                    file=sys.stderr,
+                )
+                continue
             except IngestError as error:
                 failures += 1
                 print(

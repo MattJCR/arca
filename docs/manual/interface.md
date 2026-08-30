@@ -137,7 +137,7 @@ Igual que el dashboard: el servidor incrusta como JSON las claves `home.*` del c
 
 ## Comprobado en
 
-`tests/test_frontend.py` (cero red externa, tipografías con licencia, `@font-face` apuntando a ficheros presentes, paleta, sandbox del visor, ningún `innerHTML`), `tests/test_i18n.py` (cobertura de claves) y `tests/test_api.py` (portada en ambos idiomas).
+`tests/test_frontend.py` (cero red externa, tipografías con licencia, `@font-face` apuntando a ficheros presentes, paleta, sandbox del visor, ningún `innerHTML`), `tests/test_i18n.py` (cobertura de claves), `tests/test_language.py` (la cookie que recuerda el idioma, con precedencia, cookie inválida y `/api/*`) y `tests/test_api.py` (portada en ambos idiomas).
 
 ## Probado en un navegador de verdad
 

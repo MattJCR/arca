@@ -1,28 +1,112 @@
 # Documentos propios: ingesta, lotes y búsqueda semántica
 
-Módulos: `arca/ingest.py` (recepción, extracción, anclas, troceado), `arca/embed.py` (cliente de embeddings), `arca/vectors.py` (índice vectorial), `arca/shards.py` (lotes sellados), `arca/pipeline.py` (orquestación y alcance del índice profundo).
+Módulos: `arca/formats.py` (qué formatos existen, cómo se abren, qué puede fallar al abrirlos), `arca/extract.py` (extractores por familia y OCR), `arca/ingest.py` (recepción, custodia, anclas, troceado), `arca/embed.py` (cliente de embeddings), `arca/vectors.py` (índice vectorial), `arca/shards.py` (lotes sellados), `arca/pipeline.py` (orquestación y alcance del índice profundo).
 
-## El viaje de un PDF
+## El viaje de un documento
 
 1. **Identidad** — `receive_document` calcula el sha256. Ese hash **es** el documento: si ya está, no se reimporta.
-2. **Custodia** — copia verificada por relectura a `docs/originals/<sha256>.pdf`, con sidecar `.json` (nombre real, fecha, páginas, lote). El original no se vuelve a tocar (invariante 4).
-3. **Extracción** — PyMuPDF por bloques ordenados. Página sin capa de texto → `ocrmypdf` si está instalado; si no, se marca no indexable y **la importación sigue** (trampa 11).
+2. **Custodia** — copia verificada por relectura a `docs/originals/<sha256><extensión real>`, con sidecar `.json` (nombre real, tipo, fecha, páginas, lote). El original no se vuelve a tocar (invariante 4).
+3. **Extracción** — PyMuPDF por bloques ordenados, con el extractor de la familia del formato, y OCR donde toque (ver la sección de OCR).
 4. **Anclas** — `p:0007:03` (página 4 dígitos, bloque 2), deterministas: reimportar el mismo fichero produce anclas idénticas (trampa 12).
 5. **Troceado** — 300–500 tokens por fragmento, límites de párrafo, un párrafo de solapamiento, corte solo entre frases.
 6. **Embeddings** — `passage: ` delante de cada fragmento contra `multilingual-e5-base`.
 7. **Sellado** — `text.sqlite` a solo lectura, `vectors.i8`, `manifest.json` con los hashes y el modelo.
 
+## Qué formatos entran hoy, y por qué los demás no
+
+La lista blanca vive en `arca/formats.py` (`FORMATS`) y es **exactamente** lo que ARCA acepta. La
+regla que la gobierna: una extensión entra solo con un test que ingiere un fichero real de ese
+formato y comprueba que produce bloques. «PyMuPDF lo abre» no basta — un CBZ abre y da cero
+bloques, y un documento fantasma que nunca encuentra nada es peor que un rechazo.
+
+| Extensión | Tipo servido | Familia | OCR | Original en la aplicación |
+|---|---|---|---|---|
+| `.pdf` | `application/pdf` | paginado | de reserva | PDF.js, en la página exacta |
+| `.xps` | `application/vnd.ms-xpsdocument` | paginado | no | descarga |
+| `.oxps` | `application/oxps` | paginado | no | descarga |
+| `.epub` | `application/epub+zip` | reflowable | no | descarga |
+| `.mobi` | `application/x-mobipocket-ebook` | reflowable | no | descarga |
+| `.fb2` | `application/x-fictionbook+xml` | reflowable | no | descarga |
+| `.txt` | `text/plain` | reflowable | no | descarga |
+| `.cbz` | `application/vnd.comicbook+zip` | imagen | **obligatorio** | descarga |
+| `.png` | `image/png` | imagen | **obligatorio** | descarga |
+| `.jpg` · `.jpeg` | `image/jpeg` | imagen | **obligatorio** | descarga |
+| `.ppm` | `image/x-portable-pixmap` | imagen | **obligatorio** | descarga |
+
+**Paginado** significa que el fichero trae sus propias páginas y ARCA no las toca. **Reflowable**
+significa que no las trae y hay que fijarlas: ver la sección siguiente. **Imagen** significa que no
+hay ni una letra dentro: todo el texto sale del OCR, y sin `ocrmypdf` instalado esas extensiones
+**no se aceptan** — ni se listan en el selector del panel.
+
+Lo que **no** entra, y el motivo exacto que se devuelve:
+
+| Extensiones | Código | Qué se dice |
+|---|---|---|
+| `.cbz`, `.png`, `.jpg`, `.jpeg`, `.ppm` **sin `ocrmypdf` instalado** | `no_ocr_binary` | Es imagen pura y solo se indexa con OCR; instala el binario y vuelve a importarla |
+| `.azw3`, `.tif`, `.tiff`, `.gif`, `.bmp`, `.jp2`, `.psd` | `unverified_format` | PyMuPDF los documenta, pero no hay prueba que los ingiera de verdad |
+| cualquier otra | `unsupported_format` | No está en la lista |
+| una de la lista con contenido que no le corresponde | `bad_file` | El fichero está renombrado o a medio copiar |
+
+Los cuatro códigos son estables y tienen mensaje accionable en los dos catálogos
+(`documents.refusal.*`); el panel y `arca import` usan **los mismos**.
+
+## OCR: el PDF y las imágenes, por caminos distintos
+
+El OCR lo hace siempre el binario externo `ocrmypdf`, que ARCA lanza como subproceso y **nunca**
+como dependencia: si no está, el sistema arranca igual y lo dice. Lo que cambia es cómo llega la
+página hasta él.
+
+- **PDF** — OCR *de reserva*: solo entra en las páginas que no traen capa de texto. `ocrmypdf`
+  recibe el original y el número de página. Una página que el OCR no recupera se marca **no
+  indexable** y la importación sigue (trampa 11).
+- **Imágenes y cómics** — OCR *obligatorio*: no hay capa de texto en ninguna página. ARCA renderiza
+  la página a 300 ppp, la envuelve en un PDF de una sola página en el directorio de trabajo del
+  lote, y **ese** PDF es el que va al OCR. El fichero renderizado se borra en cuanto termina, pase
+  lo que pase.
+
+El ancla no cambia: la página del CBZ es la página del ancla, y el bloque recuperado es
+`p:0002:01`. Por eso un cómic escaneado se cita igual que un PDF.
+
+**Sin `ocrmypdf` en el PATH, las extensiones de imagen se rechazan en la puerta** con el código
+`no_ocr_binary`, en vez de entrar y quedarse vacías. Es la trampa 11 llevada al extremo: aceptar un
+cómic que nunca va a encontrar nada es peor que decir por qué no se acepta. Ningún otro formato se
+entera de que falta el binario.
+
+## El maquetado fijado, y qué obliga a re-sellar
+
+Un EPUB, un MOBI, un FB2 o un TXT no tienen páginas: se las inventa el maquetador con el ancho, el
+alto y el cuerpo que se le den. ARCA los fija en `FIXED_LAYOUT`: **595 × 842 puntos, cuerpo 11**
+(A4 a 72 ppp), firma `595x842@11`. Con eso el ancla sigue siendo `p:PPPP:OO`, y ni el visor, ni el
+chat, ni los lotes ya sellados se enteran de que el formato no tenía páginas propias.
+
+La firma del maquetado **se graba en el manifiesto de cada lote** (`layout`) y `arca verify` la
+contrasta con la activa. Dos cosas invalidan un lote que lleve formatos reflowables dentro:
+
+- **cambiar `FIXED_LAYOUT`**, y
+- **cambiar la versión de PyMuPDF/MuPDF**, porque el reparto de páginas es suyo.
+
+En ambos casos las anclas ya selladas siguen siendo internamente coherentes —el consultable y las
+citas del chat funcionan— pero **reimportar el mismo libro daría otras anclas**, así que hay que
+re-sellar los lotes afectados si se quiere que las citas nuevas y las viejas hablen del mismo
+sitio. `arca verify` lo dice con el código `MAQUETADO` y el panel lo marca como «layout distinto».
+Que el maquetado fijado basta para que el ancla sea determinista está medido en
+`docs/gates/f10-anchors.md`, y la skill `verify-anchors` lo vuelve a medir cuando haga falta.
+
 ## Las dos formas de importar, y el paso que no se puede olvidar
 
-`arca import <rutas>` acepta ficheros y carpetas (recursivo). Un PDF ilegible o protegido se
-rechaza con su motivo y **no detiene** al resto.
+`arca import <rutas>` acepta ficheros y carpetas (recursivo). El escaneo de una carpeta recoge
+**toda extensión que ARCA conozca**, no solo las que puede aceptar ahora mismo: así un `.cbz` en una
+máquina sin `ocrmypdf` se rechaza **diciendo que falta el binario**, en vez de desaparecer del
+recuento sin decir nada. Un fichero ilegible, protegido o de un formato que no entra se rechaza
+**con su motivo** y **no detiene** al resto; el código de salida es 1 si hubo algún rechazo.
 
 Desde el panel (§12.4), la pestaña **Documentos** tiene un selector de ficheros que sube uno o
-varios PDF a `POST /api/admin/documents/upload`. La subida va en crudo, con el nombre en la query
-y los bytes como cuerpo: así no hace falta ninguna dependencia de *multipart* y el tope de 5
+varios documentos a `POST /api/admin/documents/upload`. La subida va en crudo, con el nombre en la
+query y los bytes como cuerpo: así no hace falta ninguna dependencia de *multipart* y el tope de 5
 dependencias directas sigue intacto. El fichero aterriza primero en el directorio de sesión —
 **fuera de la raíz**— y solo entra en la biblioteca a través de `receive_document`, que es quien
-verifica que es un PDF y lo copia por su sha256. El temporal se borra pase lo que pase.
+comprueba la extensión **y el contenido** antes de copiarlo por su sha256. El temporal se borra
+pase lo que pase.
 
 **Recibir no es indexar, y esta es la parte que se olvida.** Los pasos 1 y 2 de arriba dejan el
 documento guardado y verificado, pero hasta que no corren del 3 al 7 el documento **no se busca**.
@@ -70,9 +154,16 @@ Franja aparte y etiquetada, nunca mezclada con la de palabras (§9.3). Cada resu
 
 - el **fragmento citado** con su ancla,
 - enlace al **consultable** posicionado en esa ancla (`/api/doc/<sha256>#p:0007:03`),
-- enlace al **original intacto** en la página exacta (`/api/doc/<sha256>/original#page=7`), abierto con PDF.js vendorizado.
+- enlace al **original intacto**, servido con su tipo real por `/api/doc/<sha256>/original`.
 
-Un documento que no sea PDF —la documentación vendorizada, por ejemplo— no ofrece enlace al original: no lo hay como tal.
+El original se sirve de dos maneras, y la diferencia es deliberada. Un PDF va `inline` y se abre en
+la página exacta (`/api/doc/<sha256>/original#page=7`) con PDF.js vendorizado. **Cualquier otro
+formato va `attachment` y se descarga tal cual**: PDF.js no abre un EPUB, y fingir un visor que no
+existe sería peor que dar el fichero. El botón lo dice: «Abrir el original» frente a «Descargar el
+original».
+
+Un documento sin original en disco —la documentación vendorizada, por ejemplo— no ofrece ninguno de
+los dos: no lo hay como tal.
 
 `doc_id` viene de la URL y se usa para construir una ruta en disco, así que se exige exactamente 64 caracteres hexadecimales. Cualquier otra cosa es 404 antes de tocar el sistema de ficheros.
 
@@ -88,4 +179,4 @@ Antes de lanzar nada, la pantalla muestra la **estimación**: fragmentos, segund
 
 ## Comprobado en
 
-`tests/test_ingest.py` (recepción, extracción, OCR inyectado, anclas deterministas, troceado), `tests/test_embed.py` (prefijos, lotes, degradación), `tests/test_vectors.py` (normalización, cuantización, búsqueda, ficheros corruptos), `tests/test_shards.py` (sellado, validación por hash, incompatibilidad de modelo), `tests/test_pipeline.py` (reanudabilidad), `tests/test_documents.py` (extremo a extremo por la API, incluido el rechazo de identificadores forjados), `tests/test_vendor_index.py` y `tests/test_admin_content.py` (GGUF, alcance, dashboards). Puerta del hito: `docs/gates/milestone-3.md`.
+`tests/test_formats.py` (tabla de formatos, detección por extensión y contenido, determinismo del ancla con el maquetado fijado), `tests/test_books.py` (la lista blanca entera ingerida fichero a fichero, XPS y reflowables de extremo a extremo, maquetado grabado en el lote, `arca verify`, original servido con su tipo), `tests/test_ingest.py` (recepción, extracción, OCR inyectado, anclas deterministas, troceado), `tests/test_embed.py` (prefijos, lotes, degradación), `tests/test_vectors.py` (normalización, cuantización, búsqueda, ficheros corruptos), `tests/test_shards.py` (sellado, validación por hash, incompatibilidad de modelo), `tests/test_pipeline.py` (reanudabilidad), `tests/test_documents.py` (extremo a extremo por la API, incluido el rechazo de identificadores forjados), `tests/test_vendor_index.py` y `tests/test_admin_content.py` (GGUF, alcance, dashboards). Puertas: `docs/gates/milestone-3.md` (hito 3) y `docs/gates/f10-anchors.md` (determinismo del ancla en los formatos reflowables).

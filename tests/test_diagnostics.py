@@ -17,7 +17,7 @@ from arca.diagnostics import (
 from arca.fetch import write_sha256_sidecar
 from arca.i18n import load_catalog
 
-NOW = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
+NOW = datetime.now(UTC)
 
 
 def _states(root: Path, config: ArcaConfig, now: datetime) -> dict[str, CheckState]:

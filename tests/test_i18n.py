@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from arca.formats import REFUSAL_CODES
 from arca.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, load_catalog, normalize_language
 
 EXPECTED_DIAGNOSTIC_KEYS = {
@@ -151,7 +152,13 @@ ERROR_CODE_KEYS = {
         "unknown_file",
     ),
     "admin.vendor.llama_error": ("bad_commit",),
-    "admin.documents.upload_error": ("bad_file", "too_large"),
+    "documents.refusal": (
+        "bad_file",
+        "too_large",
+        "no_ocr_binary",
+        "unverified_format",
+        "unsupported_format",
+    ),
     "talk.error": (
         "unknown_conversation",
         "empty_title",
@@ -169,7 +176,7 @@ def _emitted_codes() -> set[str]:
     source = API_SOURCE.read_text("utf-8")
     direct = re.findall(r'"code": "([a-z_]+)"', source)
     helped = re.findall(r'_talk_error\(\s*"([a-z_]+)"', source)
-    return set(direct) | set(helped)
+    return set(direct) | set(helped) | set(REFUSAL_CODES)
 
 
 def test_every_error_code_the_api_returns_has_an_actionable_message() -> None:

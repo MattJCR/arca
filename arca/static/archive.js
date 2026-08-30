@@ -136,15 +136,31 @@ function documentActions(result) {
     event.preventDefault();
     openResult(result);
   });
-  const original = document.createElement("a");
-  original.href = originalViewerUrl(result);
-  original.textContent = t("home.result.open_original", { page: result.page });
-  original.addEventListener("click", (event) => {
+  actions.append(readable);
+  const original = originalAction(result);
+  if (original) {
+    actions.append(original);
+  }
+  return actions;
+}
+
+function originalAction(result) {
+  if (!result.original_url) {
+    return null;
+  }
+  const link = document.createElement("a");
+  if (result.original_download) {
+    link.href = result.original_url;
+    link.textContent = t("home.result.download_original");
+    return link;
+  }
+  link.href = originalViewerUrl(result);
+  link.textContent = t("home.result.open_original", { page: result.page });
+  link.addEventListener("click", (event) => {
     event.preventDefault();
     openOriginal(result);
   });
-  actions.append(readable, original);
-  return actions;
+  return link;
 }
 
 function originalViewerUrl(result) {

@@ -83,6 +83,17 @@ from arca.fetch import (
     request_retry,
     verify_library,
 )
+from arca.formats import (
+    CODE_BAD_FILE,
+    PDF,
+    Format,
+    IngestError,
+    UnsupportedFormatError,
+    accepted_suffixes,
+    format_for_mime,
+    format_for_suffix,
+    refusal_by_name,
+)
 from arca.history import (
     MAX_IMAGE_BYTES,
     ROLE_ASSISTANT,
@@ -103,10 +114,14 @@ from arca.hub import (
     model_files,
     search_models,
 )
-from arca.i18n import Catalog, load_catalog, normalize_language
+from arca.i18n import (
+    Catalog,
+    LanguageMiddleware,
+    active_language,
+    load_catalog,
+    normalize_language,
+)
 from arca.ingest import (
-    PDF_MIME,
-    IngestError,
     is_doc_id,
     list_originals,
     original_path,
@@ -255,7 +270,6 @@ ZIM_READER_POLICY = ZIM_CONTENT_POLICY.replace(
 )
 ZIM_ACTIONS = ("enable", "disable")
 MODEL_KINDS = ("chat", "embed")
-PDF_SUFFIX = ".pdf"
 NONCE_BYTES = 16
 CHAT_PASSAGES = 8
 UPLOAD_SUBDIR = "uploads"
@@ -294,6 +308,7 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         openapi_url=None,
         lifespan=lifespan,
     )
+    app.add_middleware(LanguageMiddleware)
     app.mount("/static", StaticFiles(directory=PACKAGE_DIR / "static"), name="static")
     zim_library = ZimLibrary(root)
     shard_library = ShardLibrary(root, config.embed_model, config.embed_dims)
@@ -427,11 +442,13 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         path = original_path(root, doc_id)
         if not path.is_file():
             return _zim_error(catalog, "doc.error.original_missing", 404, doc_id=doc_id[:12])
+        entry = _stored_format(shard_library, doc_id, path)
+        disposition = "inline" if entry is PDF else "attachment"
         return FileResponse(
             path,
-            media_type="application/pdf",
+            media_type=entry.mime,
             headers={
-                "Content-Disposition": f'inline; filename="{doc_id[:12]}.pdf"',
+                "Content-Disposition": (f'{disposition}; filename="{doc_id[:12]}{entry.suffix}"'),
                 "Cache-Control": ZIM_CACHE_CONTROL,
                 "X-Content-Type-Options": "nosniff",
             },
@@ -468,9 +485,14 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
     @app.post("/api/admin/documents/upload")
     async def api_admin_upload(request: Request, filename: str = "") -> JSONResponse:
         name = Path(filename).name
-        if not name or not name.lower().endswith(PDF_SUFFIX) or name != filename:
+        if not name or name != filename:
             return JSONResponse(
-                {"error": f"not a pdf: {filename}", "code": "bad_file"}, status_code=400
+                {"error": f"unsafe file name: {filename}", "code": CODE_BAD_FILE}, status_code=400
+            )
+        refused = refusal_by_name(name)
+        if refused:
+            return JSONResponse(
+                {"error": f"{refused}: {filename}", "code": refused}, status_code=400
             )
         staging = session_dir(root, config) / UPLOAD_SUBDIR / uuid4().hex
         staging.mkdir(parents=True, exist_ok=True)
@@ -487,8 +509,10 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
                 outcome = receive_document(root, temp, connection)
             finally:
                 connection.close()
+        except UnsupportedFormatError as error:
+            return JSONResponse({"error": str(error), "code": error.code}, status_code=400)
         except IngestError as error:
-            return JSONResponse({"error": str(error), "code": "bad_file"}, status_code=400)
+            return JSONResponse({"error": str(error), "code": CODE_BAD_FILE}, status_code=400)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
         return JSONResponse(
@@ -1270,7 +1294,8 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
             language=catalog.language,
             title=html.escape(catalog.text("admin.title")),
             lang_selector=_language_selector(catalog),
-            i18n_json=_embedded_i18n(catalog, "admin.", "diag.", "ui."),
+            i18n_json=_embedded_i18n(catalog, "admin.", "diag.", "documents.", "ui."),
+            upload_accept=",".join(accepted_suffixes()),
         )
         return HTMLResponse(page)
 
@@ -1285,7 +1310,9 @@ def _releaser(library: ZimLibrary) -> Callable[[Path], None]:
 
 
 def _catalog_for(config: ArcaConfig, lang: str | None) -> Catalog:
-    return load_catalog(normalize_language(lang) if lang else config.language)
+    if lang:
+        return load_catalog(normalize_language(lang))
+    return load_catalog(active_language() or config.language)
 
 
 def _embedded_i18n(catalog: Catalog, *prefixes: str) -> str:
@@ -1512,7 +1539,9 @@ def _admin_documents(root: Path, library: ShardLibrary, client: EmbeddingClient)
                     "unindexable_pages": shard.unindexable_pages(row.doc_id),
                     "readable_url": _doc_link(row.doc_id),
                     "original_url": (
-                        _doc_link(row.doc_id, "/original") if row.mime == PDF_MIME else ""
+                        _doc_link(row.doc_id, "/original")
+                        if format_for_mime(row.mime) is not None
+                        else ""
                     ),
                 }
             )
@@ -1705,6 +1734,15 @@ def _search_payload(outcome: SearchOutcome) -> dict[str, Any]:
     }
 
 
+def _stored_format(shard_library: ShardLibrary, doc_id: str, path: Path) -> Format:
+    found = shard_library.document_location(doc_id)
+    if found is not None:
+        recorded = format_for_mime(found[1].mime)
+        if recorded is not None:
+            return recorded
+    return format_for_suffix(path.suffix) or PDF
+
+
 def _result_payload(result: SearchResult) -> dict[str, Any]:
     return {
         "source_kind": result.source_kind,
@@ -1719,6 +1757,7 @@ def _result_payload(result: SearchResult) -> dict[str, Any]:
         "page": result.page,
         "snippet": result.snippet,
         "original_url": result.original_url,
+        "original_download": result.original_download,
         "score": result.score,
     }
 

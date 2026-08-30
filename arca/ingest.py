@@ -3,33 +3,33 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import sqlite3
-import subprocess
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from html import escape
 from math import ceil
 from pathlib import Path
 
-import pymupdf
-
 from arca.db import record_event, utc_now_iso
 from arca.fetch import file_sha256
+from arca.formats import (
+    CODE_UNSUPPORTED_FORMAT,
+    FORMATS,
+    PDF,
+    Block,
+    IngestError,
+    UnreadableDocumentError,
+    UnsupportedFormatError,
+    detect_format,
+    format_for_suffix,
+    open_document,
+    refusal,
+)
 
 ORIGINALS_SUBDIR = ("docs", "originals")
-PDF_MIME = "application/pdf"
-PDF_MAGIC = b"%PDF-"
 PART_SUFFIX = ".part"
 COPY_CHUNK_BYTES = 1024 * 1024
 METADATA_FIELDS = ("author", "subject", "keywords", "creator", "producer", "creationDate")
-OCR_BINARY = "ocrmypdf"
-OCR_TIMEOUT_SECONDS = 300
-TEXT_BLOCK = 0
-SOURCE_TEXT = "text"
-SOURCE_OCR = "ocr"
-SOURCE_NONE = "none"
-OcrRunner = Callable[[Path, int, Path], str]
 ANCHOR_PAGE_DIGITS = 4
 ANCHOR_BLOCK_DIGITS = 2
 TOKENS_PER_WORD = 1.4
@@ -39,18 +39,6 @@ OVERLAP_BLOCKS = 1
 DOC_ID_LENGTH = 64
 DOC_ID_ALPHABET = "0123456789abcdef"
 SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+")
-
-
-class IngestError(RuntimeError):
-    pass
-
-
-class UnreadableDocumentError(IngestError):
-    pass
-
-
-class ProtectedDocumentError(IngestError):
-    pass
 
 
 @dataclass(frozen=True)
@@ -87,137 +75,6 @@ class Chunk:
     ord: int
     text: str
     n_tokens: int
-
-
-@dataclass(frozen=True)
-class Block:
-    page: int
-    ord: int
-    text: str
-
-
-@dataclass(frozen=True)
-class PageExtraction:
-    number: int
-    blocks: tuple[Block, ...]
-    source: str
-
-    @property
-    def indexable(self) -> bool:
-        return bool(self.blocks)
-
-
-@dataclass(frozen=True)
-class Extraction:
-    doc_id: str
-    pages: tuple[PageExtraction, ...]
-
-    @property
-    def blocks(self) -> list[Block]:
-        return [block for page in self.pages for block in page.blocks]
-
-    @property
-    def unindexable_pages(self) -> tuple[int, ...]:
-        return tuple(page.number for page in self.pages if not page.indexable)
-
-    @property
-    def ocr_pages(self) -> tuple[int, ...]:
-        return tuple(page.number for page in self.pages if page.source == SOURCE_OCR)
-
-
-def ocr_available() -> bool:
-    return shutil.which(OCR_BINARY) is not None
-
-
-def run_ocrmypdf(source: Path, page: int, workdir: Path) -> str:
-    workdir.mkdir(parents=True, exist_ok=True)
-    sidecar = workdir / f"page-{page:04d}.txt"
-    rendered = workdir / f"page-{page:04d}.pdf"
-    command = [
-        OCR_BINARY,
-        "--force-ocr",
-        "--pages",
-        str(page),
-        "--sidecar",
-        str(sidecar),
-        str(source),
-        str(rendered),
-    ]
-    try:
-        subprocess.run(command, capture_output=True, timeout=OCR_TIMEOUT_SECONDS, check=True)
-        return sidecar.read_text("utf-8", errors="replace").strip()
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    finally:
-        sidecar.unlink(missing_ok=True)
-        rendered.unlink(missing_ok=True)
-
-
-def extract_document(
-    path: Path, ocr: OcrRunner | None = None, workdir: Path | None = None
-) -> Extraction:
-    try:
-        document = pymupdf.open(path)
-    except Exception as error:
-        raise UnreadableDocumentError(f"cannot open pdf: {path.name}: {error}") from error
-    pages: list[PageExtraction] = []
-    try:
-        if document.needs_pass:
-            raise ProtectedDocumentError(f"pdf is password protected: {path.name}")
-        for index in range(document.page_count):
-            pages.append(_extract_page(document, path, index, ocr, workdir))
-    finally:
-        document.close()
-    return Extraction(doc_id=path.stem, pages=tuple(pages))
-
-
-def _extract_page(
-    document: object, path: Path, index: int, ocr: OcrRunner | None, workdir: Path | None
-) -> PageExtraction:
-    number = index + 1
-    page = document[index]  # type: ignore[index]
-    texts = _page_texts(page)
-    if texts:
-        return PageExtraction(number, _blocks(number, texts), SOURCE_TEXT)
-    if ocr is not None and workdir is not None:
-        recovered = _paragraphs(ocr(path, number, workdir))
-        if recovered:
-            return PageExtraction(number, _blocks(number, recovered), SOURCE_OCR)
-    return PageExtraction(number, (), SOURCE_NONE)
-
-
-def _page_texts(page: object) -> list[str]:
-    raw = page.get_text("blocks", sort=True)  # type: ignore[attr-defined]
-    texts = []
-    for block in raw:
-        if len(block) > 6 and int(block[6]) != TEXT_BLOCK:
-            continue
-        paragraph = _paragraph(str(block[4]))
-        if paragraph:
-            texts.append(paragraph)
-    return texts
-
-
-def _blocks(page: int, texts: list[str]) -> tuple[Block, ...]:
-    return tuple(Block(page, position + 1, text) for position, text in enumerate(texts))
-
-
-def _paragraph(raw: str) -> str:
-    lines = (line.strip() for line in raw.splitlines())
-    return " ".join(line for line in lines if line).strip()
-
-
-def _paragraphs(raw: str) -> list[str]:
-    paragraphs: list[str] = []
-    current: list[str] = []
-    for line in raw.splitlines():
-        if line.strip():
-            current.append(line)
-            continue
-        paragraphs.append(_paragraph(" ".join(current)))
-        current = []
-    paragraphs.append(_paragraph(" ".join(current)))
-    return [paragraph for paragraph in paragraphs if paragraph]
 
 
 def anchor(page: int, ord: int) -> str:
@@ -353,8 +210,21 @@ def originals_dir(root: Path) -> Path:
     return root.joinpath(*ORIGINALS_SUBDIR)
 
 
-def original_path(root: Path, doc_id: str) -> Path:
-    return originals_dir(root) / f"{doc_id}.pdf"
+def original_path(root: Path, doc_id: str, suffix: str = "") -> Path:
+    directory = originals_dir(root)
+    if suffix:
+        return directory / f"{doc_id}{suffix}"
+    stored = stored_original(root, doc_id)
+    return stored if stored is not None else directory / f"{doc_id}{PDF.suffix}"
+
+
+def stored_original(root: Path, doc_id: str) -> Path | None:
+    directory = originals_dir(root)
+    for entry in FORMATS:
+        candidate = directory / f"{doc_id}{entry.suffix}"
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def sidecar_path(root: Path, doc_id: str) -> Path:
@@ -362,13 +232,8 @@ def sidecar_path(root: Path, doc_id: str) -> Path:
 
 
 def probe_document(path: Path) -> DocumentProbe:
+    document = open_document(path)
     try:
-        document = pymupdf.open(path)
-    except Exception as error:
-        raise UnreadableDocumentError(f"cannot open pdf: {path.name}: {error}") from error
-    try:
-        if document.needs_pass:
-            raise ProtectedDocumentError(f"pdf is password protected: {path.name}")
         pages = int(document.page_count)
         raw = document.metadata or {}
         title = str(raw.get("title") or "").strip() or path.stem
@@ -383,13 +248,19 @@ def receive_document(
 ) -> ReceiveOutcome:
     if not source.is_file():
         raise UnreadableDocumentError(f"not a file: {source}")
-    if not _looks_like_pdf(source):
-        raise UnreadableDocumentError(f"not a pdf: {source.name}")
+    code, suffix = refusal(source)
+    if code:
+        raise UnsupportedFormatError(f"{code}: {source.name}", code, suffix)
+    entry = detect_format(source)
+    if entry is None:
+        raise UnsupportedFormatError(
+            f"{CODE_UNSUPPORTED_FORMAT}: {source.name}", CODE_UNSUPPORTED_FORMAT, source.suffix
+        )
     probe = probe_document(source)
     doc_id = file_sha256(source)
-    destination = original_path(root, doc_id)
+    destination = original_path(root, doc_id, entry.suffix)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    existing = _existing(root, doc_id, destination, source)
+    existing = _existing(root, doc_id, source)
     if existing is not None:
         return ReceiveOutcome(existing, False)
     _copy_verified(source, destination, doc_id)
@@ -397,7 +268,7 @@ def receive_document(
         doc_id=doc_id,
         path=destination,
         orig_name=source.name,
-        mime=PDF_MIME,
+        mime=entry.mime,
         size_bytes=destination.stat().st_size,
         pages=probe.pages,
         title=probe.title,
@@ -441,7 +312,7 @@ def read_sidecar(root: Path, doc_id: str) -> OriginalRecord | None:
         doc_id=str(parsed.get("doc_id", doc_id)),
         path=original_path(root, doc_id),
         orig_name=str(parsed.get("orig_name", "")),
-        mime=str(parsed.get("mime", PDF_MIME)),
+        mime=str(parsed.get("mime", PDF.mime)),
         size_bytes=_read_int(parsed, "size_bytes"),
         pages=_read_int(parsed, "pages"),
         title=str(parsed.get("title", "")),
@@ -456,28 +327,30 @@ def list_originals(root: Path) -> list[OriginalRecord]:
     if not directory.is_dir():
         return []
     records = []
-    for path in sorted(directory.glob("*.pdf")):
+    for path in sorted(directory.iterdir()):
+        if format_for_suffix(path.suffix) is None:
+            continue
         record = read_sidecar(root, path.stem)
         if record is not None:
             records.append(record)
     return records
 
 
-def _existing(root: Path, doc_id: str, destination: Path, source: Path) -> OriginalRecord | None:
-    if not destination.is_file():
-        return None
-    if destination.stat().st_size != source.stat().st_size:
+def _existing(root: Path, doc_id: str, source: Path) -> OriginalRecord | None:
+    stored = stored_original(root, doc_id)
+    if stored is None or stored.stat().st_size != source.stat().st_size:
         return None
     record = read_sidecar(root, doc_id)
     if record is not None:
         return record
-    probe = probe_document(destination)
+    entry = format_for_suffix(stored.suffix) or PDF
+    probe = probe_document(stored)
     rebuilt = OriginalRecord(
         doc_id=doc_id,
-        path=destination,
+        path=stored,
         orig_name=source.name,
-        mime=PDF_MIME,
-        size_bytes=destination.stat().st_size,
+        mime=entry.mime,
+        size_bytes=stored.stat().st_size,
         pages=probe.pages,
         title=probe.title,
         imported_at=utc_now_iso(),
@@ -497,14 +370,6 @@ def _copy_verified(source: Path, destination: Path, doc_id: str) -> None:
         partial.unlink(missing_ok=True)
         raise IngestError(f"copy of {source.name} does not match its hash")
     os.replace(partial, destination)
-
-
-def _looks_like_pdf(path: Path) -> bool:
-    try:
-        with path.open("rb") as handle:
-            return handle.read(len(PDF_MAGIC)) == PDF_MAGIC
-    except OSError:
-        return False
 
 
 def _read_int(parsed: dict[str, object], key: str) -> int:

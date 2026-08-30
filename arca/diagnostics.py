@@ -19,8 +19,9 @@ from arca.config import (
 from arca.db import open_library_ro
 from arca.embed import EmbeddingClient, EmbeddingError
 from arca.fetch import PART_SUFFIX, SHA256_SUFFIX, verify_library
+from arca.formats import format_for_mime
 from arca.i18n import Catalog
-from arca.ingest import PDF_MIME, original_path
+from arca.ingest import original_path
 from arca.llama import (
     HEALTH_OK,
     LlamaServer,
@@ -42,6 +43,7 @@ from arca.shards import (
     STATE_SEALED,
     ShardLibrary,
     ShardState,
+    layout_drift,
 )
 from arca.vendor import VendorError, check_drift, default_lock_path, load_lock
 from arca.zim import ZimInfo, ZimLibrary, index_mode
@@ -355,7 +357,12 @@ def _shard_items(root: Path, config: ArcaConfig) -> list[IntegrityItem]:
     try:
         for state in library.refresh():
             if state.state == STATE_SEALED:
-                items.append(IntegrityItem(KIND_SHARD, state.shard_id, "ok"))
+                drift = layout_drift(state.manifest) if state.manifest is not None else ""
+                items.append(
+                    IntegrityItem(KIND_SHARD, state.shard_id, "layout", drift)
+                    if drift
+                    else IntegrityItem(KIND_SHARD, state.shard_id, "ok")
+                )
             elif state.state == STATE_INCOMPATIBLE:
                 items.append(
                     IntegrityItem(KIND_SHARD, state.shard_id, "incompatible", state.reason)
@@ -375,7 +382,7 @@ def _document_items(library: ShardLibrary, shard_id: str, root: Path) -> list[In
     missing = [
         row.doc_id
         for row in shard.documents()
-        if row.mime == PDF_MIME and not original_path(root, row.doc_id).is_file()
+        if format_for_mime(row.mime) is not None and not original_path(root, row.doc_id).is_file()
     ]
     return [IntegrityItem(KIND_DOCUMENT, doc_id[:12], "missing") for doc_id in missing]
 

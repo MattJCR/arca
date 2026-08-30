@@ -59,7 +59,9 @@ Detalle completo en `docs/development/workflow.md`.
 - `testing` — pruebas del proyecto.
 - `deployment` — builds y releases.
 - `save-checkpoint` — guarda el estado de la tarea en `.claude/checkpoint.md` antes de que la sesión se detenga por límite de contexto.
-- Skills específicas de ARCA: pendientes; se crearán por capacidad reutilizable a medida que avancen los hitos (candidatas: verificación de invariantes de robustez, sellado/validación de lotes, gestión de perfiles de llama.cpp) — ver `docs/architecture/decision-criteria.md` para el criterio.
+- `verify-no-write` — comprueba el invariante 1 (consultar no escribe) ejerciendo una sesión completa de consulta.
+- `verify-anchors` — comprueba que el ancla `p:PPPP:OO` de los formatos reflowables es determinista con el maquetado fijado (trampa 12 de §17).
+- Más skills específicas de ARCA se crearán por capacidad reutilizable a medida que avancen los hitos (candidatas: sellado/validación de lotes, gestión de perfiles de llama.cpp) — ver `docs/architecture/decision-criteria.md` para el criterio.
 
 ## Hooks disponibles
 

@@ -18,9 +18,9 @@ Módulos: `arca/api.py`, `arca/templates/`, `arca/static/`, `arca/i18n.py`.
 | `GET /api/search?q=&scope=&mode=&limit=` | Búsqueda por palabras sobre las colecciones locales, con intercalado por rango y parte por fuente; la franja semántica llega vacía y declarada (ver `search.md`) |
 | `GET /zim/{uuid}` · `GET /zim/{uuid}/{path}` | Artículo o recurso interno de una colección, con `<base>` inyectado para que los enlaces relativos no salgan de la aplicación (ver `zim.md`); sin `path`, la portada de la colección |
 | `GET /api/doc/{doc_id}` | Versión consultable de un documento propio, con un ancla por bloque (ver `documents.md`); identificador que no sea sha256 → 404 |
-| `GET /api/doc/{doc_id}/original` | El PDF original intacto, servido `inline` para PDF.js |
+| `GET /api/doc/{doc_id}/original` | El original intacto, servido con su tipo real: `inline` si es PDF (para PDF.js), `attachment` en cualquier otro formato |
 | `GET /api/admin/documents` | 12.4: documentos importados, lotes con su estado, cola de importación y estado del servidor de embeddings |
-| `POST /api/admin/documents/upload?filename=` | 12.4: sube un PDF en crudo (bytes en el cuerpo, sin *multipart*), lo recibe por su sha256 y lo deja pendiente de indexar; no es un PDF o el nombre no es seguro → 400 con su código |
+| `POST /api/admin/documents/upload?filename=` | 12.4: sube un documento en crudo (bytes en el cuerpo, sin *multipart*), lo recibe por su sha256 y lo deja pendiente de indexar; formato fuera de la lista blanca, contenido que no cuadra con la extensión o nombre inseguro → 400 con su código (`documents.refusal.*`) |
 | `POST /api/admin/documents/index` | Indexa y sella los documentos recibidos que aún no tienen lote; sin servidor de embeddings lo declara y no toca nada (ver `documents.md`) |
 | `GET /api/admin/scope` · `PUT /api/admin/scope` | 12.5: alcance del índice profundo por fuente (`out` / `full` / `curated`) con estimación de coste antes de lanzar |
 | `GET /api/admin/models` | 12.6: GGUF presentes con arquitectura, cuantización y `n_ctx_train` leídos de la cabecera, más el aviso de lotes con embeddings desalineados |
@@ -115,7 +115,26 @@ Buscador del catálogo: campo de texto con etiqueta, combos de idioma (con nombr
 
 ## Bilingüe
 
-Toda ruta acepta `?lang=es|en`; sin él manda `language` de `arca.json`. Los textos salen de `arca/locale/{es,en}.json` (mismo juego de claves en ambos, verificado por test). El HTML declara `lang` y ofrece el cambio de idioma en la cabecera. Añadir una cadena de usuario = añadirla a los dos catálogos.
+Toda ruta acepta `?lang=es|en`. **La elección se recuerda en una cookie** (`arca_lang`, `Path=/`,
+`Max-Age` de un año, `SameSite=Lax`, `HttpOnly`) que escribe la propia respuesta a la petición que
+lleva `?lang=`, y que lee `LanguageMiddleware` (`arca/i18n.py`) en cada petición siguiente. El orden
+de precedencia es **query → cookie → `language` de `arca.json`**.
+
+El middleware es ASGI puro: no envuelve el cuerpo de la respuesta —así no estorba a los flujos SSE
+del chat— y solo hace dos cosas: publicar el idioma activo en un `ContextVar` que lee `_catalog_for`,
+y añadir la cabecera `Set-Cookie` cuando la petición trae un `?lang=` distinto del recordado. Gracias
+al `ContextVar`, también hablan el idioma recordado los endpoints que reciben el idioma **en el
+cuerpo** (`POST /api/chat`, `POST /api/talk`…), que el frontend no rellena.
+
+Antes el idioma vivía solo en la URL: el selector añadía `?lang=` a la página actual y cualquier
+enlace de navegación (`/`, `/talk`, `/admin`) volvía al idioma por defecto. La cookie es lo más
+aburrido que cumple: sobrevive a teclear una dirección a mano, funciona sin JavaScript —el selector
+sigue siendo un `<form method="get">` con su `<noscript>`— y no obliga a arrastrar el parámetro por
+cada enlace. No escribe nada bajo la raíz, así que el invariante 1 sigue intacto.
+
+Los textos salen de `arca/locale/{es,en}.json` (mismo juego de claves en ambos, verificado por test).
+El HTML declara `lang` y ofrece el cambio de idioma en la cabecera. Añadir una cadena de usuario =
+añadirla a los dos catálogos.
 
 ## Renderizado
 
