@@ -619,6 +619,277 @@ encuentra ni un `http` en los fuentes del frontend de Music; el manual describe 
 planificado.
 · Loop: **Turn-based** — `verify-no-write`, otra vez la más importante.
 
+### Fase 10 — Libros y otros formatos por el camino de los documentos
+
+ARCA ya ingiere PDF. Un libro no es distinto salvo en dos cosas: el contenedor, y que no tiene
+páginas. PyMuPDF —ya vendorizado, sin dependencia nueva— abre EPUB, FB2, TXT, SVG, CBZ e imágenes
+con la misma API que el PDF; está medido contra el 1.28.2 instalado. Lo que no viene gratis es el
+ancla, y esta fase entera gira alrededor de eso.
+
+Lo medido, con muestras reales: **traen texto** el PDF, el EPUB, el FB2, el TXT y el SVG; **abren y
+no traen ni un carácter** el CBZ, el PNG, el BMP y el PPM. Son imágenes, y sin OCR no hay nada que
+indexar. Sin verificar aquí, documentados por PyMuPDF: XPS/OXPS, MOBI/AZW3, JPEG, TIFF, GIF, JP2 y
+PSD.
+
+**Tres decisiones tomadas antes de empezar, y por qué:**
+
+- **No se convierte nada a ZIM.** `libzim` trae API de escritura, así que se podría; sería un error.
+  La búsqueda semántica corre solo sobre lotes sellados (`arca/search.py:121`), nunca sobre ZIM:
+  convertir un libro lo dejaría navegable pero **no citable al párrafo**, que es justo lo que un
+  libro aporta. Y un ZIM es inmutable — uno por libro son miles de filas en `library.db`; uno para
+  todos obliga a reescribirlo entero para añadir el siguiente. El lote sellado ya resuelve
+  exactamente eso. **El estándar del proyecto es el lote, no el contenedor**, y lo que se
+  estandariza es el extractor.
+- **El layout se fija y se graba en el lote.** Un EPUB es reflowable: sus páginas se las inventa el
+  maquetador con el ancho, alto y cuerpo que le des. Se fijan esos tres valores, se guardan en el
+  lote, y el ancla sigue siendo `p:PPPP:OO` — ni el visor, ni el chat, ni los lotes ya sellados se
+  enteran. La alternativa (ancla por ítem del *spine*) es más correcta y cambia el formato de ancla;
+  ese precio no se paga hasta que F10.0 diga que hace falta.
+- **Una extensión entra en la lista blanca solo con un test que la ingiere de verdad.** «PyMuPDF lo
+  abre» no es criterio: el CBZ abre y da cero bloques. Aceptar un fichero e indexarlo vacío deja un
+  documento fantasma en la biblioteca que no encuentra nada nunca, y eso es peor que rechazarlo.
+  Es la trampa 11 de §17 generalizada más allá del PDF.
+
+**F10.0 — Puerta: ¿es determinista el ancla?** *(pendiente, es una puerta)*
+Ingerir el mismo EPUB dos veces con el layout fijado y comparar bloque a bloque y ancla a ancla. Un
+script y una comparación de hashes: sin panel, sin interfaz, sin i18n. Se repite con FB2 y TXT, que
+son reflowables igual.
+· Dep: ninguna · CA: los dos pases producen los mismos bloques con las mismas anclas en los tres
+formatos. Si no coinciden, la fase **cambia al ancla por ítem del spine antes de escribir una línea
+más**, y se documenta qué cuesta eso sobre los lotes ya sellados. Sin esta puerta no se sigue.
+· Loop: **Turn-based** — `verify-anchors`, que existe para esto (trampa 12 de §17).
+
+**F10.1 — El extractor deja de ser el PDF** *(pendiente)*
+Separar de `arca/ingest.py` lo que asume PDF, dejando un extractor con implementaciones por familia.
+La de PDF es la de hoy, sin un solo cambio de comportamiento. Entra con ella el XPS/OXPS, que es de
+paginación fija y no depende de F10.0. De las anclas en adelante —troceado, embeddings, sellado— no
+cambia nada.
+· Dep: F10.0 · CA: `tests/test_documents.py` pasa **sin tocarse**, `arca verify` sigue verde sobre
+lotes creados antes del cambio, y un XPS ingerido aparece en `/api/search` con su párrafo.
+· Loop: Ninguno.
+
+**F10.2 — Los formatos reflowables** *(pendiente)*
+EPUB, MOBI/AZW3, FB2 y TXT por el extractor reflowable, con el layout fijado y grabado. El TXT es el
+que más se va a usar y el más barato: notas, volcados, transcripciones, subtítulos y código.
+· Dep: F10.1 · CA: un EPUB real ingerido produce bloques con ancla, aparece en `/api/search` y el
+chat puede citarlo al párrafo; reingerir el mismo fichero da las mismas anclas; el layout usado
+queda registrado en el lote y `arca verify` lo comprueba.
+· Loop: Ninguno.
+
+**F10.3 — El original deja de llamarse `.pdf`** *(pendiente)*
+Hoy el original se guarda como `<sha256>.pdf` y `/api/doc/{id}/original` devuelve
+`application/pdf` a pelo (`arca/api.py:423`). Pasa a guardarse con su extensión real, con su tipo
+registrado en el lote y servido con ese tipo. `render_readable` ya genera el HTML de lectura desde
+los bloques, así que «leer» sale gratis; «ver el original» **no**, porque PDF.js no abre un EPUB: se
+hace lo aburrido, se descarga el fichero intacto, y no se finge un visor que no existe.
+· Dep: F10.2 · CA: buscar → párrafo citado → «leer» muestra el texto con sus anclas → «original»
+devuelve el fichero con su tipo real y el mismo `sha256` con el que se ingirió; el invariante 4 (el
+original nunca se toca) sigue verificado para todos los formatos.
+· Loop: Ninguno.
+
+**F10.4 — Lista blanca, `arca import` y el panel** *(pendiente)*
+Extender la ingesta por CLI y por panel a las extensiones que el extractor sepa **y que tengan
+test**. Un formato que no sepamos leer se rechaza **diciendo cuál es y por qué**, con código estable
+de la familia de F6.1: un CBZ o un PNG contestan que son imágenes y que hacen falta OCR, no un
+genérico «formato no soportado». Nada entra en la lista blanca sin su fichero de prueba.
+· Dep: F10.3 · CA: subir un `.epub` o un `.txt` por el panel lo indexa; subir un `.cbz` lo rechaza
+con código y mensaje accionable **en los dos catálogos**; un test recorre la lista blanca entera e
+ingiere un fichero real de cada extensión declarada, comprobando que ninguna produce cero bloques.
+· Loop: Ninguno.
+
+**F10.5 — Manual** *(pendiente)*
+`docs/manual/documents.md` cuenta qué formatos entran hoy y cuáles no, por qué el ancla sigue siendo
+por página, qué layout se fijó y qué obliga a re-sellar si se cambia.
+· Dep: F10.4 · CA: la página describe el estado real, no el planificado, y la tabla de formatos
+coincide con la lista blanca que ejercita el test de F10.4.
+· Loop: Ninguno.
+
+**F10.6 — OCR de imágenes y cómics** *(pendiente, opcional y al final)*
+El OCR de hoy es PDF-puro: `ocrmypdf --force-ocr --pages N <original>` (`arca/ingest.py:132`), que
+recibe el fichero original y un número de página. Para que CBZ, PNG, JPEG y TIFF dejen de ser
+documentos vacíos hay que renderizar la página a imagen y alimentar con eso al OCR que ya existe.
+Depende de un binario externo, así que degrada si no está, como hoy.
+· Dep: F10.5 · CA: un CBZ escaneado produce bloques con ancla; sin `ocrmypdf` el formato se rechaza
+diciendo exactamente que falta el binario; la ausencia del binario no rompe ninguna otra ingesta.
+· Loop: Ninguno.
+
+**F10.7 — El idioma elegido sobrevive a la navegación** *(pendiente, defecto detectado)*
+Hoy el idioma vive **solo en la URL**: el selector es un `<form method="get">` que añade `?lang=` a
+la página actual, y todos los enlaces de navegación (`href="/"`, `href="/talk"`, `href="/admin"`)
+son rutas desnudas, así que `_catalog_for(config, lang)` cae al idioma por defecto en cuanto se
+pulsa cualquiera. No es que el idioma se pierda: nunca llegó a guardarse. Lo mismo afecta a las
+llamadas de `/api/*`, que en su mayoría no envían `lang` y devuelven sus mensajes en el idioma por
+defecto aunque la pantalla esté en inglés.
+
+Se resuelve guardando la elección en una cookie que escribe el selector y lee `_catalog_for`: es lo
+más aburrido que cumple, sobrevive a escribir una URL a mano, funciona sin JavaScript y cubre de una
+vez las páginas y la API. La alternativa —arrastrar `?lang=` en cada enlace interno— deja de
+funcionar en cuanto alguien teclea una dirección, y la de `localStorage` obliga a una redirección
+con parpadeo. Esta tarea no tiene nada que ver con los formatos: vive aquí por decisión del
+operador, no por afinidad temática.
+· Dep: ninguna · CA: elegir inglés y navegar por las tres pantallas mantiene el inglés, incluidos
+los mensajes de error de `/api/*`; recargar y escribir una URL a mano lo mantienen; sin JavaScript
+el selector sigue funcionando; una prueba de navegador real recorre las tres pantallas comprobando
+`<html lang>` y un texto de cada catálogo.
+· Loop: Ninguno.
+
+### Fase 11 — Catálogos remotos: fuentes, en vez de una fuente
+
+`arca/catalog.py` habla OPDS por dentro —`_parse_entry` es Atom genérico— pero por fuera está casado
+con Kiwix: `articleCount`, `flavour`, `_ftindex:yes`, la resolución `.meta4` y `safe_filename()`
+quitando el sufijo. La cola de descarga, en cambio, **ya es genérica**: `enqueue()` (`arca/fetch.py`)
+toma `kind`, `dest_path`, `sha256` y espejos, y ya conviven cuatro tipos (`zim`, `model`, `vendor`,
+`git`). Esta fase no añade un catálogo: convierte «el catálogo» en «las fuentes».
+
+**Tres decisiones tomadas antes de empezar, y por qué:**
+
+- **Ninguna fuente vive en el código.** Standard Ebooks, Gutenberg, OpenStax o la que sea son
+  configuración, no constantes. Un producto que lleva dentro una lista de dominios envejece mal, y
+  los que le interesan a un operador no son los que le interesan a otro. `CATALOG_BASE_URL` deja de
+  ser una constante y pasa a ser un campo de una fuente.
+- **El hash se exige, o se declara que no lo hay.** Kiwix da metalink con `sha256`; otras fuentes no
+  dan nada. La cola ya sabe verificar: una descarga sin hash se marca **no verificada** y se dice en
+  la interfaz, en vez de fingir una garantía que no existe.
+- **Sin torrents.** Decidido el 2026-08-30: no se desarrolla. Se pierde con ello la única vía
+  estable y verificable hacia las colecciones que solo se publican así; queda escrito para que no se
+  vuelva a discutir por olvido, sino por decisión.
+
+**F11.1 — Partir el catálogo en núcleo OPDS y sabor Kiwix** *(pendiente)*
+Refactor puro: el Atom genérico por un lado, lo que es de Kiwix —`articleCount`, `flavour`, `tags`,
+`_ftindex:yes`, `.meta4`, la URL del lector— por otro. Sin comportamiento nuevo.
+· Dep: ninguna · CA: `tests/test_catalog.py` pasa **sin tocarse** y el panel se comporta igual.
+· Loop: Ninguno.
+
+**F11.2 — Fuentes declaradas y su estado** *(pendiente)*
+Una fuente es nombre, tipo (`opds`, `json`, `manual`), URL base y cómo mapear a `CatalogEntry`.
+Viven en `arca.json` y se editan desde el panel. Cada una tiene estado propio: alcanzable, caída, o
+sin verificación de hash.
+· Dep: F11.1 · CA: añadir una fuente OPDS por configuración la hace buscable **sin tocar una línea
+de código**; una fuente caída se declara y **no tumba la búsqueda en las demás**; el estado de cada
+fuente aparece en el diagnóstico.
+· Loop: Ninguno.
+
+**F11.3 — Sabor de libros y `kind="book"`** *(pendiente)*
+El adaptador OPDS de libros y el quinto tipo de la cola, con destino `<raiz>/books/`. Descarga
+reanudable, con espejos y verificada por el motor que ya existe. Encadena con la ingesta de la fase
+10 cuando el operador lo pide, nunca solo.
+· Dep: F11.2, F10.4 · CA: encolar un libro desde el panel lo descarga con pausa y reanudación como
+cualquier ZIM; pedir «descargar e indexar» lo deja buscable al párrafo; una descarga sin hash queda
+marcada como no verificada.
+· Loop: Ninguno.
+
+**F11.4 — Fuente manual** *(pendiente)*
+Pegar una URL directa, con su nombre y su hash si se conoce. Cubre cualquier sitio que no publique
+catálogo, sin que el repositorio tenga que conocerlo ni versionar sus dominios.
+· Dep: F11.3 · CA: una URL pegada a mano entra en la cola y se comporta como cualquier otra
+descarga; sin hash se descarga igual y se declara no verificada; una URL inválida se rechaza con
+código antes de encolar nada.
+· Loop: Ninguno.
+
+**F11.5 — Buscador remoto con selector de fuente** *(pendiente)*
+Una pestaña, varias fuentes, y la procedencia visible en cada resultado. Los filtros que una fuente
+no soporte se esconden para esa fuente en vez de fallar.
+· Dep: F11.4 · CA: la navegación es coherente con el resto del panel, buscar en varias fuentes a la
+vez intercala resultados con su origen a la vista, y `tests/test_frontend.py` pasa incluido su veto
+de red.
+· Loop: Ninguno.
+
+**F11.6 — Manual** *(pendiente)*
+`docs/manual/downloads.md` recoge el modelo de fuentes, cómo se declara una, qué significa «no
+verificada» y por qué no hay torrents.
+· Dep: F11.5 · CA: la página describe el estado real y un lector puede añadir una fuente siguiéndola.
+· Loop: Ninguno.
+
+### Fase 12 — Mapas
+
+Un mapa consultable sin conexión, con notas y puntos guardados, y buscable por el modelo. Es la fase
+más grande de las tres y la única que abre una pregunta de fondo antes de empezar: **¿un mapa es
+conocimiento consultable sin conexión, o es una segunda aplicación dentro de ARCA?** Esa pregunta se
+responde por escrito en F12.0, antes de una línea de código.
+
+**Cuatro decisiones tomadas antes de empezar, y por qué:**
+
+- **Los tiles son un fichero, no un servicio.** MBTiles es, por especificación, SQLite con una tabla
+  `tiles(zoom_level, tile_column, tile_row, tile_data)`. Servirlo son veinte líneas de biblioteca
+  estándar, que ARCA ya usa. Cero red en tiempo de consulta, cero dependencias nuevas.
+- **Raster primero, vector después.** El vector pesa mucho menos en disco pero arrastra estilo,
+  glifos, sprites y WebGL. Leaflet con raster de una región acotada entrega valor en una tarea;
+  MapLibre es una fase por sí solo. Se empieza por lo aburrido y se sube si hace falta.
+- **Las notas escriben, así que van al directorio de sesión.** Es el precedente ya sentado por la
+  fase 8 (`session_dir/talk/`): `session_dir/maps/maps.sqlite`. No hay decisión nueva que tomar ni
+  excepción nueva que sancionar en §6.
+- **El modelo no mira el mapa: consulta un gazetteer.** Los tiles son imágenes y un LLM no busca en
+  ellas. La búsqueda de lugar es **determinista** sobre SQLite —un volcado de topónimos con
+  coordenadas, en CSV, sin dependencias— y el modelo consume el resultado como evidencia, igual que
+  ya hace con la búsqueda del archivo. Nominatim queda descartado (arrastra PostgreSQL) y extraer
+  POIs del PBF de OSM exigiría una dependencia nueva.
+
+**F12.0 — Puerta: la decisión de arquitectura y un MBTiles real** *(pendiente, es una puerta)*
+Dos cosas, en este orden. Primero, pasar la funcionalidad por
+`docs/architecture/decision-criteria.md` y escribir la respuesta: si los mapas son parte del archivo
+o una aplicación aparte, y qué implica cada respuesta. Segundo, abrir un MBTiles de verdad, servir
+un tile, y **medir** cuánto ocupa una región útil a los niveles de zoom que hacen falta.
+· Dep: ninguna · CA: la decisión está escrita y razonada; un tile real sale por HTTP desde el
+fichero. Si un raster de una región que sirva no cabe en un presupuesto de disco razonable, la fase
+**pasa a vector antes de escribir una línea de interfaz**; si tampoco cabe, **F12 se cierra como no
+viable** y se documenta por qué.
+· Loop: Ninguno.
+
+**F12.1 — Servidor de tiles** *(pendiente)*
+`arca/maps.py` y `GET /api/map/{mapa}/{z}/{x}/{y}`, solo lectura, con su comprobación en el panel de
+diagnóstico y su degradación si el fichero falta o está corrupto.
+· Dep: F12.0 · CA: servir mil tiles no escribe un byte bajo la raíz; un mapa ausente degrada con
+mensaje accionable y sin traza; un fichero corrupto se detecta al abrirlo y se declara.
+· Loop: Ninguno.
+
+**F12.2 — Visor vendorizado** *(pendiente)*
+La pantalla de mapas con su biblioteca vendorizada, sin CDN y sin una sola petición fuera del
+origen. Los dos temas, i18n completo, iconos clonados como en el resto. Precedente: PDF.js.
+· Dep: F12.1 · CA: `tests/test_frontend.py` pasa incluido su veto de red; la pantalla se ve y
+funciona en los dos temas con un navegador real; la biblioteca queda en `sources.lock` con su
+licencia.
+· Loop: Ninguno.
+
+**F12.3 — Notas y puntos** *(pendiente)*
+Varios mapas, puntos con nota, en `session_dir/maps/maps.sqlite`, con la misma degradación a memoria
+que el almacén de conversaciones si el directorio no es escribible.
+· Dep: F12.2 · CA: crear un punto, editarlo y borrarlo no deja rastro bajo la raíz; con el
+directorio de sesión no escribible la pantalla lo declara y sigue navegable; un test afirma que la
+ruta del almacén nunca cae dentro de la raíz.
+· Loop: **Turn-based** — `verify-no-write`.
+
+**F12.4 — Gazetteer** *(pendiente)*
+`arca import-places`: un volcado de topónimos a SQLite con FTS, con nombre, coordenadas, país y
+población. Reanudable y verificado por hash, como cualquier otra ingesta.
+· Dep: F12.3 · CA: una importación interrumpida a la mitad retoma sin duplicar filas; buscar un
+topónimo devuelve coordenadas en milisegundos; el volcado original queda registrado por su `sha256`.
+· Loop: Ninguno.
+
+**F12.5 — Búsqueda de lugar, y el modelo** *(pendiente)*
+La búsqueda determinista sobre el gazetteer, expuesta en la pantalla y disponible para el modelo
+como evidencia: el asistente puede responder «está aquí» con coordenadas citables, o admitir que no
+lo tiene, con el mismo suelo de honestidad que el chat del archivo.
+· Dep: F12.4 · CA: el modelo cita coordenadas que salen del gazetteer y nunca inventa unas; sin
+gazetteer importado lo dice en vez de responder de memoria; con el motor caído la búsqueda de lugar
+sigue funcionando, porque es determinista.
+· Loop: Ninguno.
+
+**F12.6 — Descarga de mapas** *(pendiente)*
+Los mapas por las fuentes de la fase 11, con `kind="map"` en la cola de siempre.
+· Dep: F12.5, F11.4 · CA: encolar un mapa lo descarga con pausa, reanudación y verificación; al
+terminar aparece en el visor sin reiniciar.
+· Loop: Ninguno.
+
+**F12.7 — Puerta de la fase: invariantes y manual** *(pendiente)*
+Ejercitar una sesión de consulta con mapas abiertos, puntos creados y búsquedas de lugar, y
+comprobar que bajo la raíz no cambia un byte y que no sale una petición fuera del origen.
+`docs/manual/maps.md` con lo que hay de verdad.
+· Dep: F12.6 · CA: la skill `verify-no-write` pasa con la pantalla de mapas ejercitada; el test de
+red no encuentra un solo `http` en los fuentes del frontend de mapas; el manual describe el estado
+real, no el planificado.
+· Loop: **Turn-based** — `verify-no-write`, la de siempre.
+
+
 ---
 
 ## 7. Loops recomendados (resumen)
@@ -641,8 +912,8 @@ planificado.
 | 8. Contexto > `n_ctx_train` | H4.3 |
 | 9. Binario sin GPU con `-ngl` alto | H4.3 |
 | 10. Reloj mal + nombres de lote | F0.5 (detección) + H3.7 (sufijo aleatorio) |
-| 11. PDF sin texto en silencio | H3.2 |
-| 12. Anclas que cambian al reimportar | H3.3 |
+| 11. PDF sin texto en silencio | H3.2, F10.4 (generalizada a todo formato) |
+| 12. Anclas que cambian al reimportar | H3.3, F10.0 (formatos reflowables) |
 
 ## 9. Riesgos y decisiones pendientes
 
@@ -652,6 +923,9 @@ planificado.
 2. **Renderizado de ZIM concretos.** Algunos ZIM pueden renderizar mal con reescritura de enlaces propia; el plan B (`kiwix-serve` como proxy) está previsto en §9.1 y se decide por ZIM, no globalmente.
 3. **Calidad del OCR opcional.** `ocrmypdf`/`tesseract` fuera del control del proyecto; mitigado porque su ausencia solo degrada (H3.2).
 4. **Estimaciones de memoria de llama.cpp** (H4.3) son aproximadas por diseño; el arranque de prueba con reversión es la red de seguridad real.
+5. **Anclas de formatos reflowables.** Un EPUB no tiene páginas propias: se las inventa el maquetador. La mitigación es fijar el layout y grabarlo en el lote, y la puerta F10.0 existe para comprobar que basta. Si no basta, cambia el formato de ancla y eso afecta a lotes ya sellados.
+6. **Tamaño de los mapas sin medir.** Que MBTiles sea SQLite es especificación, pero no se ha abierto uno real ni se ha medido cuánto ocupa una región útil. Es el riesgo número uno de la fase 12 y por eso F12.0 es una puerta que puede cerrarla.
+7. **Fuentes de catálogo que no cooperan.** Fuera de Kiwix casi nadie publica OPDS con hash. La mitigación es de diseño —fuentes declaradas en configuración, nunca en el código, y descargas marcadas como no verificadas cuando no hay hash— para que el producto no envejezca con los dominios.
 
 **Decisiones pendientes (ninguna bloquea F0–F2):**
 
