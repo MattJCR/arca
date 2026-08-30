@@ -833,6 +833,8 @@ def test_admin_sources_lists_what_is_declared(tmp_path: Path) -> None:
         "arxiv",
         "internet-archive",
         "openstax",
+        "zenodo",
+        "oapen",
     }
     assert sources["kiwix"]["status"] == "unknown"
     assert sources["kiwix"]["verifies_hash"] is True

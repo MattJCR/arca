@@ -10,7 +10,7 @@ Módulos: `arca/opds.py` (núcleo Atom/OPDS genérico), `arca/catalog.py` (sabor
 
 `arca init` escribe seis fuentes en `arca.json`. **Solo Kiwix viene activada**; las otras cinco están declaradas y apagadas, para que se vean y se enciendan con un clic sin que el producto salga a sitios que nadie ha pedido. Una lista vacía o entera inválida vuelve a estas seis, para que un `arca.json` mal editado no deje el sistema sin poder descargar nada.
 
-Las seis son de acceso abierto: dominio público (Standard Ebooks, Gutenberg), licencia abierta (OpenStax, Kiwix), depósito de acceso abierto (arXiv) o archivo con material mayoritariamente de dominio público (Internet Archive). Es el criterio con el que se eligen las que vienen de fábrica; para cualquier otra cosa está el formulario.
+Las ocho son de acceso abierto: dominio público (Standard Ebooks, Gutenberg), licencia abierta (OpenStax, Kiwix), depósito de acceso abierto (arXiv, Zenodo, OAPEN) o archivo con material mayoritariamente de dominio público (Internet Archive). Es el criterio con el que se eligen las que vienen de fábrica; para cualquier otra cosa está el formulario.
 
 | Fuente | Tipo | Contenido | Activa | Qué hay que saber |
 | --- | --- | --- | --- | --- |
@@ -18,7 +18,9 @@ Las seis son de acceso abierto: dominio público (Standard Ebooks, Gutenberg), l
 | **Standard Ebooks** (`standard-ebooks`) | `opds` | `book` (EPUB) | no | el listado completo pide credenciales; **solo responde a búsquedas**, así que la fuente lleva `requires_query` |
 | **Project Gutenberg** (`gutenberg`) | `opds` de **dos niveles** | `book` (EPUB) | no | ver abajo: la búsqueda solo devuelve punteros, y sus ficheros se llaman `1497.epub.images` |
 | **arXiv** (`arxiv`) | `opds` | `book` (PDF) | no | rechaza la búsqueda vacía con un 400, así que lleva `probe_query`; sus URLs no traen extensión |
-| **Internet Archive** (`internet-archive`) | `json` de **dos llamadas** | `book` (PDF o EPUB) | no | busca por la **API de scrape** (`/services/search/v1/scrape`), que solo devuelve identificadores; el fichero sale de una segunda llamada. Filtrada a `mediatype:texts` |
+| **Internet Archive** (`internet-archive`) | `json` de **dos llamadas** | `book` (PDF o EPUB) | no | la búsqueda solo devuelve identificadores; el fichero sale de una segunda llamada. Filtrada a `mediatype:texts` **y a PDF o EPUB** |
+| **Zenodo** (`zenodo`) | `json` de **dos llamadas** | `book` (PDF o EPUB) | no | depósito del CERN; la búsqueda admite `filetype:` y la ficha lista los ficheros |
+| **OAPEN Library** (`oapen`) | `json` de **dos llamadas** | `book` (PDF o EPUB) | no | libros académicos de acceso abierto; su URL de descarga no dice el nombre del fichero, que sale del propio registro |
 | **OpenStax** (`openstax`) | `json` | `book` (PDF) | no | libros de texto completos; los PDF van de 20 MB a más de 150 MB |
 
 Ninguna de las tres nuevas publica hash, así que lo que venga de ellas queda marcado **no verificado**. Que las cuatro contestan, y que de cada una se puede descargar un fichero real, lo comprueba `tests/test_live_sources.py`, que **solo se ejecuta con `ARCA_LIVE=1`** porque sale a la red de verdad:
@@ -127,12 +129,16 @@ Decidido el 2026-08-30: **no se desarrolla**. Se pierde con ello la única vía 
 Dos de las fuentes no publican el enlace de descarga en su búsqueda, y lo hacen de formas distintas:
 
 - **Gutenberg (OPDS)**: cada entrada es un puntero (`rel="subsection"`) a `/ebooks/<id>.opds`, y solo ese segundo feed trae el `application/epub+zip`. Sus entradas de navegación («Authors», «Subjects») son **idénticas en forma** a las de un libro; lo único que las separa es la ruta, de ahí `item_pattern`.
-- **Internet Archive (JSON)**: la búsqueda devuelve identificadores y nada más. La ficha vive en `/metadata/<id>`, la lista de ficheros en su clave `files`, y la URL de descarga **no existe en ninguna respuesta**: se construye con `download_path`. La búsqueda es `/services/search/v1/scrape`, con la lista en la clave `items`: el viejo `advancedsearch.php` dejó de contestar. Su `count` mínimo es 100, y una `q` vacía es un 400 — por eso `mediatype:texts` viaja dentro de `q` y no como filtro aparte.
+- **Internet Archive (JSON)**: la búsqueda devuelve identificadores y nada más. La ficha vive en `/metadata/<id>`, la lista de ficheros en su clave `files`, y la URL de descarga **no existe en ninguna respuesta**: se construye con `download_path`.
+- **Zenodo (JSON)**: igual de dos pasos, con la lista en `hits.hits` y la ficha en `/api/records/<id>`. La descarga se arma con `download_path`.
+- **OAPEN (JSON)**: su `/rest/search` devuelve una lista **desnuda**, sin objeto que la envuelva, que es justo lo que `items_key` vacío espera. Los ficheros llegan en `bitstreams` y cada uno **sí** trae su URL en `retrieveLink`.
 
 Los dos comparten la misma regla, y el segundo paso **no ocurre al buscar**:
 
 1. `search()` devuelve el puntero, con el nombre de fichero vacío y sin tamaño. Buscar cuesta una petición, no veintisiete.
 2. `acquire()` se llama **al encolar**, sigue el puntero y devuelve el ítem ya resuelto. Es el mismo sitio donde el sabor Kiwix baja su `.meta4`: nada de esto se persiste (trampa 5).
+
+Hay un tercer caso en el nombre del fichero: que la URL **no lo diga**. OAPEN sirve cada fichero desde `/rest/bitstreams/<uuid>/retrieve`, de donde solo saldría `retrieve.pdf` para todos. Cuando el registro declara un nombre y ese nombre ya termina en un formato conocido, **manda el nombre declarado**; si no, se deduce de la URL como siempre. Un nombre con `/`, `\\` o `..` se descarta sin pensarlo.
 
 Cuando hay varios ficheros donde elegir, **el orden de `suffixes` es el orden de preferencia**, no el orden en que la fuente los liste: Internet Archive declara `(".pdf", ".epub")` y se lleva el PDF aunque el EPUB aparezca antes en la respuesta.
 

@@ -67,8 +67,15 @@ EPUB_MEDIA_TYPE = "application/epub+zip"
 GUTENBERG_BOOK_PATTERN = r"^/ebooks/[0-9]+\.opds$"
 OPENSTAX_BOOKS_PATH = "/apps/cms/api/v2/pages/?type=books.Book&fields=*"
 ARXIV_PROBE_QUERY = "all:electron"
-ARCHIVE_SEARCH_PATH = "/services/search/v1/scrape?fields=identifier,title,creator,year&count=100"
-ARCHIVE_TEXTS_FILTER = "mediatype:texts"
+ARCHIVE_SEARCH_PATH = (
+    "/advancedsearch.php?fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator"
+    "&fl%5B%5D=year&rows=50&output=json"
+)
+ARCHIVE_TEXTS_FILTER = 'mediatype:texts AND (format:"Text PDF" OR format:"EPUB")'
+ZENODO_RECORDS_PATH = "/api/records?size=25"
+ZENODO_DOCUMENT_FILTER = "(filetype:pdf OR filetype:epub)"
+OAPEN_ITEM_PATH = "/rest/items/{id}?expand=bitstreams"
+DOCUMENT_SUFFIXES = (".pdf", ".epub")
 SOURCE_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789-_"
 MAX_SOURCE_ID = 40
 
@@ -240,12 +247,51 @@ def default_sources() -> tuple[Source, ...]:
             entries_path=ARCHIVE_SEARCH_PATH,
             query_param="q",
             query_filter=ARCHIVE_TEXTS_FILTER,
-            items_key="items",
+            items_key="response.docs",
             files_key="files",
             detail_path="/metadata/{id}",
             download_path="/download/{id}/{name}",
-            suffixes=(".pdf", ".epub"),
+            suffixes=DOCUMENT_SUFFIXES,
             fields={"id": "identifier", "title": "title", "filename": "name", "size": "size"},
+            item_kind=ITEM_BOOK,
+            enabled=False,
+        ),
+        Source(
+            source_id="zenodo",
+            name="Zenodo",
+            kind=KIND_JSON,
+            base_url="https://zenodo.org",
+            entries_path=ZENODO_RECORDS_PATH,
+            query_param="q",
+            query_filter=ZENODO_DOCUMENT_FILTER,
+            items_key="hits.hits",
+            files_key="files",
+            detail_path="/api/records/{id}",
+            download_path="/api/records/{id}/files/{name}/content",
+            suffixes=DOCUMENT_SUFFIXES,
+            fields={"id": "id", "title": "title", "filename": "key", "size": "size"},
+            item_kind=ITEM_BOOK,
+            enabled=False,
+        ),
+        Source(
+            source_id="oapen",
+            name="OAPEN Library",
+            kind=KIND_JSON,
+            base_url="https://library.oapen.org",
+            entries_path="/rest/search",
+            query_param="query",
+            requires_query=True,
+            files_key="bitstreams",
+            detail_path=OAPEN_ITEM_PATH,
+            suffixes=DOCUMENT_SUFFIXES,
+            fields={
+                "id": "uuid",
+                "title": "name",
+                "filename": "name",
+                "size": "sizeBytes",
+                "mime": "mimeType",
+                "url": "retrieveLink",
+            },
             item_kind=ITEM_BOOK,
             enabled=False,
         ),
@@ -330,6 +376,14 @@ def filename_from_url(url: str) -> str:
     if not raw or raw in (".", "..") or "/" in raw or "\\" in raw:
         return ""
     return raw
+
+
+def declared_filename(name: str) -> str:
+    if not name or name in (".", "..") or "/" in name or "\\" in name:
+        return ""
+    if format_for_suffix(Path(name).suffix.lower()) is None:
+        return ""
+    return name
 
 
 def download_filename(url: str, media_type: str) -> str:
@@ -663,7 +717,7 @@ def _acquire_detail(source: Source, item: RemoteItem, get: HttpGet) -> RemoteIte
     return replace(
         item,
         url=_absolute(source, url),
-        filename=download_filename(url, mime or source.media_type),
+        filename=declared_filename(name) or download_filename(url, mime or source.media_type),
         size_bytes=int(size) if size.isdigit() else item.size_bytes,
     )
 

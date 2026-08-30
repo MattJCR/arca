@@ -342,6 +342,116 @@ def test_internet_archive_turns_an_identifier_into_a_real_file(library: Path) ->
 
 
 @live
+def test_internet_archive_answers_with_titles_that_match_the_query(library: Path) -> None:
+    root = library
+    source = _source("internet-archive")
+    probe(source)
+    items = search(source, query="cholera")
+    assert items, "the search api answered with nothing"
+
+    titles = [item.title.lower() for item in items[:10]]
+    assert sum("cholera" in title or "choler" in title for title in titles) >= 5, titles
+
+    ready = acquire(source, items[0])
+    assert ready.filename.lower().endswith((".pdf", ".epub"))
+    assert ready.size_bytes
+
+    connection = open_library_rw(library_db_path(root))
+    try:
+        queue_book_download(
+            connection,
+            root,
+            ref=ready.ref,
+            filename=ready.filename,
+            resolution=resolve(source, ready),
+        )
+    finally:
+        connection.close()
+    assert [result.status for result in run_queue(library_db_path(root), concurrency=1)] == ["done"]
+    downloaded = root / "books" / ready.filename
+    assert detect_format(downloaded) in (PDF, EPUB)
+
+
+@live
+def test_zenodo_takes_a_record_id_down_to_a_pdf(library: Path) -> None:
+    root = library
+    source = _source("zenodo")
+    probe(source)
+    items = search(source, query="meditation")
+    assert items, "the api answered with no record"
+    assert all(item.filename == "" for item in items[:5])
+
+    ready = None
+    for candidate in items[:8]:
+        try:
+            ready = acquire(source, candidate)
+        except SourceError:
+            continue
+        break
+    assert ready is not None, "no record in the first eight carried a pdf or epub"
+    assert ready.filename.lower().endswith((".pdf", ".epub"))
+    assert "/files/" in ready.url
+
+    connection = open_library_rw(library_db_path(root))
+    try:
+        queue_book_download(
+            connection,
+            root,
+            ref=ready.ref,
+            filename=ready.filename,
+            resolution=resolve(source, ready),
+        )
+    finally:
+        connection.close()
+    assert [result.status for result in run_queue(library_db_path(root), concurrency=1)] == ["done"]
+
+    downloaded = root / "books" / ready.filename
+    assert downloaded.is_file()
+    assert read_sha256_sidecar(downloaded) == file_sha256(downloaded)
+    assert detect_format(downloaded) in (PDF, EPUB)
+
+
+@live
+def test_oapen_keeps_the_name_the_repository_gives_not_the_opaque_url(library: Path) -> None:
+    root = library
+    source = _source("oapen")
+    probe(source)
+    items = search(source, query="meditation")
+    assert items, "the api answered with no item"
+
+    ready = None
+    for candidate in items[:10]:
+        try:
+            ready = acquire(source, candidate)
+        except SourceError:
+            continue
+        break
+    assert ready is not None, "no item in the first ten carried a pdf or epub"
+    assert ready.url.endswith("/retrieve")
+    assert filename_from_url(ready.url) == "retrieve"
+    assert ready.filename != "retrieve.pdf"
+    assert ready.filename.lower().endswith((".pdf", ".epub"))
+
+    connection = open_library_rw(library_db_path(root))
+    try:
+        queue_book_download(
+            connection,
+            root,
+            ref=ready.ref,
+            filename=ready.filename,
+            resolution=resolve(source, ready),
+        )
+    finally:
+        connection.close()
+    assert [result.status for result in run_queue(library_db_path(root), concurrency=1)] == ["done"]
+
+    downloaded = root / "books" / ready.filename
+    assert downloaded.is_file()
+    assert read_sha256_sidecar(downloaded) == file_sha256(downloaded)
+    assert detect_format(downloaded) in (PDF, EPUB)
+
+
+@live
 def test_every_shipped_source_answers_and_declares_whether_it_verifies() -> None:
     for source in default_sources():
         if not source.searchable:

@@ -30,6 +30,7 @@ from arca.sources import (
     SourceError,
     SourceRegistry,
     acquire,
+    declared_filename,
     default_sources,
     download_filename,
     filename_from_url,
@@ -489,9 +490,19 @@ def test_the_shipped_sources_come_declared_but_switched_off() -> None:
         "arxiv",
         "internet-archive",
         "openstax",
+        "zenodo",
+        "oapen",
     }
     assert sources["kiwix"].enabled is True
-    for source_id in ("standard-ebooks", "gutenberg", "arxiv", "internet-archive", "openstax"):
+    for source_id in (
+        "standard-ebooks",
+        "gutenberg",
+        "arxiv",
+        "internet-archive",
+        "openstax",
+        "zenodo",
+        "oapen",
+    ):
         assert sources[source_id].enabled is False, source_id
         assert sources[source_id].item_kind == ITEM_BOOK
         assert sources[source_id].verifies_hash is False
@@ -500,25 +511,42 @@ def test_the_shipped_sources_come_declared_but_switched_off() -> None:
     assert sources["openstax"].kind == KIND_JSON
     assert sources["arxiv"].probe_query
     assert sources["internet-archive"].detailed is True
+    for source_id in ("internet-archive", "zenodo", "oapen"):
+        assert sources[source_id].suffixes == (".pdf", ".epub"), source_id
+        assert sources[source_id].detailed is True, source_id
 
 
-def test_internet_archive_asks_the_scrape_api_and_never_sends_an_empty_query() -> None:
+def test_internet_archive_asks_for_relevance_and_only_for_pdf_or_epub() -> None:
     source = {item.source_id: item for item in default_sources()}["internet-archive"]
     seen: list[str] = []
-    payload = json.dumps({"items": [{"identifier": "cholera-1", "title": "On cholera"}]}).encode()
+    payload = json.dumps(
+        {"response": {"docs": [{"identifier": "cholera-1", "title": "On cholera"}]}}
+    ).encode()
 
     items = search(source, query="cholera", get=_serve(payload, seen))
 
     assert [item.item_id for item in items] == ["cholera-1"]
     assert seen == [
-        "https://archive.org/services/search/v1/scrape"
-        "?fields=identifier,title,creator,year&count=100"
-        "&q=cholera+AND+mediatype%3Atexts"
+        "https://archive.org/advancedsearch.php"
+        "?fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator&fl%5B%5D=year"
+        "&rows=50&output=json"
+        "&q=cholera+AND+mediatype%3Atexts+AND+%28format%3A%22Text+PDF%22+OR+format%3A%22EPUB%22%29"
     ]
 
     seen.clear()
     probe(source, get=_serve(payload, seen))
-    assert seen[0].endswith("&q=mediatype%3Atexts")
+    assert "cholera" not in seen[0]
+    assert seen[0].endswith(
+        "&q=mediatype%3Atexts+AND+%28format%3A%22Text+PDF%22+OR+format%3A%22EPUB%22%29"
+    )
+
+
+def test_a_file_named_by_the_source_beats_a_name_guessed_from_an_opaque_url() -> None:
+    assert declared_filename("9781351050753_oachapter1.pdf") == "9781351050753_oachapter1.pdf"
+    assert declared_filename("retrieve") == ""
+    assert declared_filename("catalogue.marc.xml") == ""
+    assert declared_filename("../../etc/passwd.pdf") == ""
+    assert declared_filename("windows\\path.pdf") == ""
 
 
 def test_a_source_with_an_impossible_pattern_or_mode_is_refused() -> None:
