@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import ctypes
 import io
 import json
@@ -16,7 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -119,6 +120,9 @@ CHAT_PATH = "/v1/chat/completions"
 HEALTH_WAIT_SECONDS = 60.0
 GENERATION_TIMEOUT_SECONDS = 120.0
 FINISH_LENGTH = "length"
+SSE_DATA_PREFIX = "data:"
+SSE_DONE = "[DONE]"
+SSE_MEDIA_TYPE = "text/event-stream"
 TEST_MESSAGES: tuple[dict[str, str], ...] = (
     {"role": "user", "content": "Reply with one word: ready"},
 )
@@ -1299,6 +1303,53 @@ def _as_positive(value: str) -> int:
     return number if number > 0 else 0
 
 
+MMPROJ_FLAG = "--mmproj"
+VISION_READY = "ready"
+VISION_NO_ENGINE = "no_engine"
+VISION_NO_PROJECTOR = "no_projector"
+VISION_MISSING_PROJECTOR = "missing_projector"
+
+
+@dataclass(frozen=True)
+class VisionSupport:
+    available: bool
+    reason: str
+    projector: str = ""
+
+
+def vision_support(argv: Sequence[str], root: Path) -> VisionSupport:
+    if not argv:
+        return VisionSupport(False, VISION_NO_ENGINE)
+    value = _flag_values(argv, (MMPROJ_FLAG,)).get(MMPROJ_FLAG, "")
+    if not value:
+        return VisionSupport(False, VISION_NO_PROJECTOR)
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = root / value
+    if not candidate.is_file():
+        return VisionSupport(False, VISION_MISSING_PROJECTOR, str(candidate))
+    return VisionSupport(True, VISION_READY, str(candidate))
+
+
+def text_part(text: str) -> dict[str, object]:
+    return {"type": "text", "text": text}
+
+
+def image_part(mimetype: str, data: bytes) -> dict[str, object]:
+    encoded = base64.b64encode(data).decode("ascii")
+    return {"type": "image_url", "image_url": {"url": f"data:{mimetype};base64,{encoded}"}}
+
+
+def multimodal_message(
+    role: str, text: str, images: Sequence[tuple[str, bytes]] = ()
+) -> dict[str, object]:
+    if not images:
+        return {"role": role, "content": text}
+    parts: list[dict[str, object]] = [text_part(text)] if text else []
+    parts.extend(image_part(mimetype, data) for mimetype, data in images)
+    return {"role": role, "content": parts}
+
+
 @dataclass(frozen=True)
 class Completion:
     text: str = ""
@@ -1315,7 +1366,7 @@ class Completion:
 
 def chat_completion(
     base_url: str,
-    messages: Sequence[Mapping[str, str]],
+    messages: Sequence[Mapping[str, object]],
     sampling: Mapping[str, object] | None = None,
     timeout: float = GENERATION_TIMEOUT_SECONDS,
 ) -> Completion:
@@ -1336,6 +1387,122 @@ def chat_completion(
     except (urllib.error.URLError, OSError, TimeoutError, ValueError) as error:
         return Completion(error=f"llama-server unreachable: {error}")
     return _completion(raw)
+
+
+@dataclass(frozen=True)
+class Chunk:
+    text: str = ""
+    reasoning: str = ""
+    finish_reason: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    error: str = ""
+    fallback: bool = False
+    cancelled: bool = False
+    done: bool = False
+
+
+def chat_stream(
+    base_url: str,
+    messages: Sequence[Mapping[str, object]],
+    sampling: Mapping[str, object] | None = None,
+    timeout: float = GENERATION_TIMEOUT_SECONDS,
+    stop: Callable[[], bool] | None = None,
+) -> Generator[Chunk, None, None]:
+    payload: dict[str, object] = {"messages": [dict(message) for message in messages]}
+    payload.update(dict(sampling or {}))
+    payload["stream"] = True
+    request = urllib.request.Request(
+        f"{base_url.rstrip('/')}{CHAT_PATH}",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Accept": SSE_MEDIA_TYPE},
+        method="POST",
+    )
+    try:
+        response = urllib.request.urlopen(request, timeout=timeout)
+    except urllib.error.HTTPError as error:
+        yield Chunk(error=f"llama-server returned HTTP {error.code}", fallback=True, done=True)
+        return
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError) as error:
+        yield Chunk(error=f"llama-server unreachable: {error}", done=True)
+        return
+    with response:
+        media_type = str(response.headers.get("Content-Type") or "")
+        if not media_type.startswith(SSE_MEDIA_TYPE):
+            yield Chunk(error="llama-server did not stream", fallback=True, done=True)
+            return
+        yield from _stream_chunks(response, stop)
+
+
+def _stream_chunks(lines: Iterator[bytes], stop: Callable[[], bool] | None) -> Iterator[Chunk]:
+    tail = Chunk(done=True)
+    try:
+        for raw in lines:
+            if stop is not None and stop():
+                yield Chunk(cancelled=True, done=True)
+                return
+            piece = _sse_chunk(raw)
+            if piece is None:
+                continue
+            if piece.error:
+                yield piece
+                return
+            if piece.done:
+                break
+            tail = Chunk(
+                finish_reason=piece.finish_reason or tail.finish_reason,
+                prompt_tokens=piece.prompt_tokens or tail.prompt_tokens,
+                completion_tokens=piece.completion_tokens or tail.completion_tokens,
+                done=True,
+            )
+            if piece.text or piece.reasoning:
+                yield piece
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError) as error:
+        yield Chunk(error=f"llama-server stopped streaming: {error}", done=True)
+        return
+    yield tail
+
+
+def _sse_chunk(raw: bytes) -> Chunk | None:
+    line = raw.decode("utf-8", "replace").strip()
+    if not line.startswith(SSE_DATA_PREFIX):
+        return None
+    body = line[len(SSE_DATA_PREFIX) :].strip()
+    if not body:
+        return None
+    if body == SSE_DONE:
+        return Chunk(done=True)
+    return _delta(body)
+
+
+def _delta(body: str) -> Chunk | None:
+    try:
+        parsed: object = json.loads(body)
+    except ValueError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    error = parsed.get("error")
+    if isinstance(error, dict):
+        return Chunk(error=str(error.get("message") or "llama-server reported an error"), done=True)
+    text, reasoning, finish = "", "", ""
+    choices = parsed.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        first: Mapping[str, object] = choices[0]
+        raw_delta = first.get("delta")
+        delta: Mapping[str, object] = raw_delta if isinstance(raw_delta, dict) else {}
+        text = str(delta.get("content") or "")
+        reasoning = str(delta.get("reasoning_content") or "")
+        finish = str(first.get("finish_reason") or "")
+    usage = parsed.get("usage")
+    counts: Mapping[str, object] = usage if isinstance(usage, dict) else {}
+    return Chunk(
+        text=text,
+        reasoning=reasoning,
+        finish_reason=finish,
+        prompt_tokens=_as_int(counts.get("prompt_tokens")),
+        completion_tokens=_as_int(counts.get("completion_tokens")),
+    )
 
 
 def _completion(raw: bytes) -> Completion:

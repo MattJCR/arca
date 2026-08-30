@@ -16,6 +16,8 @@ Manual vivo del proyecto. Documenta **únicamente la realidad actual**: lo que e
 
 **Añadido después del cierre**, a petición explícita: la puesta en marcha automática del chat (§13.0: el usuario solo deja el `.gguf` y ARCA consigue, despliega, configura y prueba el motor `llama-server`), los errores del panel localizados con código estable, las dieciséis comprobaciones de §14 completas en el panel de diagnóstico, buscador y descargador de modelos GGUF con sus cuantizaciones (12.6), fijado del commit de llama.cpp para vendorizar su código y su documentación, manual consultable desde el propio panel (12.13), barra de pestañas que envuelve sin ocultar opciones y navegación en los dos sentidos entre el archivo y la administración.
 
+**Fase 8 (conversación libre) completada.** Funciona hoy: la pantalla `/talk`, tercer enlace de la navegación, con historial persistente fuera de la raíz (`session_dir/talk/talk.sqlite`, degradado a memoria si no es escribible), imágenes adjuntas validadas por número mágico cuando el motor lleva `--mmproj`, ajustes de conversación propios, y respuesta token a token por SSE con botón de detener que para la generación en el servidor y conserva lo ya escrito. Con el servidor sin transmitir, o el navegador sin saber leer un flujo, la pantalla vuelve sola al modo bloqueante.
+
 ## Índice de funcionalidades
 
 - [CLI `arca`](cli.md) — comandos `init`, `serve`, `diagnostics`, `search`, `add`, `run`, `verify`, `vendor`.
@@ -33,6 +35,7 @@ Manual vivo del proyecto. Documenta **únicamente la realidad actual**: lo que e
 - [Puesta en marcha automática](engine.md) — el usuario solo deja los modelos: ARCA consigue el motor, lo despliega y levanta los dos servidores, el de chat y el de embeddings.
 - [Servidor llama.cpp](llama.md) — descubrimiento del binario, subproceso, formulario generado del `--help`, perfiles, arranque de prueba con reversión y validaciones previas.
 - [Chat con citación](chat.md) — estado de pantalla, política de contexto, suelo de relevancia, citación al párrafo y temas de riesgo.
+- [Conversación libre](talk.md) — el segundo cliente del mismo motor: historial fuera de la raíz, imágenes por número mágico, detección de visión y respuesta token a token con cancelación.
 - [Manual en la aplicación](manual-browser.md) — el manual servido desde la propia ARCA, con su renderizador de Markdown acotado.
 - [Mantenimiento](maintenance.md) — rutas en uso, registro y rotación, verificación integral elemento a elemento, exportar e importar configuración.
 - [Diagnóstico](diagnostics.md) — las dieciséis comprobaciones, estados y dónde se consumen.

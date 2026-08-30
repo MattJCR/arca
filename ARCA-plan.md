@@ -388,7 +388,7 @@ negarse sin evidencia. Esta fase no lo toca; añade un segundo cliente del mismo
   imágenes sí viajan al modelo tal cual cuando hay `--mmproj`. Un clip que aceptara un `.docx` y no
   hiciera nada con él sería peor que no tenerlo.
 
-**F8.1 — Almacén de conversaciones en `session_dir`** *(pendiente)*
+**F8.1 — Almacén de conversaciones en `session_dir`** *(cerrada el 2026-08-30)*
 `arca/history.py`: `talk.sqlite` bajo `session_dir(root, config)`, con su propio `user_version`,
 independiente del `SCHEMA_VERSION` de `library.db`. Tres tablas —`conversations`, `messages`,
 `attachments`— y las imágenes como ficheros bajo `<session_dir>/talk/<conversación>/`, no como BLOB:
@@ -399,7 +399,7 @@ test afirma que la ruta resuelta del almacén nunca cae dentro de la raíz, ni c
 apuntando a ella a propósito.
 · Loop: Ninguno.
 
-**F8.2 — Contenido multimodal en el transporte** *(pendiente)*
+**F8.2 — Contenido multimodal en el transporte** *(cerrada el 2026-08-30)*
 `chat_completion` tipa hoy los mensajes como `Mapping[str, str]` (`arca/llama.py:1318`) y el
 contenido multimodal de la API es una **lista** de partes. Ensanchar la firma sin cambiar el
 comportamiento del asistente del archivo, y añadir la detección de capacidad: hay visión si el
@@ -409,7 +409,7 @@ existe; si no, no la hay y se dice.
 visión, y un mensaje con imagen se serializa en partes con la imagen en `data:`.
 · Loop: Ninguno.
 
-**F8.3 — Motor de chat libre** *(pendiente)*
+**F8.3 — Motor de chat libre** *(cerrada el 2026-08-30)*
 `arca/talk.py`: llama a `chat_completion` y nada más. Sin evidencia, sin marcadores, sin
 `STATE_UNGROUNDED` — el `ChatEngine` de `arca/chat.py` no se reutiliza ni se parametriza, porque su
 trabajo es justo el contrario y doblarlo lo estropearía en el suyo. Ajustes propios (prompt de
@@ -421,7 +421,7 @@ descartando por el principio, y con el servidor caído responde «no disponible�
 mensaje ya guardado.
 · Loop: Ninguno.
 
-**F8.4 — Endpoints y CRUD** *(pendiente)*
+**F8.4 — Endpoints y CRUD** *(cerrada el 2026-08-30)*
 Listar, crear, abrir, renombrar y borrar conversaciones; añadir mensaje; adjuntar imagen (bytes en
 crudo, como `POST /api/admin/documents/upload` en `arca/api.py:412`, sin dependencia de
 *multipart*); y un borrado total que se lleve conversaciones, mensajes e imágenes. Las imágenes se
@@ -432,7 +432,7 @@ que no es imagen se rechaza con código aunque se llame `.png`, y toda función 
 llamador fuera de `tests/` (`tests/test_seams.py`).
 · Loop: Ninguno.
 
-**F8.5 — Pantalla `/talk`** *(pendiente)*
+**F8.5 — Pantalla `/talk`** *(cerrada el 2026-08-30)*
 Tercer enlace del `seg` de navegación, entre Archivo y Administración, coherente en las tres
 plantillas. `templates/talk.html` + `static/talk.js`, con la maquinaria de siempre: sin framework,
 iconos clonados de `#icon-set`, sin `innerHTML`, sin una sola llamada de red fuera del origen.
@@ -445,7 +445,7 @@ navegable con el motor caído, `tests/test_frontend.py` pasa incluido su veto de
 `docs/manual/` documenta la pantalla tal como quedó.
 · Loop: Ninguno.
 
-**F8.6 — El invariante 1, con la pantalla puesta** *(pendiente)*
+**F8.6 — El invariante 1, con la pantalla puesta** *(cerrada el 2026-08-30)*
 Extender `_query_session` de `tests/test_invariants.py` para que barra `/talk` y una conversación
 completa —crear, mensaje, imagen, borrar— y no solo la portada y el visor. Ejecutar la skill
 `verify-no-write` como puerta de la fase.
@@ -453,7 +453,7 @@ completa —crear, mensaje, imagen, borrar— y no solo la portada y el visor. E
 salvo los dos sidecars sancionados.
 · Loop: **Turn-based** — la skill `verify-no-write`, que existe exactamente para esto.
 
-**F8.7 — Respuesta token a token** *(pendiente, aplazada a propósito)*
+**F8.7 — Respuesta token a token** *(cerrada el 2026-08-30)*
 La llamada actual es bloqueante (`stream=False`, `arca/llama.py:1324`). En local, esperar en blanco
 a que llegue la respuesta entera es la diferencia entre parecer un chat y no parecerlo. SSE en el
 endpoint y consumo incremental en `talk.js`, con vuelta al modo bloqueante si el servidor no lo

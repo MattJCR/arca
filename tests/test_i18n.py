@@ -152,11 +152,28 @@ ERROR_CODE_KEYS = {
     ),
     "admin.vendor.llama_error": ("bad_commit",),
     "admin.documents.upload_error": ("bad_file", "too_large"),
+    "talk.error": (
+        "unknown_conversation",
+        "empty_title",
+        "empty_message",
+        "no_store",
+        "no_vision",
+        "image_too_large",
+        "not_an_image",
+        "unknown_attachment",
+    ),
 }
 
 
+def _emitted_codes() -> set[str]:
+    source = API_SOURCE.read_text("utf-8")
+    direct = re.findall(r'"code": "([a-z_]+)"', source)
+    helped = re.findall(r'_talk_error\(\s*"([a-z_]+)"', source)
+    return set(direct) | set(helped)
+
+
 def test_every_error_code_the_api_returns_has_an_actionable_message() -> None:
-    emitted = set(re.findall(r'"code": "([a-z_]+)"', API_SOURCE.read_text("utf-8")))
+    emitted = _emitted_codes()
     covered = {code for codes in ERROR_CODE_KEYS.values() for code in codes}
     assert emitted == covered
     for lang in SUPPORTED_LANGUAGES:

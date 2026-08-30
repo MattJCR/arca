@@ -4,7 +4,7 @@ import html
 import json
 import shutil
 import sqlite3
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -15,7 +15,12 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import Body, FastAPI, Request, Response
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 
 from arca import __version__
@@ -78,6 +83,16 @@ from arca.fetch import (
     request_retry,
     verify_library,
 )
+from arca.history import (
+    MAX_IMAGE_BYTES,
+    ROLE_ASSISTANT,
+    ROLE_USER,
+    Attachment,
+    Conversation,
+    Message,
+    TalkStore,
+    talk_dir,
+)
 from arca.hub import (
     HubError,
     HubFile,
@@ -103,12 +118,14 @@ from arca.llama import (
     HEALTH_WAIT_SECONDS,
     MODE_FORM,
     MODE_RAW,
+    SSE_MEDIA_TYPE,
     ApplyResult,
     BinaryInfo,
     HelpOption,
     LlamaServer,
     ModelFile,
     Profile,
+    VisionSupport,
     apply_profile,
     chat_model_file,
     default_profile,
@@ -130,6 +147,7 @@ from arca.llama import (
     read_profile,
     save_profile,
     set_default_profile,
+    vision_support,
 )
 from arca.manual import list_pages, render_document
 from arca.pipeline import (
@@ -165,6 +183,28 @@ from arca.search import (
     write_search_settings,
 )
 from arca.shards import STATE_INCOMPATIBLE, Shard, ShardLibrary, ShardState
+from arca.talk import (
+    STATE_UNAVAILABLE,
+    CancelBoard,
+    TalkEngine,
+    TalkReply,
+    TalkSettings,
+)
+from arca.talk import (
+    read_settings as read_talk_settings,
+)
+from arca.talk import (
+    read_settings_payload as read_talk_settings_payload,
+)
+from arca.talk import (
+    reply_payload as talk_reply_payload,
+)
+from arca.talk import (
+    settings_payload as talk_settings_payload,
+)
+from arca.talk import (
+    write_settings as write_talk_settings,
+)
 from arca.vendor import (
     VendorError,
     check_drift,
@@ -198,6 +238,7 @@ PACKAGE_DIR = Path(__file__).parent
 
 DOWNLOAD_ACTIONS = ("pause", "resume", "cancel", "retry", "delete")
 JSON_BODY = Body()
+SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 ZIM_CACHE_CONTROL = "private, max-age=86400"
 ZIM_CONTENT_POLICY = (
     "default-src 'none'; "
@@ -218,6 +259,7 @@ PDF_SUFFIX = ".pdf"
 NONCE_BYTES = 16
 CHAT_PASSAGES = 8
 UPLOAD_SUBDIR = "uploads"
+TALK_MAX_IMAGES = 4
 MAX_UPLOAD_BYTES = 2 * 1024**3
 SECRET_KEYS = ("hub_token",)
 LLAMA_ACTIONS = ("start", "stop", "restart")
@@ -242,6 +284,7 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         yield
         llama.stop()
         embed_server.stop()
+        store.close()
 
     app = FastAPI(
         title="ARCA",
@@ -308,6 +351,20 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         available=lambda: llama.health() == HEALTH_OK,
         reader=read_page,
     )
+    store = TalkStore(talk_dir(root, config))
+    cancels = CancelBoard()
+    talk = TalkEngine(
+        base_url=lambda: llama.base_url,
+        available=lambda: llama.health() == HEALTH_OK,
+        images=store.attachment_bytes,
+    )
+
+    def vision() -> VisionSupport:
+        argv = llama.status().command
+        if not argv:
+            profile = _active_profile(root)
+            argv = tuple(profile_argv(profile)) if profile is not None else ()
+        return vision_support(argv, root)
 
     @app.get("/api/diagnostics")
     def api_diagnostics(lang: str | None = None) -> JSONResponse:
@@ -1009,6 +1066,187 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         finally:
             connection.close()
         return JSONResponse(_settings_payload(root, config))
+
+    @app.get("/api/talk")
+    def api_talk_list() -> JSONResponse:
+        return JSONResponse(
+            {
+                "persistent": store.persistent,
+                "detail": store.detail,
+                "ready": llama.health() == HEALTH_OK,
+                "vision": _vision_payload(vision()),
+                "conversations": [_conversation_payload(item) for item in store.conversations()],
+                "settings": talk_settings_payload(read_talk_settings(store)),
+            }
+        )
+
+    @app.post("/api/talk")
+    def api_talk_create(payload: dict[str, Any] = JSON_BODY) -> JSONResponse:
+        catalog = _catalog_for(config, str(payload.get("lang") or "") or None)
+        title = str(payload.get("title") or "").strip() or catalog.text("talk.untitled")
+        return JSONResponse(_conversation_payload(store.create(title)), status_code=201)
+
+    @app.delete("/api/talk")
+    def api_talk_clear() -> JSONResponse:
+        return JSONResponse({"removed": store.clear()})
+
+    @app.get("/api/talk/settings")
+    def api_talk_settings() -> JSONResponse:
+        return JSONResponse(talk_settings_payload(read_talk_settings(store)))
+
+    @app.put("/api/talk/settings")
+    def api_talk_write_settings(payload: dict[str, Any] = JSON_BODY) -> JSONResponse:
+        current = read_talk_settings(store)
+        saved = write_talk_settings(store, read_talk_settings_payload(payload, current))
+        return JSONResponse(talk_settings_payload(saved))
+
+    @app.get("/api/talk/{conversation_id}")
+    def api_talk_open(conversation_id: int) -> JSONResponse:
+        found = store.conversation(conversation_id)
+        if found is None:
+            return _talk_error("unknown_conversation", f"unknown conversation: {conversation_id}")
+        return JSONResponse(
+            {
+                "conversation": _conversation_payload(found),
+                "messages": [_message_payload(item) for item in store.messages(conversation_id)],
+            }
+        )
+
+    @app.put("/api/talk/{conversation_id}")
+    def api_talk_rename(conversation_id: int, payload: dict[str, Any] = JSON_BODY) -> JSONResponse:
+        title = str(payload.get("title") or "").strip()
+        if not title:
+            return _talk_error("empty_title", "a conversation needs a title", 400)
+        renamed = store.rename(conversation_id, title)
+        if renamed is None:
+            return _talk_error("unknown_conversation", f"unknown conversation: {conversation_id}")
+        return JSONResponse(_conversation_payload(renamed))
+
+    @app.delete("/api/talk/{conversation_id}")
+    def api_talk_delete(conversation_id: int) -> JSONResponse:
+        if not store.delete(conversation_id):
+            return _talk_error("unknown_conversation", f"unknown conversation: {conversation_id}")
+        return JSONResponse({"deleted": conversation_id})
+
+    @app.post("/api/talk/{conversation_id}/message")
+    def api_talk_message(conversation_id: int, payload: dict[str, Any] = JSON_BODY) -> JSONResponse:
+        catalog = _catalog_for(config, str(payload.get("lang") or "") or None)
+        if store.conversation(conversation_id) is None:
+            return _talk_error("unknown_conversation", f"unknown conversation: {conversation_id}")
+        message = str(payload.get("message") or "").strip()
+        attachments = _attachment_ids(payload.get("attachments"))
+        if not message and not attachments:
+            return _talk_error("empty_message", "an empty message has nothing to answer", 400)
+        asked = store.add_message(conversation_id, ROLE_USER, message)
+        if asked is None:
+            return _talk_error("unknown_conversation", f"unknown conversation: {conversation_id}")
+        store.bind_attachments(asked.id, attachments)
+        history = store.messages(conversation_id)
+        reply = talk.reply(history, read_talk_settings(store), catalog)
+        answered = store.add_message(conversation_id, ROLE_ASSISTANT, reply.text)
+        return JSONResponse(
+            {
+                "conversation": _conversation_payload(store.conversation(conversation_id)),
+                "asked": _message_payload(history[-1]),
+                "answered": None if answered is None else _message_payload(answered),
+                "reply": talk_reply_payload(reply),
+            }
+        )
+
+    def _talk_events(
+        conversation_id: int,
+        history: Sequence[Message],
+        settings: TalkSettings,
+        catalog: Catalog,
+    ) -> Iterator[str]:
+        yield _sse({"type": "asked", "message": _message_payload(history[-1])})
+        reply = TalkReply(catalog.text("talk.unavailable"), STATE_UNAVAILABLE)
+        try:
+            for event in talk.stream(
+                history, settings, catalog, lambda: cancels.cancelled(conversation_id)
+            ):
+                if event.reply is not None:
+                    reply = event.reply
+                    continue
+                yield _sse({"type": "delta", "text": event.delta})
+        finally:
+            cancels.finish(conversation_id)
+        answered = store.add_message(conversation_id, ROLE_ASSISTANT, reply.text)
+        yield _sse(
+            {
+                "type": "done",
+                "conversation": _conversation_payload(store.conversation(conversation_id)),
+                "answered": None if answered is None else _message_payload(answered),
+                "reply": talk_reply_payload(reply),
+            }
+        )
+
+    @app.post("/api/talk/{conversation_id}/message/stream")
+    def api_talk_stream(conversation_id: int, payload: dict[str, Any] = JSON_BODY) -> Response:
+        catalog = _catalog_for(config, str(payload.get("lang") or "") or None)
+        if store.conversation(conversation_id) is None:
+            return _talk_error("unknown_conversation", f"unknown conversation: {conversation_id}")
+        message = str(payload.get("message") or "").strip()
+        attachments = _attachment_ids(payload.get("attachments"))
+        if not message and not attachments:
+            return _talk_error("empty_message", "an empty message has nothing to answer", 400)
+        cancels.begin(conversation_id)
+        asked = store.add_message(conversation_id, ROLE_USER, message)
+        if asked is None:
+            cancels.finish(conversation_id)
+            return _talk_error("unknown_conversation", f"unknown conversation: {conversation_id}")
+        store.bind_attachments(asked.id, attachments)
+        history = store.messages(conversation_id)
+        settings = read_talk_settings(store)
+        return StreamingResponse(
+            _talk_events(conversation_id, history, settings, catalog),
+            media_type=SSE_MEDIA_TYPE,
+            headers=SSE_HEADERS,
+        )
+
+    @app.post("/api/talk/{conversation_id}/stop")
+    def api_talk_stop(conversation_id: int) -> JSONResponse:
+        return JSONResponse({"stopped": cancels.cancel(conversation_id)})
+
+    @app.post("/api/talk/{conversation_id}/image")
+    async def api_talk_image(conversation_id: int, request: Request) -> JSONResponse:
+        if not store.persistent:
+            return _talk_error("no_store", "the conversation store is memory only", 409)
+        if not vision().available:
+            return _talk_error("no_vision", "the engine has no vision projector", 409)
+        if store.conversation(conversation_id) is None:
+            return _talk_error("unknown_conversation", f"unknown conversation: {conversation_id}")
+        data = await _receive_bytes(request, MAX_IMAGE_BYTES)
+        if data is None:
+            return _talk_error("image_too_large", "the image is larger than the limit", 413)
+        attachment = store.attach(conversation_id, data)
+        if attachment is None:
+            return _talk_error("not_an_image", "the upload is not a png, jpeg or webp image", 400)
+        return JSONResponse(_attachment_payload(attachment), status_code=201)
+
+    @app.get("/api/talk/{conversation_id}/image/{attachment_id}")
+    def api_talk_read_image(conversation_id: int, attachment_id: int) -> Response:
+        attachment = store.attachment(attachment_id)
+        if attachment is None or attachment.conversation_id != conversation_id:
+            return _talk_error("unknown_attachment", f"unknown image: {attachment_id}")
+        data = store.attachment_bytes(attachment)
+        if not data:
+            return _talk_error("unknown_attachment", f"unknown image: {attachment_id}")
+        return Response(content=data, media_type=attachment.mimetype)
+
+    @app.get("/talk", response_class=HTMLResponse)
+    def talk_page(lang: str | None = None) -> HTMLResponse:
+        catalog = _catalog_for(config, lang)
+        template = Template((PACKAGE_DIR / "templates" / "talk.html").read_text("utf-8"))
+        page = template.substitute(
+            language=catalog.language,
+            title=html.escape(catalog.text("talk.title")),
+            tagline=html.escape(catalog.text("talk.tagline")),
+            lang_selector=_language_selector(catalog),
+            noscript=html.escape(catalog.text("talk.noscript")),
+            i18n_json=_embedded_i18n(catalog, "talk.", "home.nav.", "ui."),
+        )
+        return HTMLResponse(page)
 
     @app.get("/", response_class=HTMLResponse)
     def home(lang: str | None = None) -> HTMLResponse:
@@ -1916,6 +2154,70 @@ def _hub_file(item: HubFile) -> dict[str, Any]:
         "architecture": item.architecture,
         "dims": item.dims,
     }
+
+
+def _talk_error(code: str, message: str, status_code: int = 404) -> JSONResponse:
+    return JSONResponse({"error": message, "code": code}, status_code=status_code)
+
+
+def _sse(payload: Mapping[str, Any]) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _attachment_ids(value: object) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    found = [
+        item for item in value if isinstance(item, int) and not isinstance(item, bool) and item > 0
+    ]
+    return found[:TALK_MAX_IMAGES]
+
+
+def _vision_payload(support: VisionSupport) -> dict[str, Any]:
+    return {"available": support.available, "reason": support.reason}
+
+
+def _conversation_payload(item: Conversation | None) -> dict[str, Any]:
+    if item is None:
+        return {}
+    return {
+        "id": item.id,
+        "title": item.title,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+        "message_count": item.message_count,
+    }
+
+
+def _attachment_payload(item: Attachment) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "conversation_id": item.conversation_id,
+        "mimetype": item.mimetype,
+        "size_bytes": item.size_bytes,
+        "url": f"/api/talk/{item.conversation_id}/image/{item.id}",
+    }
+
+
+def _message_payload(item: Message) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "role": item.role,
+        "content": item.content,
+        "created_at": item.created_at,
+        "attachments": [_attachment_payload(picture) for picture in item.attachments],
+    }
+
+
+async def _receive_bytes(request: Request, limit: int) -> bytes | None:
+    chunks: list[bytes] = []
+    written = 0
+    async for chunk in request.stream():
+        written += len(chunk)
+        if written > limit:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 async def _receive_upload(request: Request, destination: Path) -> int:

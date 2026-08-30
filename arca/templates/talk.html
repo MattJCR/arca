@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="$language">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>$title</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/theme.js"></script>
+</head>
+<body class="app app-archive">
+<header class="topbar">
+<div class="wordmark"><b>ARCA</b><span class="tagline">$tagline</span></div>
+<nav class="seg" data-i18n-label="home.nav.label">
+<a class="seg-item" href="/"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6.5h16M5.5 6.5v12a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-12"></path><path d="M4.5 6.5 6 3.5h12l1.5 3"></path><path d="M10 11h4"></path></svg><span data-i18n="home.nav.archive"></span></a>
+<a class="seg-item" href="/talk" aria-current="page"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5a2 2 0 0 1-2 2H9l-4 3v-3H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"></path></svg><span data-i18n="home.nav.talk"></span></a>
+<a class="seg-item" href="/admin"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.5 12a7.5 7.5 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7.5 7.5 0 0 0-2.1-1.2l-.3-2.5h-4l-.3 2.5a7.5 7.5 0 0 0-2.1 1.2l-2.3-1-2 3.4 2 1.5a7.5 7.5 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-1a7.5 7.5 0 0 0 2.1 1.2l.3 2.5h4l.3-2.5a7.5 7.5 0 0 0 2.1-1.2l2.3 1 2-3.4-2-1.5c.07-.4.1-.8.1-1.2z"></path></svg><span data-i18n="home.nav.admin"></span></a>
+</nav>
+<span class="spacer"></span>
+<span class="state state-degraded" id="talk-state" data-i18n="talk.state.unavailable"></span>
+<div class="seg theme-switch" role="group" data-i18n-label="ui.theme.label">
+<button type="button" data-theme-choice="light" aria-pressed="false" data-i18n-title="ui.theme.light"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2.5v2.5M12 19v2.5M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2.5 12H5M19 12h2.5M4.2 19.8 6 18M18 6l1.8-1.8"></path></svg><span class="visually-hidden" data-i18n="ui.theme.light"></span></button>
+<button type="button" data-theme-choice="dark" aria-pressed="false" data-i18n-title="ui.theme.dark"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"></path></svg><span class="visually-hidden" data-i18n="ui.theme.dark"></span></button>
+</div>
+$lang_selector
+</header>
+<main class="talk">
+<section class="pane pane-threads" aria-labelledby="threads-heading">
+<div class="rail-head">
+<h2 id="threads-heading" data-i18n="talk.conversations.heading"></h2>
+<div class="rail-filters">
+<button type="button" id="talk-new"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"></path></svg><span data-i18n="talk.new"></span></button>
+<button type="button" id="talk-clear" data-i18n="talk.clear"></button>
+</div>
+<p id="talk-store" class="message" hidden aria-live="polite"></p>
+</div>
+<div class="rail-scroll">
+<ul id="talk-threads" class="threads"></ul>
+<p id="talk-threads-empty" class="invite" hidden data-i18n="talk.conversations.empty"></p>
+</div>
+<details class="talk-settings">
+<summary data-i18n="talk.settings.heading"></summary>
+<form id="talk-settings-form" class="settings-form">
+<div class="field">
+<label for="talk-system" data-i18n="talk.settings.system_prompt"></label>
+<textarea id="talk-system" rows="4"></textarea>
+<p class="detail" data-i18n="talk.settings.system_prompt_hint"></p>
+</div>
+<div class="field">
+<label for="talk-temperature" data-i18n="talk.settings.temperature"></label>
+<input id="talk-temperature" type="number" min="0" max="2" step="0.05">
+</div>
+<div class="field">
+<label for="talk-predict" data-i18n="talk.settings.n_predict"></label>
+<input id="talk-predict" type="number" min="1" max="8192" step="1">
+</div>
+<div class="field">
+<label for="talk-history" data-i18n="talk.settings.history"></label>
+<input id="talk-history" type="number" min="1" max="6000" step="1">
+</div>
+<button type="submit" data-i18n="talk.settings.save"></button>
+<p id="talk-settings-message" class="message" hidden aria-live="polite"></p>
+</form>
+</details>
+</section>
+<section class="pane pane-thread" aria-labelledby="thread-heading">
+<div class="assistant-head">
+<svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5a2 2 0 0 1-2 2H9l-4 3v-3H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"></path></svg>
+<h2 id="thread-heading" data-i18n="talk.heading"></h2>
+<span class="spacer"></span>
+<button type="button" id="talk-rename" hidden data-i18n="talk.rename"></button>
+<button type="button" id="talk-delete" hidden data-i18n="talk.delete"></button>
+</div>
+<p id="talk-vision" class="note" hidden aria-live="polite"></p>
+<ol id="talk-log" class="chat-log" aria-live="polite"></ol>
+<p id="talk-invite" class="invite" data-i18n="talk.pick"></p>
+<p id="talk-message" class="message" hidden aria-live="polite"></p>
+<ul id="talk-tray" class="talk-tray" hidden></ul>
+<form id="talk-form" class="prompt" hidden>
+<label class="visually-hidden" for="talk-input" data-i18n="talk.placeholder"></label>
+<textarea id="talk-input" rows="3" data-i18n-placeholder="talk.placeholder"></textarea>
+<div class="prompt-foot">
+<button type="button" id="talk-attach" hidden data-i18n-title="talk.attach"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 11.5 12.3 17a3.6 3.6 0 0 1-5.1-5.1l6.5-6.5a2.4 2.4 0 0 1 3.4 3.4l-6.5 6.5a1.2 1.2 0 0 1-1.7-1.7l5.7-5.7"></path></svg><span class="visually-hidden" data-i18n="talk.attach"></span></button>
+<input id="talk-file" type="file" accept="image/png,image/jpeg,image/webp" class="visually-hidden" multiple>
+<span class="prompt-hint" data-i18n="talk.hint"></span>
+<span class="spacer"></span>
+<button type="button" id="talk-stop" hidden data-i18n="talk.stop"></button>
+<button type="submit" data-i18n="talk.send"></button>
+</div>
+</form>
+</section>
+</main>
+<noscript><p class="message" data-noscript aria-live="polite">$noscript</p></noscript>
+<div id="icon-set" hidden aria-hidden="true">
+<svg data-icon="chat" class="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5a2 2 0 0 1-2 2H9l-4 3v-3H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"></path></svg>
+<svg data-icon="thread" class="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 4.5h13v11h-8l-5 4z"></path></svg>
+</div>
+<script id="i18n-data" type="application/json">$i18n_json</script>
+<script src="/static/icons.js"></script>
+<script src="/static/talk.js"></script>
+</body>
+</html>

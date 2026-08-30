@@ -46,7 +46,13 @@ def http_request(
         "state": {},
     }
 
+    delivered = False
+
     async def receive() -> MutableMapping[str, Any]:
+        nonlocal delivered
+        if delivered:
+            await asyncio.Event().wait()
+        delivered = True
         return {"type": "http.request", "body": body, "more_body": False}
 
     async def send(message: MutableMapping[str, Any]) -> None:

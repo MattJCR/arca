@@ -1631,6 +1631,167 @@ main.archive > .pane-empty {
   font-size: 0.78rem;
 }
 
+main.talk {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: 21rem minmax(0, 1fr);
+  gap: 0;
+}
+
+main.talk > .pane {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pane-threads {
+  background: var(--paper);
+  border-right: 1px solid var(--line);
+}
+
+.pane-threads .rail-head h2 {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.13em;
+  color: var(--ink-soft);
+}
+
+.pane-threads .rail-filters button {
+  flex: 1;
+  min-height: 28px;
+  font-size: 0.78rem;
+}
+
+.pane-threads .message {
+  margin: 0;
+}
+
+ul.threads {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+button.thread {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  height: auto;
+  white-space: normal;
+  padding: 0.55rem 0.8rem;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--ink);
+}
+
+button.thread:hover {
+  background: var(--raise);
+}
+
+button.thread[aria-current="true"] {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.thread-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.talk-settings {
+  flex: none;
+  border-top: 1px solid var(--line);
+  background: var(--card);
+}
+
+.talk-settings > summary {
+  padding: 0.5rem 0.8rem;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.talk-settings .settings-form {
+  padding: 0 0.8rem 0.8rem;
+  max-height: 20rem;
+  overflow-y: auto;
+}
+
+.pane-thread {
+  background: var(--paper);
+}
+
+.pane-thread > .note,
+.pane-thread > .message,
+.pane-thread > .invite {
+  flex: none;
+  margin: 0.7rem 0.8rem 0;
+}
+
+.talk-tray,
+.talk-pictures {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+}
+
+.talk-tray {
+  flex: none;
+  margin: 0.6rem 0.8rem 0;
+}
+
+.talk-pictures {
+  margin-top: 0.5rem;
+}
+
+.talk-tray li,
+.talk-pictures li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.talk-tray img,
+.talk-pictures img {
+  display: block;
+  max-width: 9rem;
+  max-height: 9rem;
+  border-radius: calc(var(--radius) - 2px);
+}
+
+.talk-tray button {
+  height: 24px;
+  font-size: 0.72rem;
+}
+
 .llama-panel {
   display: flex;
   flex-wrap: wrap;

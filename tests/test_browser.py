@@ -5,6 +5,7 @@ import socket
 import threading
 import time
 from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -20,13 +21,20 @@ from playwright.sync_api import Page, sync_playwright
 CHANNEL = "chrome"
 READY_SECONDS = 20.0
 ARTICLE_TEXT = "Photosynthesis turns light into chemical energy inside the chloroplast."
+PIECES = ("Una ", "respuesta ", "que ", "llega ", "en ", "trozos.")
+PIECE_PAUSE = 0.3
 
 
 class Server:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, chat_url: str = "") -> None:
         self.port = free_port()
+        settings = (
+            ArcaConfig(auto_engine=False, chat_url=chat_url)
+            if chat_url
+            else ArcaConfig(auto_engine=False)
+        )
         config = uvicorn.Config(
-            create_app(root, ArcaConfig(auto_engine=False)),
+            create_app(root, settings),
             host="127.0.0.1",
             port=self.port,
             log_level="error",
@@ -51,6 +59,72 @@ class Server:
     def stop(self) -> None:
         self._server.should_exit = True
         self._thread.join(timeout=READY_SECONDS)
+
+
+class ModelHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.0"
+
+    def do_GET(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"status": "ok"}')
+
+    def do_POST(self) -> None:
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        try:
+            for piece in PIECES:
+                self._frame({"choices": [{"delta": {"content": piece}}]})
+                time.sleep(PIECE_PAUSE)
+            self._frame({"choices": [{"delta": {}, "finish_reason": "stop"}]})
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+        except OSError:
+            return
+
+    def _frame(self, payload: dict[str, object]) -> None:
+        self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
+        self.wfile.flush()
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+class FakeModel:
+    def __init__(self) -> None:
+        self._server = ThreadingHTTPServer(("127.0.0.1", free_port()), ModelHandler)
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    @property
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self._server.server_port}"
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=READY_SECONDS)
+
+
+@pytest.fixture(scope="module")
+def model() -> Iterator[FakeModel]:
+    instance = FakeModel()
+    instance.start()
+    yield instance
+    instance.stop()
+
+
+@pytest.fixture(scope="module")
+def talking(library: Path, model: FakeModel) -> Iterator[Server]:
+    instance = Server(library, chat_url=model.url)
+    instance.start()
+    yield instance
+    instance.stop()
 
 
 @pytest.fixture(scope="module")
@@ -169,3 +243,66 @@ def test_asking_the_assistant_reaches_the_api_and_renders_an_answer(
     assert f"POST {server.url}/api/chat" in sent
     answer = page.inner_text(".chat-assistant")
     assert answer.strip()
+
+
+def _open_talk(page: Page, server: Server) -> None:
+    page.goto(f"{server.url}/talk", wait_until="networkidle")
+    page.click("#talk-new")
+    page.wait_for_selector("#talk-form:not([hidden])")
+
+
+def test_the_talk_screen_answers_through_the_streaming_endpoint(page: Page, server: Server) -> None:
+    sent: list[str] = []
+    page.on("request", lambda request: sent.append(f"{request.method} {request.url}"))
+    _open_talk(page, server)
+    page.fill("#talk-input", "hola, que tal?")
+    page.click("#talk-form button[type=submit]")
+    page.wait_for_selector(".chat-assistant")
+    page.wait_for_function("!talkState.busy")
+    assert any(url.endswith("/message/stream") for url in sent)
+    assert page.is_hidden("#talk-stop")
+    assert "hola, que tal?" in page.inner_text(".chat-you .chat-text")
+    assert page.inner_text(".chat-assistant .chat-text").strip()
+    assert page.is_visible("#talk-form")
+    page.wait_for_selector("#talk-threads .thread[aria-current=true]")
+
+
+def test_the_talk_screen_follows_the_theme_the_reader_chose(page: Page, server: Server) -> None:
+    page.goto(f"{server.url}/talk", wait_until="networkidle")
+    page.click("[data-theme-choice=dark]")
+    assert page.get_attribute("html", "data-theme") == "dark"
+    page.click("[data-theme-choice=light]")
+    assert page.get_attribute("html", "data-theme") == "light"
+
+
+def _ask(page: Page, server: Server, question: str) -> None:
+    page.goto(f"{server.url}/talk", wait_until="networkidle")
+    page.click("#talk-new")
+    page.wait_for_selector("#talk-form:not([hidden])")
+    page.fill("#talk-input", question)
+    page.click("#talk-form button[type=submit]")
+    page.wait_for_function(
+        "() => { const node = document.querySelector('.chat-assistant .chat-text');"
+        " return node !== null && node.textContent.startsWith('Una '); }"
+    )
+
+
+def test_the_answer_shows_up_while_the_model_is_still_writing_it(
+    page: Page, talking: Server
+) -> None:
+    _ask(page, talking, "cuentame algo")
+    partial = page.inner_text(".chat-assistant .chat-text")
+    assert page.is_visible("#talk-stop")
+    assert len(partial) < len("".join(PIECES))
+    page.wait_for_function("!talkState.busy")
+    assert page.inner_text(".chat-assistant .chat-text") == "".join(PIECES)
+    assert page.is_hidden("#talk-stop")
+
+
+def test_stopping_the_answer_keeps_the_words_already_written(page: Page, talking: Server) -> None:
+    _ask(page, talking, "corta esto a la mitad")
+    page.click("#talk-stop")
+    page.wait_for_function("!talkState.busy")
+    kept = page.inner_text(".chat-assistant .chat-text")
+    assert kept.startswith("Una")
+    assert len(kept) < len("".join(PIECES))
