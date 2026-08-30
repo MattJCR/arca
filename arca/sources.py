@@ -52,11 +52,26 @@ ACQUISITION_MODES = (ACQUISITION_ENTRY, ACQUISITION_SUBSECTION)
 SUBSECTION_REL = "subsection"
 
 KIWIX_SOURCE_ID = "kiwix"
-JSON_FIELDS = ("id", "title", "summary", "language", "url", "sha256", "size", "filename")
+JSON_FIELDS = (
+    "id",
+    "title",
+    "summary",
+    "language",
+    "url",
+    "sha256",
+    "size",
+    "filename",
+    "mime",
+)
 EPUB_MEDIA_TYPE = "application/epub+zip"
 GUTENBERG_BOOK_PATTERN = r"^/ebooks/[0-9]+\.opds$"
 OPENSTAX_BOOKS_PATH = "/apps/cms/api/v2/pages/?type=books.Book&fields=*"
 ARXIV_PROBE_QUERY = "all:electron"
+ARCHIVE_SEARCH_PATH = (
+    "/advancedsearch.php?fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator"
+    "&fl%5B%5D=year&rows=25&output=json"
+)
+ARCHIVE_TEXTS_FILTER = "mediatype:texts"
 SOURCE_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789-_"
 MAX_SOURCE_ID = 40
 
@@ -79,6 +94,10 @@ class Source:
     media_type: str = ""
     suffixes: tuple[str, ...] = ()
     items_key: str = ""
+    files_key: str = ""
+    detail_path: str = ""
+    download_path: str = ""
+    query_filter: str = ""
     fields: dict[str, str] = field(default_factory=dict)
     requires_query: bool = False
     probe_query: str = ""
@@ -89,6 +108,10 @@ class Source:
     @property
     def two_step(self) -> bool:
         return self.acquisition_via == ACQUISITION_SUBSECTION
+
+    @property
+    def detailed(self) -> bool:
+        return bool(self.detail_path)
 
     @property
     def is_kiwix(self) -> bool:
@@ -209,6 +232,23 @@ def default_sources() -> tuple[Source, ...]:
             requires_query=True,
             probe_query=ARXIV_PROBE_QUERY,
             media_type="application/pdf",
+            item_kind=ITEM_BOOK,
+            enabled=False,
+        ),
+        Source(
+            source_id="internet-archive",
+            name="Internet Archive",
+            kind=KIND_JSON,
+            base_url="https://archive.org",
+            entries_path=ARCHIVE_SEARCH_PATH,
+            query_param="q",
+            query_filter=ARCHIVE_TEXTS_FILTER,
+            items_key="response.docs",
+            files_key="files",
+            detail_path="/metadata/{id}",
+            download_path="/download/{id}/{name}",
+            suffixes=(".pdf", ".epub"),
+            fields={"id": "identifier", "title": "title", "filename": "name", "size": "size"},
             item_kind=ITEM_BOOK,
             enabled=False,
         ),
@@ -339,6 +379,8 @@ def probe(source: Source, get: HttpGet | None = None) -> None:
 
 
 def acquire(source: Source, item: RemoteItem, get: HttpGet | None = None) -> RemoteItem:
+    if source.detailed:
+        return _acquire_detail(source, item, get or http_get)
     if not source.two_step:
         return item
     payload = _download(_absolute(source, item.url), get or http_get)
@@ -502,10 +544,19 @@ def _from_catalog_entry(source: Source, entry: CatalogEntry) -> RemoteItem:
     )
 
 
+def _search_term(source: Source, query: str) -> str:
+    if not source.query_filter:
+        return query
+    if not query:
+        return source.query_filter
+    return f"{query} AND {source.query_filter}"
+
+
 def _search_params(source: Source, query: str, language: str) -> list[tuple[str, str]]:
     params: list[tuple[str, str]] = []
-    if source.query_param and (query or source.requires_query):
-        params.append((source.query_param, query))
+    term = _search_term(source, query)
+    if source.query_param and (term or source.requires_query):
+        params.append((source.query_param, term))
     if language and source.language_param:
         params.append((source.language_param, language))
     return params
@@ -563,14 +614,74 @@ def _search_opds(source: Source, query: str, language: str, get: HttpGet) -> lis
     return items
 
 
+def _template(path: str, identifier: str, name: str) -> str:
+    return path.replace("{id}", urllib.parse.quote(identifier, safe="")).replace(
+        "{name}", urllib.parse.quote(name)
+    )
+
+
+def _wanted_file(source: Source, name: str, mime: str) -> bool:
+    if source.suffixes:
+        return name.lower().endswith(source.suffixes)
+    if source.media_type:
+        return mime == source.media_type
+    return True
+
+
+def _named_files(
+    source: Source, records: list[dict[str, object]]
+) -> list[tuple[str, dict[str, object]]]:
+    field_name = source.fields.get("filename", "name")
+    named = [(_json_text(record, field_name), record) for record in records]
+    return [(name, record) for name, record in named if name]
+
+
+def _pick_file(
+    source: Source, records: list[dict[str, object]]
+) -> tuple[str, dict[str, object]] | None:
+    named = _named_files(source, records)
+    for suffix in source.suffixes:
+        for name, record in named:
+            if name.lower().endswith(suffix):
+                return name, record
+    if source.suffixes:
+        return None
+    for name, record in named:
+        mime = _json_text(record, source.fields.get("mime", "mimeType"))
+        if _wanted_file(source, name, mime):
+            return name, record
+    return None
+
+
+def _acquire_detail(source: Source, item: RemoteItem, get: HttpGet) -> RemoteItem:
+    payload = _download(_absolute(source, _template(source.detail_path, item.item_id, "")), get)
+    chosen = _pick_file(source, _json_rows(_json_document(payload), source.files_key))
+    if chosen is None:
+        raise SourceError(f"no downloadable file behind {item.item_id}")
+    name, record = chosen
+    mime = _json_text(record, source.fields.get("mime", "mimeType"))
+    declared = _json_text(record, source.fields.get("url", ""))
+    url = declared or _template(source.download_path, item.item_id, name)
+    size = _json_text(record, source.fields.get("size", "size"))
+    return replace(
+        item,
+        url=_absolute(source, url),
+        filename=download_filename(url, mime or source.media_type),
+        size_bytes=int(size) if size.isdigit() else item.size_bytes,
+    )
+
+
+def _json_document(payload: bytes) -> object:
+    try:
+        return json.loads(payload.decode("utf-8", "replace"))
+    except ValueError as error:
+        raise SourceError(str(error)) from error
+
+
 def _search_json(source: Source, query: str, language: str, get: HttpGet) -> list[RemoteItem]:
     params = _search_params(source, query, language)
     payload = _download(feed_url(source.base_url, source.entries_path, params), get)
-    try:
-        parsed: object = json.loads(payload.decode("utf-8", "replace"))
-    except ValueError as error:
-        raise SourceError(str(error)) from error
-    rows = _json_rows(parsed, source.items_key)
+    rows = _json_rows(_json_document(payload), source.items_key)
     items = []
     for index, row in enumerate(rows):
         item = _from_json_row(source, row, index)
@@ -581,16 +692,19 @@ def _search_json(source: Source, query: str, language: str, get: HttpGet) -> lis
 
 def _json_rows(parsed: object, items_key: str) -> list[dict[str, object]]:
     container = parsed
-    if items_key:
-        if not isinstance(parsed, dict):
+    for step in items_key.split(".") if items_key else ():
+        if not isinstance(container, dict):
             raise SourceError(f"expected an object with key {items_key}")
-        container = parsed.get(items_key)
+        container = container.get(step)
     if not isinstance(container, list):
         raise SourceError("expected a list of items")
     return [row for row in container if isinstance(row, dict)]
 
 
 def _from_json_row(source: Source, row: dict[str, object], index: int) -> RemoteItem | None:
+    identifier = _json_text(row, source.fields.get("id", "id")) or str(index)
+    if source.detailed:
+        return _pointer_item(source, row, identifier)
     url = _json_text(row, source.fields.get("url", "url"))
     if not url:
         return None
@@ -601,7 +715,7 @@ def _from_json_row(source: Source, row: dict[str, object], index: int) -> Remote
     digest = _json_text(row, source.fields.get("sha256", ""))
     return RemoteItem(
         source_id=source.source_id,
-        item_id=_json_text(row, source.fields.get("id", "id")) or str(index),
+        item_id=identifier,
         item_kind=source.item_kind,
         title=_json_text(row, source.fields.get("title", "title")) or filename,
         description=_json_text(row, source.fields.get("summary", "")),
@@ -612,6 +726,22 @@ def _from_json_row(source: Source, row: dict[str, object], index: int) -> Remote
         sha256=digest,
         size_bytes=int(size) if size.isdigit() else None,
         verified=bool(digest),
+    )
+
+
+def _pointer_item(source: Source, row: dict[str, object], identifier: str) -> RemoteItem | None:
+    if not identifier:
+        return None
+    return RemoteItem(
+        source_id=source.source_id,
+        item_id=identifier,
+        item_kind=source.item_kind,
+        title=_json_text(row, source.fields.get("title", "title")) or identifier,
+        description=_json_text(row, source.fields.get("summary", "")),
+        language=_json_text(row, source.fields.get("language", "")),
+        flavour="",
+        filename="",
+        url="",
     )
 
 
@@ -664,6 +794,10 @@ def _build_source(raw: object) -> Source | None:
         media_type=_text(raw, "media_type"),
         suffixes=_suffixes(raw.get("suffixes")),
         items_key=_text(raw, "items_key"),
+        files_key=_text(raw, "files_key"),
+        detail_path=_text(raw, "detail_path"),
+        download_path=_text(raw, "download_path"),
+        query_filter=_text(raw, "query_filter"),
         fields=_field_map(raw.get("fields")),
         requires_query=raw.get("requires_query") is True,
         probe_query=_text(raw, "probe_query"),

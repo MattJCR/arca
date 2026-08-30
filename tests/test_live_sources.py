@@ -292,6 +292,56 @@ def test_arxiv_downloads_a_paper_whose_url_says_nothing_about_its_format(library
 
 
 @live
+def test_internet_archive_turns_an_identifier_into_a_real_file(library: Path) -> None:
+    root = library
+    source = _source("internet-archive")
+    probe(source)
+    items = search(source, query="cholera")
+    assert items, "the search api answered with nothing"
+    assert all(item.url == "" for item in items[:5])
+    assert all(item.filename == "" for item in items[:5])
+    assert all(item.size_bytes is None for item in items[:5])
+
+    ready = None
+    for candidate in items[:6]:
+        try:
+            ready = acquire(source, candidate)
+        except SourceError:
+            continue
+        break
+    assert ready is not None, "no item in the first six had a downloadable file"
+    assert ready.url.startswith("https://archive.org/download/")
+    assert ready.item_id in ready.url
+    assert ready.filename == Path(ready.filename).name
+    assert ready.filename.lower().endswith((".pdf", ".epub"))
+    assert ready.size_bytes
+
+    connection = open_library_rw(library_db_path(root))
+    try:
+        queue_book_download(
+            connection,
+            root,
+            ref=ready.ref,
+            filename=ready.filename,
+            resolution=resolve(source, ready),
+        )
+    finally:
+        connection.close()
+    assert [result.status for result in run_queue(library_db_path(root), concurrency=1)] == ["done"]
+
+    downloaded = root / "books" / ready.filename
+    assert downloaded.is_file()
+    assert downloaded.stat().st_size == ready.size_bytes
+    assert read_sha256_sidecar(downloaded) == file_sha256(downloaded)
+    assert detect_format(downloaded) is not None
+    document = open_document(downloaded)
+    try:
+        assert document.page_count > 0
+    finally:
+        document.close()
+
+
+@live
 def test_every_shipped_source_answers_and_declares_whether_it_verifies() -> None:
     for source in default_sources():
         if not source.searchable:

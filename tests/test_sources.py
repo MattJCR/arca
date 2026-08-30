@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import urllib.error
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -481,9 +482,16 @@ def test_a_listing_path_that_already_carries_a_query_keeps_it() -> None:
 
 def test_the_shipped_sources_come_declared_but_switched_off() -> None:
     sources = {source.source_id: source for source in default_sources()}
-    assert set(sources) == {"kiwix", "standard-ebooks", "gutenberg", "arxiv", "openstax"}
+    assert set(sources) == {
+        "kiwix",
+        "standard-ebooks",
+        "gutenberg",
+        "arxiv",
+        "internet-archive",
+        "openstax",
+    }
     assert sources["kiwix"].enabled is True
-    for source_id in ("standard-ebooks", "gutenberg", "arxiv", "openstax"):
+    for source_id in ("standard-ebooks", "gutenberg", "arxiv", "internet-archive", "openstax"):
         assert sources[source_id].enabled is False, source_id
         assert sources[source_id].item_kind == ITEM_BOOK
         assert sources[source_id].verifies_hash is False
@@ -491,6 +499,7 @@ def test_the_shipped_sources_come_declared_but_switched_off() -> None:
     assert sources["standard-ebooks"].requires_query is True
     assert sources["openstax"].kind == KIND_JSON
     assert sources["arxiv"].probe_query
+    assert sources["internet-archive"].detailed is True
 
 
 def test_a_source_with_an_impossible_pattern_or_mode_is_refused() -> None:
@@ -498,3 +507,117 @@ def test_a_source_with_an_impossible_pattern_or_mode_is_refused() -> None:
     assert parse_source({**base, "item_pattern": "([unclosed"}) is None
     assert parse_source({**base, "acquisition_via": "telepathy"}) is None
     assert parse_source({**base, "item_pattern": r"^/ebooks/[0-9]+$"}) is not None
+
+
+def _archive_source() -> Source:
+    return Source(
+        source_id="shelf",
+        name="A two call shelf",
+        kind=KIND_JSON,
+        base_url="https://shelf.example",
+        entries_path="/search?output=json",
+        query_param="q",
+        query_filter="mediatype:texts",
+        items_key="response.docs",
+        files_key="files",
+        detail_path="/metadata/{id}",
+        download_path="/download/{id}/{name}",
+        suffixes=(".pdf", ".epub"),
+        fields={"id": "identifier", "title": "title", "filename": "name", "size": "size"},
+        item_kind=ITEM_BOOK,
+    )
+
+
+ARCHIVE_SEARCH = json.dumps(
+    {
+        "response": {
+            "numFound": 2,
+            "docs": [
+                {"identifier": "on cholera", "title": "On cholera"},
+                {"identifier": "quiet", "title": "A quiet book"},
+            ],
+        }
+    }
+).encode()
+
+ARCHIVE_DETAIL = json.dumps(
+    {
+        "files": [
+            {"name": "cover.jpg", "format": "JPEG", "size": "12"},
+            {"name": "on-cholera_text.pdf", "format": "Text PDF", "size": "4096"},
+            {"name": "on-cholera.epub", "format": "EPUB", "size": "2048"},
+        ]
+    }
+).encode()
+
+
+def _archive_server(seen: list[str] | None = None) -> HttpGet:
+    def get(url: str) -> bytes:
+        if seen is not None:
+            seen.append(url)
+        return ARCHIVE_DETAIL if "/metadata/" in url else ARCHIVE_SEARCH
+
+    return get
+
+
+def test_a_search_that_only_returns_identifiers_yields_pointers() -> None:
+    seen: list[str] = []
+    items = search(_archive_source(), query="cholera", get=_archive_server(seen))
+    assert seen == ["https://shelf.example/search?output=json&q=cholera+AND+mediatype%3Atexts"]
+    assert [item.title for item in items] == ["On cholera", "A quiet book"]
+    assert all(item.url == "" and item.filename == "" for item in items)
+    assert items[0].item_id == "on cholera"
+
+
+def test_the_filter_of_a_source_survives_an_empty_search() -> None:
+    seen: list[str] = []
+    source = _archive_source()
+    search(source, get=_archive_server(seen))
+    probe(source, _archive_server(seen))
+    assert seen == [
+        "https://shelf.example/search?output=json&q=mediatype%3Atexts",
+        "https://shelf.example/search?output=json&q=mediatype%3Atexts",
+    ]
+
+
+def test_the_second_call_builds_the_download_url_from_the_identifier() -> None:
+    seen: list[str] = []
+    source = _archive_source()
+    server = _archive_server(seen)
+    items = search(source, query="cholera", get=server)
+    ready = acquire(source, items[0], server)
+    assert seen[1] == "https://shelf.example/metadata/on%20cholera"
+    assert ready.url == "https://shelf.example/download/on%20cholera/on-cholera_text.pdf"
+    assert ready.filename == "on-cholera_text.pdf"
+    assert ready.size_bytes == 4096
+
+
+def test_the_wanted_file_is_chosen_by_the_order_of_the_declared_suffixes() -> None:
+    source = replace(_archive_source(), suffixes=(".epub", ".pdf"))
+    server = _archive_server()
+    ready = acquire(source, search(source, get=server)[0], server)
+    assert ready.filename == "on-cholera.epub"
+    assert ready.size_bytes == 2048
+
+
+def test_an_item_with_nothing_downloadable_behind_it_is_reported() -> None:
+    source = replace(_archive_source(), suffixes=(".mobi",))
+    server = _archive_server()
+    with pytest.raises(SourceError):
+        acquire(source, search(source, get=server)[0], server)
+
+
+def test_a_nested_items_key_walks_the_document() -> None:
+    payload = json.dumps({"a": {"b": {"c": [{"url": "https://x.org/f.pdf"}]}}}).encode()
+    source = Source(
+        source_id="deep",
+        name="Deep",
+        kind=KIND_JSON,
+        base_url="https://x.org",
+        items_key="a.b.c",
+        fields={"url": "url"},
+    )
+    assert len(search(source, get=_serve(payload))) == 1
+    lost = replace(source, items_key="a.b.missing")
+    with pytest.raises(SourceError):
+        search(lost, get=_serve(payload))

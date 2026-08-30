@@ -8,9 +8,9 @@ Módulos: `arca/opds.py` (núcleo Atom/OPDS genérico), `arca/catalog.py` (sabor
 
 ### Las que vienen declaradas
 
-`arca init` escribe cinco fuentes en `arca.json`. **Solo Kiwix viene activada**; las otras cuatro están declaradas y apagadas, para que se vean y se enciendan con un clic sin que el producto salga a sitios que nadie ha pedido. Una lista vacía o entera inválida vuelve a estas cinco, para que un `arca.json` mal editado no deje el sistema sin poder descargar nada.
+`arca init` escribe seis fuentes en `arca.json`. **Solo Kiwix viene activada**; las otras cinco están declaradas y apagadas, para que se vean y se enciendan con un clic sin que el producto salga a sitios que nadie ha pedido. Una lista vacía o entera inválida vuelve a estas seis, para que un `arca.json` mal editado no deje el sistema sin poder descargar nada.
 
-Las cinco son de acceso abierto: dominio público (Standard Ebooks, Gutenberg), licencia abierta (OpenStax, Kiwix) o depósito de acceso abierto (arXiv). Es el criterio con el que se eligen las que vienen de fábrica; para cualquier otra cosa está el formulario.
+Las seis son de acceso abierto: dominio público (Standard Ebooks, Gutenberg), licencia abierta (OpenStax, Kiwix), depósito de acceso abierto (arXiv) o archivo con material mayoritariamente de dominio público (Internet Archive). Es el criterio con el que se eligen las que vienen de fábrica; para cualquier otra cosa está el formulario.
 
 | Fuente | Tipo | Contenido | Activa | Qué hay que saber |
 | --- | --- | --- | --- | --- |
@@ -18,6 +18,7 @@ Las cinco son de acceso abierto: dominio público (Standard Ebooks, Gutenberg), 
 | **Standard Ebooks** (`standard-ebooks`) | `opds` | `book` (EPUB) | no | el listado completo pide credenciales; **solo responde a búsquedas**, así que la fuente lleva `requires_query` |
 | **Project Gutenberg** (`gutenberg`) | `opds` de **dos niveles** | `book` (EPUB) | no | ver abajo: la búsqueda solo devuelve punteros, y sus ficheros se llaman `1497.epub.images` |
 | **arXiv** (`arxiv`) | `opds` | `book` (PDF) | no | rechaza la búsqueda vacía con un 400, así que lleva `probe_query`; sus URLs no traen extensión |
+| **Internet Archive** (`internet-archive`) | `json` de **dos llamadas** | `book` (PDF o EPUB) | no | la búsqueda solo devuelve identificadores; el fichero sale de una segunda llamada. Filtrada a `mediatype:texts` |
 | **OpenStax** (`openstax`) | `json` | `book` (PDF) | no | libros de texto completos; los PDF van de 20 MB a más de 150 MB |
 
 Ninguna de las tres nuevas publica hash, así que lo que venga de ellas queda marcado **no verificado**. Que las cuatro contestan, y que de cada una se puede descargar un fichero real, lo comprueba `tests/test_live_sources.py`, que **solo se ejecuta con `ARCA_LIVE=1`** porque sale a la red de verdad:
@@ -36,6 +37,13 @@ ARCA_LIVE=1 pytest tests/test_live_sources.py
 Al guardar se reescribe la clave `sources` de `arca.json` —y solo esa clave— y la fuente aparece ya en las casillas del buscador.
 
 Los cinco campos que el formulario no expone son de dialecto y no de uso diario, así que se editan a mano en `arca.json`: `flavour` (el sabor `kiwix`), `acquisition_via` e `item_pattern` (feeds de dos niveles), `suffixes` (elegir el enlace por extensión en vez de por tipo) y `fields` (la correspondencia de campos de una fuente JSON).
+
+### Dos que se evaluaron y no entraron
+
+Quedan escritas para no repetir el trabajo:
+
+- **DOAB** (Directory of Open Access Books) es un **directorio de referencias**, no un servidor de ficheros. Su API devuelve «bitstreams» que en la práctica son la portada y ficheros de metadatos (`.mar`, `.oni`, `.ris`, `.tsv`), todos declarados `application/octet-stream`; el libro en sí vive en la web del editor, distinta en cada caso. Sirve para encontrar, no para descargar.
+- **PubMed Central** retiró su servicio de acceso abierto (`oa.fcgi` responde 404) y lo que sigue en pie entrega **XML JATS**, que no es un formato que ARCA ingiera. Entraría el día que la ingesta sepa leer JATS, no antes.
 
 ### Lo que no es una fuente
 
@@ -62,6 +70,11 @@ Campos de una fuente:
 | `probe_query` | el término con el que se comprueba la fuente, para las que ni siquiera aceptan una búsqueda vacía. arXiv devuelve 400 a `search_query=` |
 | `acquisition_via` | `entry` (por defecto): el enlace de descarga está en la propia entrada. `subsection`: la entrada solo trae un puntero a un segundo feed, que es donde vive el enlace |
 | `item_pattern` | expresión regular que el `href` del enlace debe cumplir para que la entrada cuente como ítem. Sirve para separar los libros de las entradas de navegación cuando el feed no las distingue de ninguna otra forma. Una expresión que no compila invalida la fuente |
+| `query_filter` | cláusula que se une con `AND` al término buscado, y que se manda sola cuando la búsqueda va vacía. Internet Archive no admite un filtro aparte: `mediatype:texts` tiene que viajar dentro de `q` |
+| `items_key` | admite **ruta con puntos** para bajar por el documento: `response.docs` |
+| `detail_path` | fuentes JSON de dos llamadas: ruta de la ficha del ítem, con `{id}`. Su presencia es lo que convierte a la fuente en de dos pasos |
+| `files_key` | ruta (con puntos) a la lista de ficheros dentro de esa ficha |
+| `download_path` | plantilla de la URL de descarga, con `{id}` y `{name}`, para cuando el fichero no trae una suya. Siempre cuelga de `base_url`: una fuente no puede mandar la descarga a otro dominio |
 | `enabled` | una fuente desactivada no se busca ni se comprueba, pero se conserva declarada |
 
 Una declaración incompleta o con un `kind` desconocido **se descarta al cargar** en vez de romper el arranque (invariante 5). Desde el panel, en cambio, se rechaza con código `bad_source`: allí hay alguien mirando a quien se le puede decir qué falta.
@@ -101,14 +114,19 @@ Decidido el 2026-08-30: **no se desarrolla**. Se pierde con ello la única vía 
 - `record_zim_entry()` vuelca la entrada en `zim_files` (upsert por UUID) sin tocar el `status` de una fila existente.
 - Los filtros de idioma y categoría (`GET /api/admin/catalog/filters?source=…`) **solo existen para una fuente Kiwix**; para cualquier otra se devuelven listas vacías, y el panel esconde esos campos.
 
-## Feeds de dos niveles y nombres de fichero
+## Catálogos de dos pasos
 
-Gutenberg no publica el enlace de descarga en su feed de búsqueda: cada entrada es un puntero (`rel="subsection"`) a `/ebooks/<id>.opds`, y solo ese segundo feed trae el `application/epub+zip`. Sus entradas de navegación («Authors», «Subjects») son **idénticas en forma** a las de un libro; lo único que las separa es la ruta, de ahí `item_pattern`.
+Dos de las fuentes no publican el enlace de descarga en su búsqueda, y lo hacen de formas distintas:
 
-Eso se resuelve en dos pasos, y el segundo **no ocurre al buscar**:
+- **Gutenberg (OPDS)**: cada entrada es un puntero (`rel="subsection"`) a `/ebooks/<id>.opds`, y solo ese segundo feed trae el `application/epub+zip`. Sus entradas de navegación («Authors», «Subjects») son **idénticas en forma** a las de un libro; lo único que las separa es la ruta, de ahí `item_pattern`.
+- **Internet Archive (JSON)**: la búsqueda devuelve identificadores y nada más. La ficha vive en `/metadata/<id>`, la lista de ficheros en su clave `files`, y la URL de descarga **no existe en ninguna respuesta**: se construye con `download_path`.
 
-1. `search()` devuelve el puntero, con el nombre de fichero vacío. Buscar cuesta una petición, no veintisiete.
-2. `acquire()` se llama **al encolar**, sigue el puntero, elige el enlace por tipo y devuelve el ítem ya resuelto. Es el mismo sitio donde el sabor Kiwix baja su `.meta4`: nada de esto se persiste (trampa 5).
+Los dos comparten la misma regla, y el segundo paso **no ocurre al buscar**:
+
+1. `search()` devuelve el puntero, con el nombre de fichero vacío y sin tamaño. Buscar cuesta una petición, no veintisiete.
+2. `acquire()` se llama **al encolar**, sigue el puntero y devuelve el ítem ya resuelto. Es el mismo sitio donde el sabor Kiwix baja su `.meta4`: nada de esto se persiste (trampa 5).
+
+Cuando hay varios ficheros donde elegir, **el orden de `suffixes` es el orden de preferencia**, no el orden en que la fuente los liste: Internet Archive declara `(".pdf", ".epub")` y se lleva el PDF aunque el EPUB aparezca antes en la respuesta.
 
 El nombre del fichero sale de la URL, y hay dos formas de que salga inservible: que traiga basura detrás de la extensión buena —Gutenberg sirve `1497.epub.noimages`— o que no traiga extensión ninguna —arXiv sirve `https://arxiv.org/pdf/1107.0191v1`—. `download_filename()` cubre las dos, y solo actúa cuando el sufijo del nombre **no es un formato conocido** y el tipo de medio del enlace **sí lo es**:
 
