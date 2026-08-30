@@ -67,10 +67,7 @@ EPUB_MEDIA_TYPE = "application/epub+zip"
 GUTENBERG_BOOK_PATTERN = r"^/ebooks/[0-9]+\.opds$"
 OPENSTAX_BOOKS_PATH = "/apps/cms/api/v2/pages/?type=books.Book&fields=*"
 ARXIV_PROBE_QUERY = "all:electron"
-ARCHIVE_SEARCH_PATH = (
-    "/advancedsearch.php?fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator"
-    "&fl%5B%5D=year&rows=25&output=json"
-)
+ARCHIVE_SEARCH_PATH = "/services/search/v1/scrape?fields=identifier,title,creator,year&count=100"
 ARCHIVE_TEXTS_FILTER = "mediatype:texts"
 SOURCE_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789-_"
 MAX_SOURCE_ID = 40
@@ -243,7 +240,7 @@ def default_sources() -> tuple[Source, ...]:
             entries_path=ARCHIVE_SEARCH_PATH,
             query_param="q",
             query_filter=ARCHIVE_TEXTS_FILTER,
-            items_key="response.docs",
+            items_key="items",
             files_key="files",
             detail_path="/metadata/{id}",
             download_path="/download/{id}/{name}",

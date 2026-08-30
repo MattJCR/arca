@@ -502,6 +502,25 @@ def test_the_shipped_sources_come_declared_but_switched_off() -> None:
     assert sources["internet-archive"].detailed is True
 
 
+def test_internet_archive_asks_the_scrape_api_and_never_sends_an_empty_query() -> None:
+    source = {item.source_id: item for item in default_sources()}["internet-archive"]
+    seen: list[str] = []
+    payload = json.dumps({"items": [{"identifier": "cholera-1", "title": "On cholera"}]}).encode()
+
+    items = search(source, query="cholera", get=_serve(payload, seen))
+
+    assert [item.item_id for item in items] == ["cholera-1"]
+    assert seen == [
+        "https://archive.org/services/search/v1/scrape"
+        "?fields=identifier,title,creator,year&count=100"
+        "&q=cholera+AND+mediatype%3Atexts"
+    ]
+
+    seen.clear()
+    probe(source, get=_serve(payload, seen))
+    assert seen[0].endswith("&q=mediatype%3Atexts")
+
+
 def test_a_source_with_an_impossible_pattern_or_mode_is_refused() -> None:
     base = {"source_id": "broken", "base_url": "https://x.org"}
     assert parse_source({**base, "item_pattern": "([unclosed"}) is None

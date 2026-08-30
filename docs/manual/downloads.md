@@ -18,7 +18,7 @@ Las seis son de acceso abierto: dominio público (Standard Ebooks, Gutenberg), l
 | **Standard Ebooks** (`standard-ebooks`) | `opds` | `book` (EPUB) | no | el listado completo pide credenciales; **solo responde a búsquedas**, así que la fuente lleva `requires_query` |
 | **Project Gutenberg** (`gutenberg`) | `opds` de **dos niveles** | `book` (EPUB) | no | ver abajo: la búsqueda solo devuelve punteros, y sus ficheros se llaman `1497.epub.images` |
 | **arXiv** (`arxiv`) | `opds` | `book` (PDF) | no | rechaza la búsqueda vacía con un 400, así que lleva `probe_query`; sus URLs no traen extensión |
-| **Internet Archive** (`internet-archive`) | `json` de **dos llamadas** | `book` (PDF o EPUB) | no | la búsqueda solo devuelve identificadores; el fichero sale de una segunda llamada. Filtrada a `mediatype:texts` |
+| **Internet Archive** (`internet-archive`) | `json` de **dos llamadas** | `book` (PDF o EPUB) | no | busca por la **API de scrape** (`/services/search/v1/scrape`), que solo devuelve identificadores; el fichero sale de una segunda llamada. Filtrada a `mediatype:texts` |
 | **OpenStax** (`openstax`) | `json` | `book` (PDF) | no | libros de texto completos; los PDF van de 20 MB a más de 150 MB |
 
 Ninguna de las tres nuevas publica hash, así que lo que venga de ellas queda marcado **no verificado**. Que las cuatro contestan, y que de cada una se puede descargar un fichero real, lo comprueba `tests/test_live_sources.py`, que **solo se ejecuta con `ARCA_LIVE=1`** porque sale a la red de verdad:
@@ -71,13 +71,21 @@ Campos de una fuente:
 | `acquisition_via` | `entry` (por defecto): el enlace de descarga está en la propia entrada. `subsection`: la entrada solo trae un puntero a un segundo feed, que es donde vive el enlace |
 | `item_pattern` | expresión regular que el `href` del enlace debe cumplir para que la entrada cuente como ítem. Sirve para separar los libros de las entradas de navegación cuando el feed no las distingue de ninguna otra forma. Una expresión que no compila invalida la fuente |
 | `query_filter` | cláusula que se une con `AND` al término buscado, y que se manda sola cuando la búsqueda va vacía. Internet Archive no admite un filtro aparte: `mediatype:texts` tiene que viajar dentro de `q` |
-| `items_key` | admite **ruta con puntos** para bajar por el documento: `response.docs` |
+| `items_key` | admite **ruta con puntos** para bajar por el documento, por ejemplo `response.docs`. Ninguna fuente de fábrica lo necesita hoy |
 | `detail_path` | fuentes JSON de dos llamadas: ruta de la ficha del ítem, con `{id}`. Su presencia es lo que convierte a la fuente en de dos pasos |
 | `files_key` | ruta (con puntos) a la lista de ficheros dentro de esa ficha |
 | `download_path` | plantilla de la URL de descarga, con `{id}` y `{name}`, para cuando el fichero no trae una suya. Siempre cuelga de `base_url`: una fuente no puede mandar la descarga a otro dominio |
 | `enabled` | una fuente desactivada no se busca ni se comprueba, pero se conserva declarada |
 
 Una declaración incompleta o con un `kind` desconocido **se descarta al cargar** en vez de romper el arranque (invariante 5). Desde el panel, en cambio, se rechaza con código `bad_source`: allí hay alguien mirando a quien se le puede decir qué falta.
+
+## Lo que no puede ser una fuente
+
+Los adaptadores son genéricos, pero no hacen milagros: hablan Atom/OPDS y JSON. Un sitio cuya búsqueda solo existe como **página HTML** no se puede declarar como fuente buscable, porque no hay nada que analizar sin escribir un raspador con su dominio dentro — justo lo que este diseño evita.
+
+A eso se añade un caso más duro: los sitios detrás de un **desafío de JavaScript** (DDoS-Guard, Cloudflare y parecidos). Ahí la respuesta a un cliente sin navegador es un 403 con una página de comprobación, y resolverlo pediría ejecutar JavaScript: un motor de navegador entero como dependencia, contra el tope de cinco.
+
+Para esos sitios queda `kind: "manual"`: la fuente se declara y se ve en la pestaña **Fuentes**, pero no se busca ni se comprueba. El operador busca en la web del sitio, copia el enlace directo del fichero y lo mete por **Descarga manual** o con `arca add --url`. Entra en la biblioteca y se indexa igual que cualquier otro libro.
 
 ## Estado de una fuente
 
@@ -119,7 +127,7 @@ Decidido el 2026-08-30: **no se desarrolla**. Se pierde con ello la única vía 
 Dos de las fuentes no publican el enlace de descarga en su búsqueda, y lo hacen de formas distintas:
 
 - **Gutenberg (OPDS)**: cada entrada es un puntero (`rel="subsection"`) a `/ebooks/<id>.opds`, y solo ese segundo feed trae el `application/epub+zip`. Sus entradas de navegación («Authors», «Subjects») son **idénticas en forma** a las de un libro; lo único que las separa es la ruta, de ahí `item_pattern`.
-- **Internet Archive (JSON)**: la búsqueda devuelve identificadores y nada más. La ficha vive en `/metadata/<id>`, la lista de ficheros en su clave `files`, y la URL de descarga **no existe en ninguna respuesta**: se construye con `download_path`.
+- **Internet Archive (JSON)**: la búsqueda devuelve identificadores y nada más. La ficha vive en `/metadata/<id>`, la lista de ficheros en su clave `files`, y la URL de descarga **no existe en ninguna respuesta**: se construye con `download_path`. La búsqueda es `/services/search/v1/scrape`, con la lista en la clave `items`: el viejo `advancedsearch.php` dejó de contestar. Su `count` mínimo es 100, y una `q` vacía es un 400 — por eso `mediatype:texts` viaja dentro de `q` y no como filtro aparte.
 
 Los dos comparten la misma regla, y el segundo paso **no ocurre al buscar**:
 
