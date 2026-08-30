@@ -436,7 +436,7 @@
   "cli.search.no_source": "There is no enabled source to search ({source}). Declare one in arca.json or from the panel.",
   "cli.search.source_error": "Source {source} did not answer: {error}",
   "cli.search.entry": "{uuid}  [{source}] {title} [{language}] {flavour} · {size} · {articles} articles",
-  "cli.add.not_found": "No source offers an item with identifier {uuid}.",
+  "cli.add.not_found": "No source offers an item with identifier {uuid}. If the source only answers searches, repeat the one you found it with using --query.",
   "cli.add.error": "Could not resolve the download: {error}",
   "cli.add.nothing_to_add": "A catalogue identifier or a --url address is required.",
   "cli.add.unknown_source": "There is no enabled source called {source}. See \"arca sources\".",

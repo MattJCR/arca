@@ -42,9 +42,9 @@ arca search wikipedia --lang spa
 arca search --source standard-ebooks meditations
 ```
 
-### `arca add <uuid> [--source id] [--index]`
+### `arca add <uuid> [--source id] [--query texto] [--index]`
 
-Vuelve a preguntar a la fuente, localiza el elemento por su identificador y lo encola. Para una fuente de colecciones ZIM descarga su `.meta4` (con `?country=ES`) para obtener tamaño, sha-256 y espejos por prioridad, y registra el ZIM en `zim_files` (estado `missing`). Si el `.meta4` no existe, degrada: encola sin hash de origen y avisa. Para una fuente de libros encola a `<raíz>/books/`, y con `--index` deja anotado que al terminar hay que ingerirlo. Sin `--source` se usa `kiwix`.
+Vuelve a preguntar a la fuente, localiza el elemento por su identificador y lo encola. **Repite con `--query` la misma búsqueda con la que lo encontraste**: una fuente que solo responde a búsquedas —Standard Ebooks, sin ir más lejos— no ofrece nada al listado desnudo, y sin la consulta el elemento no aparece. Es el mismo motivo por el que no se persiste ninguna URL de descarga: se re-resuelve en el momento. Para una fuente de colecciones ZIM descarga su `.meta4` (con `?country=ES`) para obtener tamaño, sha-256 y espejos por prioridad, y registra el ZIM en `zim_files` (estado `missing`). Si el `.meta4` no existe, degrada: encola sin hash de origen y avisa. Para una fuente de libros encola a `<raíz>/books/`, y con `--index` deja anotado que al terminar hay que ingerirlo. Sin `--source` se usa `kiwix`.
 
 ### `arca add --url <dirección> [--name f] [--sha256 h] [--kind book|zim] [--index]`
 

@@ -440,13 +440,17 @@ def test_a_source_declared_in_the_panel_shows_up_where_it_is_searched(
     fresh_page.click("button[data-tab='sources-section']")
     fresh_page.wait_for_selector("#sources-body tr")
     assert "Kiwix" in fresh_page.inner_text("#sources-body")
+    declared = len(fresh_page.query_selector_all("#sources-body tr"))
+    assert declared >= 4
     fresh_page.fill("#source-id", "books")
     fresh_page.fill("#source-name", "A books catalogue")
     fresh_page.fill("#source-url", "https://books.example.org")
     fresh_page.fill("#source-path", "/opds")
     fresh_page.fill("#source-media", "application/epub+zip")
     fresh_page.click("#source-form button[type=submit]")
-    fresh_page.wait_for_function("document.querySelectorAll('#sources-body tr').length === 2")
+    fresh_page.wait_for_function(
+        "document.querySelectorAll('#sources-body tr').length === " + str(declared + 1)
+    )
     assert "A books catalogue" in fresh_page.inner_text("#sources-body")
     fresh_page.click("button[data-tab='catalog-section']")
     fresh_page.wait_for_selector("#catalog-source-choices input")

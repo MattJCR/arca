@@ -22,12 +22,14 @@ Manual vivo del proyecto. Documenta **únicamente la realidad actual**: lo que e
 
 **Fase 11 (catálogos remotos) completada.** Funciona hoy: «el catálogo» ha pasado a ser «las fuentes». Ninguna vive en el código — Kiwix es la única declarada de fábrica, y añadir otra es una entrada en `sources` de `arca.json` o un formulario en la pestaña **Fuentes** del panel, sin tocar una línea. Hay tres tipos (`opds`, `json` y `manual`) y dos destinos (`zim` a `zim/`, `book` a `books/`). Se busca en varias a la vez con los resultados intercalados y la procedencia a la vista; una fuente caída se declara y no tumba la búsqueda en las demás; los filtros que una fuente no soporta se esconden para ella. El hash se exige o se declara que no lo hay: lo que llega de una fuente que no publica hash queda **marcado como no verificado** en vez de fingir una garantía. Un libro se descarga por el mismo motor reanudable y verificado que un ZIM y, si se pide «descargar e indexar», encadena con la ingesta de la fase 10 y queda buscable al párrafo. Una dirección pegada a mano entra en la cola como cualquier otra descarga. **Sin torrents**, por decisión escrita. El estado de cada fuente aparece en el diagnóstico.
 
+Vienen declaradas cuatro fuentes y **solo Kiwix activada**: Standard Ebooks, Project Gutenberg y OpenStax se encienden con un clic en la pestaña Fuentes. Que las cuatro contestan y que de cada una se descarga un fichero real está comprobado contra la red en `tests/test_live_sources.py`, que solo corre con `ARCA_LIVE=1`.
+
 ## Índice de funcionalidades
 
 - [CLI `arca`](cli.md) — comandos `init`, `serve`, `diagnostics`, `sources`, `search`, `add`, `run`, `verify`, `import`, `vendor`.
 - [Configuración y estructura en disco](configuration.md) — `arca.json`, resolución de la raíz, directorio de sesión, detección de entorno, logging.
 - [Base de datos](database.md) — `library.db`, aperturas RW/RO, eventos, matiz WAL del invariante 1.
-- [Fuentes, catálogo y descargas](downloads.md) — el modelo de fuentes declaradas, núcleo OPDS y sabor Kiwix, libros, direcciones pegadas a mano, motor reanudable, cola, verificación local.
+- [Fuentes, catálogo y descargas](downloads.md) — el modelo de fuentes declaradas, las cuatro que vienen de fábrica, núcleo OPDS y sabor Kiwix, feeds de dos niveles, libros, direcciones pegadas a mano, motor reanudable, cola, verificación local.
 - [Vendorizado](vendor.md) — `sources.lock`, verificación sin red, deriva de versiones, captura de `llama-server --help`.
 - [Lectura de colecciones ZIM](zim.md) — metadatos reales, los tres modos de índice, búsqueda, lectura de entradas, servido de artículos, `ZimLibrary`.
 - [Interfaz de consulta](interface.md) — pantalla partida, sello de procedencia, visor, estados honestos, dirección visual, tipografías vendorizadas y la prueba de navegador que ejerce todo eso de verdad.

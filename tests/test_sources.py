@@ -8,10 +8,13 @@ import pytest
 
 from arca.opds import HttpGet
 from arca.sources import (
+    ACQUISITION_SUBSECTION,
+    EPUB_MEDIA_TYPE,
     FILTER_CATEGORY,
     FILTER_FLAVOUR,
     FILTER_LANGUAGE,
     FILTER_QUERY,
+    GUTENBERG_BOOK_PATTERN,
     ITEM_BOOK,
     ITEM_ZIM,
     KIND_JSON,
@@ -21,13 +24,18 @@ from arca.sources import (
     STATUS_OK,
     STATUS_UNKNOWN,
     STATUS_UNVERIFIED,
+    RemoteItem,
     Source,
     SourceError,
     SourceRegistry,
+    acquire,
     default_sources,
+    download_filename,
     filename_from_url,
     find_item,
+    parse_source,
     parse_sources,
+    probe,
     resolve,
     search,
     source_states,
@@ -35,7 +43,6 @@ from arca.sources import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
-EPUB_MEDIA_TYPE = "application/epub+zip"
 
 
 def _books_source(language_param: str = "") -> Source:
@@ -60,11 +67,12 @@ def _serve(payload: bytes, seen: list[str] | None = None) -> HttpGet:
     return get
 
 
-def test_without_configuration_the_only_source_is_the_kiwix_one() -> None:
+def test_without_configuration_only_kiwix_is_switched_on() -> None:
     sources = default_sources()
-    assert [source.source_id for source in sources] == ["kiwix"]
-    assert sources[0].item_kind == ITEM_ZIM
-    assert sources[0].verifies_hash is True
+    enabled = [source for source in sources if source.enabled]
+    assert [source.source_id for source in enabled] == ["kiwix"]
+    assert enabled[0].item_kind == ITEM_ZIM
+    assert enabled[0].verifies_hash is True
     assert parse_sources(None) == sources
     assert parse_sources([]) == sources
 
@@ -101,7 +109,7 @@ def test_a_broken_declaration_is_dropped_instead_of_breaking_the_start() -> None
             "not an object",
         ]
     )
-    assert [source.source_id for source in sources] == ["kiwix"]
+    assert sources == default_sources()
 
 
 def test_the_same_identifier_declared_twice_keeps_the_first() -> None:
@@ -287,7 +295,7 @@ def test_replacing_the_declaration_forgets_what_was_observed_of_the_gone_ones() 
     registry = SourceRegistry(parse_sources([{"source_id": "books", "base_url": "https://x.org"}]))
     registry.observe("books", True)
     registry.replace(default_sources())
-    assert [state.source_id for state in registry.states()] == ["kiwix"]
+    assert next(state.source_id for state in registry.states()) == "kiwix"
     assert registry.states()[0].status == STATUS_UNKNOWN
     assert registry.get("books") is None
     assert registry.get("kiwix") is not None
@@ -322,3 +330,158 @@ def test_a_manual_source_is_declared_without_any_address() -> None:
     assert sources[0].base_url == ""
     assert sources[0].searchable is False
     assert state_payload(source_states(sources)[0])["searchable"] is False
+
+
+def _two_step_source(pattern: str = GUTENBERG_BOOK_PATTERN) -> Source:
+    return Source(
+        source_id="shelf",
+        name="A two step shelf",
+        kind=KIND_OPDS,
+        base_url="https://books.example.org",
+        entries_path="/ebooks/search.opds/",
+        query_param="query",
+        requires_query=True,
+        acquisition_via=ACQUISITION_SUBSECTION,
+        item_pattern=pattern,
+        media_type=EPUB_MEDIA_TYPE,
+        item_kind=ITEM_BOOK,
+    )
+
+
+def _two_step_server(seen: list[str] | None = None) -> HttpGet:
+    search_feed = (FIXTURES / "opds_subsection.xml").read_bytes()
+    book_feed = (FIXTURES / "opds_book_feed.xml").read_bytes()
+
+    def get(url: str) -> bytes:
+        if seen is not None:
+            seen.append(url)
+        return book_feed if url.endswith(".opds") and "search" not in url else search_feed
+
+    return get
+
+
+def test_a_feed_that_only_points_at_books_yields_pointers_not_files() -> None:
+    seen: list[str] = []
+    items = search(_two_step_source(), query="plato", get=_two_step_server(seen))
+    assert seen == ["https://books.example.org/ebooks/search.opds/?query=plato"]
+    assert [item.title for item in items] == ["The Republic", "Symposium"]
+    assert all(item.filename == "" for item in items)
+    assert items[0].url == "/ebooks/11.opds"
+
+
+def test_the_navigation_entries_of_a_search_feed_are_not_books() -> None:
+    items = search(_two_step_source(), query="plato", get=_two_step_server())
+    assert "Authors" not in [item.title for item in items]
+    without_pattern = search(_two_step_source(pattern=""), query="plato", get=_two_step_server())
+    assert "Authors" in [item.title for item in without_pattern]
+
+
+def test_the_second_feed_is_only_read_when_the_download_is_asked_for() -> None:
+    seen: list[str] = []
+    source = _two_step_source()
+    server = _two_step_server(seen)
+    items = search(source, query="plato", get=server)
+    assert len(seen) == 1
+    ready = acquire(source, items[0], server)
+    assert seen == [
+        "https://books.example.org/ebooks/search.opds/?query=plato",
+        "https://books.example.org/ebooks/11.opds",
+    ]
+    assert ready.url == "https://books.example.org/ebooks/11.epub.noimages"
+    assert ready.size_bytes == 308327
+    assert ready.item_id == items[0].item_id
+
+
+def test_a_download_name_that_no_format_would_accept_is_rewritten_from_its_media_type() -> None:
+    source = _two_step_source()
+    server = _two_step_server()
+    ready = acquire(source, search(source, query="plato", get=server)[0], server)
+    assert filename_from_url(ready.url) == "11.epub.noimages"
+    assert ready.filename == "11.epub"
+
+
+def test_download_filename_leaves_a_usable_name_alone() -> None:
+    assert download_filename("https://x.org/a/book.epub", EPUB_MEDIA_TYPE) == "book.epub"
+    assert download_filename("https://x.org/a/notes.pdf", "application/pdf") == "notes.pdf"
+    assert download_filename("https://x.org/a/11.epub3.images", EPUB_MEDIA_TYPE) == "11.epub"
+    assert download_filename("https://x.org/a/thing.bin", "application/x-thing") == "thing.bin"
+    assert download_filename("https://x.org/a/", EPUB_MEDIA_TYPE) == ""
+
+
+def test_a_second_feed_with_nothing_to_download_is_reported() -> None:
+    empty = (FIXTURES / "opds_books.xml").read_bytes()
+    source = Source(
+        source_id="shelf",
+        name="A two step shelf",
+        kind=KIND_OPDS,
+        base_url="https://books.example.org",
+        acquisition_via=ACQUISITION_SUBSECTION,
+        media_type="application/x-nothing",
+    )
+    item = RemoteItem(
+        source_id="shelf",
+        item_id="11",
+        item_kind=ITEM_BOOK,
+        title="The Republic",
+        description="",
+        language="",
+        flavour="",
+        filename="",
+        url="/ebooks/11.opds",
+    )
+    with pytest.raises(SourceError):
+        acquire(source, item, lambda url: empty)
+
+
+def test_acquire_is_a_no_op_for_a_source_that_links_the_file_directly() -> None:
+    source = _books_source()
+    items = search(source, get=_serve((FIXTURES / "opds_books.xml").read_bytes()))
+    assert acquire(source, items[0]) is items[0]
+
+
+def test_a_feed_that_demands_its_search_parameter_always_gets_one() -> None:
+    seen: list[str] = []
+    source = _two_step_source()
+    search(source, get=_two_step_server(seen))
+    probe(source, _two_step_server(seen))
+    assert seen == [
+        "https://books.example.org/ebooks/search.opds/?query=",
+        "https://books.example.org/ebooks/search.opds/?query=",
+    ]
+
+
+def test_a_listing_path_that_already_carries_a_query_keeps_it() -> None:
+    seen: list[str] = []
+    source = Source(
+        source_id="api",
+        name="An api",
+        kind=KIND_JSON,
+        base_url="https://json.example",
+        entries_path="/api/pages/?type=books.Book&fields=*",
+        query_param="search",
+        items_key="items",
+        fields={"url": "pdf_url", "title": "title"},
+    )
+    payload = json.dumps({"items": [{"title": "A", "pdf_url": "https://x.org/a.pdf"}]}).encode()
+    search(source, query="biology", get=_serve(payload, seen))
+    assert seen == ["https://json.example/api/pages/?type=books.Book&fields=*&search=biology"]
+
+
+def test_the_shipped_sources_come_declared_but_switched_off() -> None:
+    sources = {source.source_id: source for source in default_sources()}
+    assert set(sources) == {"kiwix", "standard-ebooks", "gutenberg", "openstax"}
+    assert sources["kiwix"].enabled is True
+    for source_id in ("standard-ebooks", "gutenberg", "openstax"):
+        assert sources[source_id].enabled is False, source_id
+        assert sources[source_id].item_kind == ITEM_BOOK
+        assert sources[source_id].verifies_hash is False
+    assert sources["gutenberg"].two_step is True
+    assert sources["standard-ebooks"].requires_query is True
+    assert sources["openstax"].kind == KIND_JSON
+
+
+def test_a_source_with_an_impossible_pattern_or_mode_is_refused() -> None:
+    base = {"source_id": "broken", "base_url": "https://x.org"}
+    assert parse_source({**base, "item_pattern": "([unclosed"}) is None
+    assert parse_source({**base, "acquisition_via": "telepathy"}) is None
+    assert parse_source({**base, "item_pattern": r"^/ebooks/[0-9]+$"}) is not None

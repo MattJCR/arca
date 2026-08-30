@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <id>https://books.example.org/ebooks/11.opds</id>
+  <title>The Republic</title>
+  <entry>
+    <updated>2026-08-30T00:00:00Z</updated>
+    <id>https://books.example.org/ebooks/11</id>
+    <title>The Republic</title>
+    <link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail"
+          href="https://books.example.org/cache/11.cover.jpg"/>
+    <link type="application/epub+zip" rel="http://opds-spec.org/acquisition"
+          href="https://books.example.org/ebooks/11.epub.noimages" length="308327"/>
+    <link type="application/x-mobipocket-ebook" rel="http://opds-spec.org/acquisition"
+          href="https://books.example.org/ebooks/11.kindle.noimages"/>
+  </entry>
+</feed>

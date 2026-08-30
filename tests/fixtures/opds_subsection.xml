@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <id>subsection-search</id>
+  <title>Search results</title>
+  <entry>
+    <updated>2026-08-30T00:00:00Z</updated>
+    <id>https://books.example.org/ebooks/authors/search.opds/?query=plato</id>
+    <title>Authors</title>
+    <content type="text">5 author names match your search.</content>
+    <link type="application/atom+xml;profile=opds-catalog" rel="subsection"
+          href="/ebooks/authors/search.opds/?query=plato"/>
+  </entry>
+  <entry>
+    <updated>2026-08-30T00:00:00Z</updated>
+    <id>https://books.example.org/ebooks/11.opds</id>
+    <title>The Republic</title>
+    <content type="text">Plato, translated by Benjamin Jowett</content>
+    <link type="application/atom+xml;profile=opds-catalog" rel="subsection"
+          href="/ebooks/11.opds"/>
+  </entry>
+  <entry>
+    <updated>2026-08-30T00:00:00Z</updated>
+    <id>https://books.example.org/ebooks/12.opds</id>
+    <title>Symposium</title>
+    <content type="text">Plato</content>
+    <link type="application/atom+xml;profile=opds-catalog" rel="subsection"
+          href="/ebooks/12.opds"/>
+  </entry>
+</feed>

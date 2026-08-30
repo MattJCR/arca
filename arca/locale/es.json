@@ -436,7 +436,7 @@
   "cli.search.no_source": "No hay ninguna fuente activa que buscar ({source}). Declara una en arca.json o desde el panel.",
   "cli.search.source_error": "La fuente {source} no respondió: {error}",
   "cli.search.entry": "{uuid}  [{source}] {title} [{language}] {flavour} · {size} · {articles} artículos",
-  "cli.add.not_found": "Ninguna fuente ofrece un elemento con identificador {uuid}.",
+  "cli.add.not_found": "Ninguna fuente ofrece un elemento con identificador {uuid}. Si la fuente solo responde a búsquedas, repite con --query la misma que usaste para encontrarlo.",
   "cli.add.error": "No se pudo resolver la descarga: {error}",
   "cli.add.nothing_to_add": "Hace falta un identificador del catálogo o una dirección con --url.",
   "cli.add.unknown_source": "No hay ninguna fuente activa llamada {source}. Mira «arca sources».",

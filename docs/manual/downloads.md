@@ -6,7 +6,28 @@ Módulos: `arca/opds.py` (núcleo Atom/OPDS genérico), `arca/catalog.py` (sabor
 
 **Ninguna fuente vive en el código.** Standard Ebooks, Gutenberg, OpenStax o la que le interese a un operador concreto son configuración, no constantes. Una fuente se declara en la lista `sources` de `arca.json` o desde la pestaña **Fuentes** del panel, y con eso ya es buscable: no hay una línea de código que conozca su dominio.
 
-Sin lista declarada, ARCA arranca con una sola fuente: la biblioteca de Kiwix (`kiwix`, `https://library.kiwix.org`, contenido `zim`). Una lista vacía o entera inválida vuelve a esa misma por defecto, para que un `arca.json` mal editado no deje el sistema sin poder descargar nada.
+### Las que vienen declaradas
+
+`arca init` escribe cuatro fuentes en `arca.json`. **Solo Kiwix viene activada**; las otras tres están declaradas y apagadas, para que se vean y se enciendan con un clic sin que el producto salga a sitios que nadie ha pedido. Una lista vacía o entera inválida vuelve a estas cuatro, para que un `arca.json` mal editado no deje el sistema sin poder descargar nada.
+
+| Fuente | Tipo | Contenido | Activa | Qué hay que saber |
+| --- | --- | --- | --- | --- |
+| **Kiwix Library** (`kiwix`) | `opds`, sabor `kiwix` | `zim` | sí | la única que **verifica hash**, por su metalink |
+| **Standard Ebooks** (`standard-ebooks`) | `opds` | `book` (EPUB) | no | el listado completo pide credenciales; **solo responde a búsquedas**, así que la fuente lleva `requires_query` |
+| **Project Gutenberg** (`gutenberg`) | `opds` de **dos niveles** | `book` (EPUB) | no | ver abajo: la búsqueda solo devuelve punteros, y sus ficheros se llaman `1497.epub.images` |
+| **OpenStax** (`openstax`) | `json` | `book` (PDF) | no | libros de texto completos; los PDF van de 20 MB a más de 150 MB |
+
+Ninguna de las tres nuevas publica hash, así que lo que venga de ellas queda marcado **no verificado**. Que las cuatro contestan, y que de cada una se puede descargar un fichero real, lo comprueba `tests/test_live_sources.py`, que **solo se ejecuta con `ARCA_LIVE=1`** porque sale a la red de verdad:
+
+```
+ARCA_LIVE=1 pytest tests/test_live_sources.py
+```
+
+### Cómo se declara una desde el panel
+
+`/admin` → familia **Contenido** → pestaña **Fuentes** → «Añadir una fuente». Solo el identificador es obligatorio, y la dirección base para todo lo que no sea `manual`. Al guardar se reescribe la clave `sources` de `arca.json` y la fuente aparece ya en las casillas del buscador. El botón **Comprobar fuentes** pregunta a cada una si responde.
+
+El formulario no expone tres cosas, que se editan a mano en `arca.json` porque son de dialecto y no de uso diario: `flavour` (el sabor `kiwix`), `suffixes` (elegir el enlace por extensión en vez de por tipo) y `fields` (la correspondencia de campos de una fuente JSON).
 
 Campos de una fuente:
 
@@ -25,6 +46,9 @@ Campos de una fuente:
 | `suffixes` | alternativa al anterior: elegir el enlace por extensión |
 | `items_key` | fuentes `json`: clave del documento que contiene la lista |
 | `fields` | fuentes `json`: correspondencia entre los nombres de la fuente y `id`, `title`, `summary`, `language`, `url`, `sha256`, `size`, `filename` |
+| `requires_query` | la fuente **exige** su parámetro de búsqueda: se manda siempre, aunque vaya vacío. Sin esto, Standard Ebooks responde 401 al listado desnudo |
+| `acquisition_via` | `entry` (por defecto): el enlace de descarga está en la propia entrada. `subsection`: la entrada solo trae un puntero a un segundo feed, que es donde vive el enlace |
+| `item_pattern` | expresión regular que el `href` del enlace debe cumplir para que la entrada cuente como ítem. Sirve para separar los libros de las entradas de navegación cuando el feed no las distingue de ninguna otra forma. Una expresión que no compila invalida la fuente |
 | `enabled` | una fuente desactivada no se busca ni se comprueba, pero se conserva declarada |
 
 Una declaración incompleta o con un `kind` desconocido **se descarta al cargar** en vez de romper el arranque (invariante 5). Desde el panel, en cambio, se rechaza con código `bad_source`: allí hay alguien mirando a quien se le puede decir qué falta.
@@ -63,6 +87,17 @@ Decidido el 2026-08-30: **no se desarrolla**. Se pierde con ello la única vía 
 - `resolve_downloads(meta4_url)` descarga el `.meta4` con `?country=ES` y devuelve tamaño, sha-256 y espejos ordenados por `priority`. Si el servidor responde un error HTTP (meta4 ausente), degrada al camino sin meta4: un único espejo (la URL sin `.meta4`), sin hash, con `hash_missing=True` (trampa 6). Si no hay red, lanza `CatalogError`.
 - `record_zim_entry()` vuelca la entrada en `zim_files` (upsert por UUID) sin tocar el `status` de una fila existente.
 - Los filtros de idioma y categoría (`GET /api/admin/catalog/filters?source=…`) **solo existen para una fuente Kiwix**; para cualquier otra se devuelven listas vacías, y el panel esconde esos campos.
+
+## Feeds de dos niveles y nombres de fichero
+
+Gutenberg no publica el enlace de descarga en su feed de búsqueda: cada entrada es un puntero (`rel="subsection"`) a `/ebooks/<id>.opds`, y solo ese segundo feed trae el `application/epub+zip`. Sus entradas de navegación («Authors», «Subjects») son **idénticas en forma** a las de un libro; lo único que las separa es la ruta, de ahí `item_pattern`.
+
+Eso se resuelve en dos pasos, y el segundo **no ocurre al buscar**:
+
+1. `search()` devuelve el puntero, con el nombre de fichero vacío. Buscar cuesta una petición, no veintisiete.
+2. `acquire()` se llama **al encolar**, sigue el puntero, elige el enlace por tipo y devuelve el ítem ya resuelto. Es el mismo sitio donde el sabor Kiwix baja su `.meta4`: nada de esto se persiste (trampa 5).
+
+El nombre del fichero sale de la URL, pero Gutenberg sirve `1497.epub.noimages` y `1497.epub3.images` — sufijos que la ingesta rechazaría. `download_filename()` lo arregla de forma general: si el sufijo del nombre **no es un formato conocido** y el tipo de medio del enlace **sí lo es**, se recorta el nombre a su raíz y se le pone la extensión de ese formato. `1497.epub.noimages` con `application/epub+zip` queda en `1497.epub`, y un nombre que ya era bueno no se toca.
 
 ## Libros (`kind = "book"`)
 

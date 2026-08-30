@@ -291,8 +291,9 @@ def test_admin_catalog_marks_library_entries_and_updates(
     reader = entries["DevDocs Python"]["reader_url"]
     assert reader.startswith("https://browse.library.kiwix.org/viewer#")
     assert reader.endswith("devdocs_en_python_2026-05")
-    assert [source["source_id"] for source in payload["sources"]] == ["kiwix"]
-    assert payload["sources"][0]["status"] == "ok"
+    states = {source["source_id"]: source["status"] for source in payload["sources"]}
+    assert states["kiwix"] == "ok"
+    assert set(states) >= {"kiwix", "standard-ebooks", "gutenberg", "openstax"}
 
 
 def test_admin_catalog_filters_lists_categories_and_languages(
@@ -824,11 +825,13 @@ def test_zim_resources_keep_the_policy_too(tmp_path: Path) -> None:
 def test_admin_sources_lists_what_is_declared(tmp_path: Path) -> None:
     status, body = http_get(_app(tmp_path), "/api/admin/sources")
     assert status == 200
-    sources = json.loads(body)["sources"]
-    assert [source["source_id"] for source in sources] == ["kiwix"]
-    assert sources[0]["status"] == "unknown"
-    assert sources[0]["verifies_hash"] is True
-    assert sources[0]["filters"] == ["query", "language", "category", "flavour"]
+    sources = {source["source_id"]: source for source in json.loads(body)["sources"]}
+    assert set(sources) == {"kiwix", "standard-ebooks", "gutenberg", "openstax"}
+    assert sources["kiwix"]["status"] == "unknown"
+    assert sources["kiwix"]["verifies_hash"] is True
+    assert sources["kiwix"]["enabled"] is True
+    assert sources["kiwix"]["filters"] == ["query", "language", "category", "flavour"]
+    assert sources["gutenberg"]["enabled"] is False
 
 
 def test_a_source_declared_from_the_panel_lands_in_the_configuration(tmp_path: Path) -> None:
@@ -907,7 +910,8 @@ def test_a_source_that_is_down_does_not_take_the_others_with_it(
     assert {entry["source_name"] for entry in payload["entries"]} == {"A books catalogue"}
     assert {entry["verified"] for entry in payload["entries"]} == {False}
     states = {source["source_id"]: source["status"] for source in payload["sources"]}
-    assert states == {"kiwix": "down", "books": "unverified"}
+    assert states["kiwix"] == "down"
+    assert states["books"] == "unverified"
 
 
 def test_results_from_several_sources_are_interleaved_with_their_origin(

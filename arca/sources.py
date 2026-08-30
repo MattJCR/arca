@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import urllib.error
 import urllib.parse
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any
 
 from arca.catalog import (
@@ -18,7 +20,8 @@ from arca.catalog import (
     resolve_downloads,
 )
 from arca.db import utc_now_iso
-from arca.opds import HttpGet, OpdsError, feed_url, http_get, parse_feed
+from arca.formats import format_for_mime, format_for_suffix
+from arca.opds import HttpGet, OpdsEntry, OpdsError, OpdsLink, feed_url, http_get, parse_feed
 
 KIND_OPDS = "opds"
 KIND_JSON = "json"
@@ -43,8 +46,16 @@ FILTER_LANGUAGE = "language"
 FILTER_CATEGORY = "category"
 FILTER_FLAVOUR = "flavour"
 
+ACQUISITION_ENTRY = "entry"
+ACQUISITION_SUBSECTION = "subsection"
+ACQUISITION_MODES = (ACQUISITION_ENTRY, ACQUISITION_SUBSECTION)
+SUBSECTION_REL = "subsection"
+
 KIWIX_SOURCE_ID = "kiwix"
 JSON_FIELDS = ("id", "title", "summary", "language", "url", "sha256", "size", "filename")
+EPUB_MEDIA_TYPE = "application/epub+zip"
+GUTENBERG_BOOK_PATTERN = r"^/ebooks/[0-9]+\.opds$"
+OPENSTAX_BOOKS_PATH = "/apps/cms/api/v2/pages/?type=books.Book&fields=*"
 SOURCE_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789-_"
 MAX_SOURCE_ID = 40
 
@@ -68,7 +79,14 @@ class Source:
     suffixes: tuple[str, ...] = ()
     items_key: str = ""
     fields: dict[str, str] = field(default_factory=dict)
+    requires_query: bool = False
+    acquisition_via: str = ACQUISITION_ENTRY
+    item_pattern: str = ""
     enabled: bool = True
+
+    @property
+    def two_step(self) -> bool:
+        return self.acquisition_via == ACQUISITION_SUBSECTION
 
     @property
     def is_kiwix(self) -> bool:
@@ -151,7 +169,47 @@ def kiwix_source() -> Source:
 
 
 def default_sources() -> tuple[Source, ...]:
-    return (kiwix_source(),)
+    return (
+        kiwix_source(),
+        Source(
+            source_id="standard-ebooks",
+            name="Standard Ebooks",
+            kind=KIND_OPDS,
+            base_url="https://standardebooks.org",
+            entries_path="/feeds/opds/all",
+            query_param="query",
+            requires_query=True,
+            media_type=EPUB_MEDIA_TYPE,
+            item_kind=ITEM_BOOK,
+            enabled=False,
+        ),
+        Source(
+            source_id="gutenberg",
+            name="Project Gutenberg",
+            kind=KIND_OPDS,
+            base_url="https://m.gutenberg.org",
+            entries_path="/ebooks/search.opds/",
+            query_param="query",
+            requires_query=True,
+            acquisition_via=ACQUISITION_SUBSECTION,
+            item_pattern=GUTENBERG_BOOK_PATTERN,
+            media_type=EPUB_MEDIA_TYPE,
+            item_kind=ITEM_BOOK,
+            enabled=False,
+        ),
+        Source(
+            source_id="openstax",
+            name="OpenStax",
+            kind=KIND_JSON,
+            base_url="https://openstax.org",
+            entries_path=OPENSTAX_BOOKS_PATH,
+            query_param="search",
+            items_key="items",
+            fields={"id": "id", "title": "title", "url": "pdf_url"},
+            item_kind=ITEM_BOOK,
+            enabled=False,
+        ),
+    )
 
 
 def parse_source(raw: object) -> Source | None:
@@ -222,6 +280,19 @@ def filename_from_url(url: str) -> str:
     return raw
 
 
+def download_filename(url: str, media_type: str) -> str:
+    name = filename_from_url(url)
+    if not name or format_for_suffix(Path(name).suffix.lower()) is not None:
+        return name
+    entry = format_for_mime(media_type)
+    if entry is None:
+        return name
+    stem = Path(name)
+    while stem.suffix:
+        stem = stem.with_suffix("")
+    return f"{stem.name}{entry.suffix}"
+
+
 def search(
     source: Source,
     *,
@@ -247,7 +318,33 @@ def probe(source: Source, get: HttpGet | None = None) -> None:
     if source.is_kiwix:
         _download(entries_url(source.base_url or CATALOG_BASE_URL, count=1), getter)
         return
-    _download(feed_url(source.base_url, source.entries_path, []), getter)
+    params = _search_params(source, "", "")
+    _download(feed_url(source.base_url, source.entries_path, params), getter)
+
+
+def acquire(source: Source, item: RemoteItem, get: HttpGet | None = None) -> RemoteItem:
+    if not source.two_step:
+        return item
+    payload = _download(_absolute(source, item.url), get or http_get)
+    try:
+        entries = parse_feed(payload)
+    except OpdsError as error:
+        raise SourceError(str(error)) from error
+    media_types = (source.media_type,) if source.media_type else ()
+    for entry in entries:
+        link = entry.acquisition(media_types, source.suffixes)
+        if link is None:
+            continue
+        filename = download_filename(link.href, link.media_type)
+        if not filename:
+            continue
+        return replace(
+            item,
+            url=link.href,
+            filename=filename,
+            size_bytes=link.length if link.length is not None else item.size_bytes,
+        )
+    raise SourceError(f"no download link behind {item.url}")
 
 
 def catalog_entry(item: RemoteItem) -> CatalogEntry:
@@ -389,25 +486,48 @@ def _from_catalog_entry(source: Source, entry: CatalogEntry) -> RemoteItem:
     )
 
 
-def _search_opds(source: Source, query: str, language: str, get: HttpGet) -> list[RemoteItem]:
+def _search_params(source: Source, query: str, language: str) -> list[tuple[str, str]]:
     params: list[tuple[str, str]] = []
-    if query and source.query_param:
+    if source.query_param and (query or source.requires_query):
         params.append((source.query_param, query))
     if language and source.language_param:
         params.append((source.language_param, language))
+    return params
+
+
+def _absolute(source: Source, href: str) -> str:
+    if href.startswith("http://") or href.startswith("https://"):
+        return href
+    return f"{source.base_url}{href}"
+
+
+def _download_link(source: Source, entry: OpdsEntry) -> OpdsLink | None:
+    if source.two_step:
+        for link in entry.links:
+            if link.rel == SUBSECTION_REL:
+                return link
+        return None
+    media_types = (source.media_type,) if source.media_type else ()
+    return entry.acquisition(media_types, source.suffixes)
+
+
+def _search_opds(source: Source, query: str, language: str, get: HttpGet) -> list[RemoteItem]:
+    params = _search_params(source, query, language)
     payload = _download(feed_url(source.base_url, source.entries_path, params), get)
     try:
         entries = parse_feed(payload)
     except OpdsError as error:
         raise SourceError(str(error)) from error
-    media_types = (source.media_type,) if source.media_type else ()
+    pattern = re.compile(source.item_pattern) if source.item_pattern else None
     items = []
     for entry in entries:
-        link = entry.acquisition(media_types, source.suffixes)
+        link = _download_link(source, entry)
         if link is None or not entry.entry_id:
             continue
-        filename = filename_from_url(link.href)
-        if not filename:
+        if pattern is not None and not pattern.search(link.href):
+            continue
+        filename = "" if source.two_step else download_filename(link.href, link.media_type)
+        if not source.two_step and not filename:
             continue
         items.append(
             RemoteItem(
@@ -428,11 +548,7 @@ def _search_opds(source: Source, query: str, language: str, get: HttpGet) -> lis
 
 
 def _search_json(source: Source, query: str, language: str, get: HttpGet) -> list[RemoteItem]:
-    params: list[tuple[str, str]] = []
-    if query and source.query_param:
-        params.append((source.query_param, query))
-    if language and source.language_param:
-        params.append((source.language_param, language))
+    params = _search_params(source, query, language)
     payload = _download(feed_url(source.base_url, source.entries_path, params), get)
     try:
         parsed: object = json.loads(payload.decode("utf-8", "replace"))
@@ -515,6 +631,10 @@ def _build_source(raw: object) -> Source | None:
         return None
     flavour = _text(raw, "flavour") or FLAVOUR_PLAIN
     item_kind = _text(raw, "item_kind") or ITEM_BOOK
+    acquisition_via = _text(raw, "acquisition_via") or ACQUISITION_ENTRY
+    item_pattern = _text(raw, "item_pattern")
+    if acquisition_via not in ACQUISITION_MODES or not _compiles(item_pattern):
+        return None
     base = Source(
         source_id=source_id,
         name=_text(raw, "name") or source_id,
@@ -529,11 +649,24 @@ def _build_source(raw: object) -> Source | None:
         suffixes=_suffixes(raw.get("suffixes")),
         items_key=_text(raw, "items_key"),
         fields=_field_map(raw.get("fields")),
+        requires_query=raw.get("requires_query") is True,
+        acquisition_via=acquisition_via,
+        item_pattern=item_pattern,
         enabled=raw.get("enabled") is not False,
     )
     if base.is_kiwix:
         return replace(base, item_kind=ITEM_ZIM)
     return base
+
+
+def _compiles(pattern: str) -> bool:
+    if not pattern:
+        return True
+    try:
+        re.compile(pattern)
+    except re.error:
+        return False
+    return True
 
 
 def _clean_id(value: str) -> str:

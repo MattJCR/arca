@@ -211,6 +211,7 @@ from arca.sources import (
     Source,
     SourceError,
     SourceRegistry,
+    acquire,
     catalog_entry,
     filename_from_url,
     find_item,
@@ -848,11 +849,12 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
                 language=str(payload.get("lang", "")),
                 category=str(payload.get("category", "")),
             )
-            item = find_item(items, item_id)
-            if item is None:
+            found = find_item(items, item_id)
+            if found is None:
                 return JSONResponse(
                     {"error": f"unknown item: {item_id}", "code": "unknown_item"}, status_code=404
                 )
+            item = acquire(source, found)
             resolution = resolve(source, item)
         except SourceError as error:
             registry.observe(source.source_id, False, str(error))

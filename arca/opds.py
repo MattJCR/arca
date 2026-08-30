@@ -71,7 +71,8 @@ def http_get(url: str) -> bytes:
 def feed_url(base_url: str, path: str, params: list[tuple[str, str]]) -> str:
     if not params:
         return f"{base_url}{path}"
-    return f"{base_url}{path}?{urllib.parse.urlencode(params)}"
+    separator = "&" if "?" in path else "?"
+    return f"{base_url}{path}{separator}{urllib.parse.urlencode(params)}"
 
 
 def parse_feed(payload: bytes) -> list[OpdsEntry]:

@@ -52,6 +52,7 @@ from arca.sources import (
     RemoteItem,
     Source,
     SourceError,
+    acquire,
     catalog_entry,
     filename_from_url,
     find_item,
@@ -97,6 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--source", dest="source_id", default="")
     add.add_argument("--url", default="")
     add.add_argument("--name", default="")
+    add.add_argument("--query", dest="add_query", default="")
     add.add_argument("--sha256", dest="digest", default="")
     add.add_argument("--kind", dest="item_kind", default="book")
     add.add_argument("--index", action="store_true")
@@ -298,10 +300,11 @@ def _run_add(root: Path, config: ArcaConfig, catalog: Catalog, args: argparse.Na
         return 1
     source = chosen[0]
     try:
-        item = find_item(search_source(source), args.uuid)
-        if item is None:
+        found = find_item(search_source(source, query=args.add_query), args.uuid)
+        if found is None:
             print(catalog.text("cli.add.not_found", uuid=args.uuid), file=sys.stderr)
             return 1
+        item = acquire(source, found)
         resolution = resolve(source, item)
     except CatalogError as error:
         print(catalog.text("cli.add.error", error=str(error)), file=sys.stderr)
