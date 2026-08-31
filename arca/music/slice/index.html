@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARCA Music — F9.0 listening slice</title>
+<style>
+:root {
+  color-scheme: dark;
+  --ink: #e8e4dc;
+  --dim: #8c877d;
+  --line: #2c2a26;
+  --ground: #131211;
+  --panel: #1b1a17;
+  --mark: #c9a227;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 2.5rem 1.5rem;
+  background: var(--ground);
+  color: var(--ink);
+  font: 15px/1.55 system-ui, sans-serif;
+}
+main { max-width: 46rem; margin: 0 auto; }
+h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.25rem; }
+p.lede { color: var(--dim); margin: 0 0 2rem; }
+fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 1.25rem; padding: 1rem 1.25rem 1.25rem; }
+legend { color: var(--dim); font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 0 0.4rem; }
+.row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+button {
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--mark); }
+button:disabled { opacity: 0.4; cursor: default; }
+button[aria-pressed="true"] { border-color: var(--mark); color: var(--mark); }
+button:focus-visible { outline: 2px solid var(--mark); outline-offset: 2px; }
+label { color: var(--dim); }
+input[type="range"] { accent-color: var(--mark); width: 14rem; }
+#status { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; color: var(--dim); white-space: pre-wrap; }
+#status b { color: var(--ink); font-weight: 500; }
+.note { color: var(--dim); font-size: 0.85rem; margin-top: 1.5rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ARCA Music — F9.0 listening slice</h1>
+  <p class="lede">Same seed, same progression, same reverb. Only the material changes.</p>
+
+  <fieldset>
+    <legend>Material</legend>
+    <div class="row">
+      <button id="pick-rendered" aria-pressed="true">Rendered (synthesis)</button>
+      <button id="pick-sampled" aria-pressed="false">Sampled (VCSL, CC0)</button>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Transport</legend>
+    <div class="row">
+      <button id="play">Play five minutes</button>
+      <button id="stop" disabled>Stop</button>
+      <label for="volume">Volume</label>
+      <input id="volume" type="range" min="0" max="100" value="70">
+    </div>
+    <div class="row" style="margin-top:0.75rem">
+      <button id="auto" aria-pressed="true">Intensity: scripted</button>
+      <label for="intensity">Manual</label>
+      <input id="intensity" type="range" min="0" max="100" value="20" disabled>
+      <button id="render">Render 5 min to WAV</button>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>State</legend>
+    <div id="status">idle</div>
+  </fieldset>
+
+  <p class="note">
+    The scripted run holds three intensities for one hundred seconds each and stops at five minutes.
+    Listen for machine-gun repeats, clicks at note edges, and whether the arrangement thins and
+    thickens without a cut. This page is the F9.0 gate: it is not part of ARCA and nothing links to it.
+  </p>
+</main>
+<script src="engine.js"></script>
+</body>
+</html>
