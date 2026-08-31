@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from arca.opds import HttpGet
+from arca.opds import HttpGet, OpdsEntry, OpdsLink
 from arca.sources import (
     ACQUISITION_SUBSECTION,
     EPUB_MEDIA_TYPE,
@@ -18,9 +18,11 @@ from arca.sources import (
     GUTENBERG_BOOK_PATTERN,
     ITEM_BOOK,
     ITEM_ZIM,
+    KIND_HTML,
     KIND_JSON,
     KIND_MANUAL,
     KIND_OPDS,
+    LIBGEN_MAX_ROWS,
     STATUS_DOWN,
     STATUS_OK,
     STATUS_UNKNOWN,
@@ -29,6 +31,8 @@ from arca.sources import (
     Source,
     SourceError,
     SourceRegistry,
+    _libgen_pairs,
+    _opds_reader,
     acquire,
     declared_filename,
     default_sources,
@@ -492,6 +496,7 @@ def test_the_shipped_sources_come_declared_but_switched_off() -> None:
         "openstax",
         "zenodo",
         "oapen",
+        "libgen",
     }
     assert sources["kiwix"].enabled is True
     for source_id in (
@@ -672,3 +677,321 @@ def test_a_nested_items_key_walks_the_document() -> None:
     lost = replace(source, items_key="a.b.missing")
     with pytest.raises(SourceError):
         search(lost, get=_serve(payload))
+
+
+LIBGEN_ROWS = (
+    b'<table class="table" id="tablelibgen"><thead><tr><th>ID</th></tr></thead>'
+    b'<tr><td><a href="edition.php?id=11">War and Peace</a></td>'
+    b'<td><a href="file.php?id=91">epub</a></td></tr>'
+    b'<tr><td><a href="edition.php?id=12">Anna Karenina</a></td>'
+    b'<td><a href="file.php?id=92">djvu</a></td></tr>'
+    b'<tr><td><a href="edition.php?id=13">Resurrection</a></td>'
+    b'<td><a href="file.php?id=93">pdf</a></td></tr>'
+    b"</table>"
+)
+
+LIBGEN_EDITIONS = json.dumps(
+    {
+        "11": {"title": "War and Peace", "author": "Leo Tolstoy", "year": "1869"},
+        "12": {"title": "Anna Karenina", "author": "Leo Tolstoy", "year": "1878"},
+        "13": {"title": "Resurrection", "author": "Leo Tolstoy", "year": "1899"},
+    }
+).encode("utf-8")
+
+LIBGEN_FILES = json.dumps(
+    {
+        "91": {"md5": "a" * 32, "filesize": "3505051", "extension": "epub"},
+        "92": {"md5": "b" * 32, "filesize": "900", "extension": "djvu"},
+        "93": {"md5": "c" * 32, "filesize": "42", "extension": "pdf"},
+    }
+).encode("utf-8")
+
+
+def _libgen_source() -> Source:
+    return next(source for source in default_sources() if source.source_id == "libgen")
+
+
+def _libgen_server(seen: list[str] | None = None) -> HttpGet:
+    def get(url: str) -> bytes:
+        if seen is not None:
+            seen.append(url)
+        if "object=e" in url:
+            return LIBGEN_EDITIONS
+        if "object=f" in url:
+            return LIBGEN_FILES
+        if "ads.php" in url:
+            return b'<a href="get.php?md5=' + b"a" * 32 + b'&amp;key=KEY123">GET</a>'
+        return LIBGEN_ROWS
+
+    return get
+
+
+def test_a_libgen_search_joins_the_result_rows_to_the_json_records() -> None:
+    seen: list[str] = []
+    items = search(_libgen_source(), query="tolstoy", get=_libgen_server(seen))
+    assert [item.item_id for item in items] == ["91", "93"]
+    assert items[0].title == "War and Peace"
+    assert items[0].description == "Leo Tolstoy · 1869"
+    assert items[0].size_bytes == 3505051
+    assert len(seen) == 3
+    assert seen[0].endswith("&req=tolstoy")
+    assert "ids=11,12,13" in seen[1]
+    assert "ids=91,92,93" in seen[2]
+
+
+def test_a_libgen_result_without_a_wanted_format_is_dropped() -> None:
+    items = search(_libgen_source(), query="tolstoy", get=_libgen_server())
+    assert [item.filename for item in items] == [
+        "War and Peace " + "a" * 8 + ".epub",
+        "Resurrection " + "c" * 8 + ".pdf",
+    ]
+
+
+def test_a_libgen_search_without_a_query_asks_nobody() -> None:
+    seen: list[str] = []
+    assert search(_libgen_source(), query="", get=_libgen_server(seen)) == []
+    assert seen == []
+
+
+def test_a_libgen_download_link_is_resolved_at_acquisition_time() -> None:
+    source = _libgen_source()
+    items = search(source, query="tolstoy", get=_libgen_server())
+    acquired = acquire(source, items[0], get=_libgen_server())
+    assert acquired.url == source.base_url + "/get.php?md5=" + "a" * 32 + "&key=KEY123"
+    assert acquired.filename == items[0].filename
+
+
+def test_a_libgen_page_without_a_download_link_is_refused() -> None:
+    source = _libgen_source()
+    items = search(source, query="tolstoy", get=_libgen_server())
+
+    def get(url: str) -> bytes:
+        return b"<html>nothing here</html>"
+
+    with pytest.raises(SourceError):
+        acquire(source, items[0], get=get)
+
+
+def test_a_libgen_mirror_that_fails_hands_over_to_the_next_one() -> None:
+    source = _libgen_source()
+    seen: list[str] = []
+    server = _libgen_server()
+
+    def get(url: str) -> bytes:
+        seen.append(url)
+        if url.startswith(source.base_url):
+            raise urllib.error.URLError("down")
+        return server(url)
+
+    items = search(source, query="tolstoy", get=get)
+    assert [item.item_id for item in items] == ["91", "93"]
+    assert seen[0].startswith(source.base_url)
+    assert seen[1].startswith(source.mirrors[0])
+
+
+def test_a_libgen_search_fails_only_when_every_mirror_fails() -> None:
+    def get(url: str) -> bytes:
+        raise urllib.error.URLError("down")
+
+    with pytest.raises(SourceError):
+        search(_libgen_source(), query="tolstoy", get=get)
+
+
+def test_a_read_that_times_out_is_a_source_error_not_a_timeout() -> None:
+    def get(url: str) -> bytes:
+        raise TimeoutError("read timed out")
+
+    with pytest.raises(SourceError):
+        search(_libgen_source(), query="tolstoy", get=get)
+
+
+def test_an_html_source_that_is_not_libgen_is_refused() -> None:
+    base = {"source_id": "scraper", "base_url": "https://x.org", "kind": KIND_HTML}
+    assert parse_source(base) is None
+    assert parse_source({**base, "flavour": "libgen"}) is not None
+
+
+def test_a_mirror_that_is_not_an_absolute_url_is_dropped() -> None:
+    parsed = parse_source(
+        {
+            "source_id": "libgen",
+            "base_url": "https://libgen.li",
+            "kind": KIND_HTML,
+            "flavour": "libgen",
+            "mirrors": ["https://libgen.la", "/relative", 7, "ftp://libgen.la"],
+        }
+    )
+    assert parsed is not None
+    assert parsed.mirrors == ("https://libgen.la",)
+
+
+def _libgen_table(rows: str) -> bytes:
+    return ('<table id="tablelibgen">' + rows + "</table>").encode("utf-8")
+
+
+def _libgen_row(edition: str, record: str) -> str:
+    return (
+        '<tr><td><a href="edition.php?id=' + edition + '">t</a></td>'
+        '<td><a href="file.php?id=' + record + '">f</a></td></tr>'
+    )
+
+
+def test_a_results_page_without_the_table_yields_no_pair() -> None:
+    assert _libgen_pairs(b"<html><body><table id='other'>" + b"</table></body></html>") == []
+    assert _libgen_pairs(b"") == []
+    assert _libgen_pairs(b"<html>not even a table</html>") == []
+
+
+def test_a_results_table_that_is_never_closed_still_yields_its_rows() -> None:
+    truncated = ('<table id="tablelibgen">' + _libgen_row("11", "91")).encode("utf-8")
+    assert _libgen_pairs(truncated) == [("11", "91")]
+
+
+def test_rows_outside_the_results_table_are_not_read() -> None:
+    page = (
+        "<table id='menu'>" + _libgen_row("1", "2") + "</table>"
+        '<table id="tablelibgen">' + _libgen_row("11", "91") + "</table>"
+        "<table id='footer'>" + _libgen_row("3", "4") + "</table>"
+    ).encode("utf-8")
+    assert _libgen_pairs(page) == [("11", "91")]
+
+
+def test_the_same_file_listed_twice_is_taken_once() -> None:
+    rows = _libgen_row("11", "91") + _libgen_row("12", "91") + _libgen_row("13", "93")
+    assert _libgen_pairs(_libgen_table(rows)) == [("11", "91"), ("13", "93")]
+
+
+def test_a_results_page_never_yields_more_rows_than_it_asked_for() -> None:
+    rows = "".join(_libgen_row(str(index), str(1000 + index)) for index in range(60))
+    assert len(_libgen_pairs(_libgen_table(rows))) == LIBGEN_MAX_ROWS
+
+
+def test_a_row_missing_either_link_is_not_a_pair() -> None:
+    rows = (
+        '<tr><td><a href="edition.php?id=11">t</a></td></tr>'
+        '<tr><td><a href="file.php?id=92">f</a></td></tr>' + _libgen_row("13", "93")
+    )
+    assert _libgen_pairs(_libgen_table(rows)) == [("13", "93")]
+
+
+def test_a_probe_of_libgen_walks_the_mirrors_like_a_search_does() -> None:
+    source = _libgen_source()
+    seen: list[str] = []
+
+    def get(url: str) -> bytes:
+        seen.append(url)
+        if url.startswith(source.base_url):
+            raise urllib.error.URLError("down")
+        return LIBGEN_ROWS
+
+    probe(source, get=get)
+    assert seen[0].startswith(source.base_url)
+    assert seen[1].startswith(source.mirrors[0])
+
+
+def test_a_file_whose_md5_is_not_an_md5_never_becomes_an_item() -> None:
+    def get(url: str) -> bytes:
+        if "object=e" in url:
+            return LIBGEN_EDITIONS
+        if "object=f" in url:
+            return json.dumps(
+                {
+                    "91": {"md5": "z" * 32, "filesize": "1", "extension": "epub"},
+                    "92": {"md5": "", "filesize": "1", "extension": "epub"},
+                    "93": {"md5": "c" * 32, "filesize": "42", "extension": "pdf"},
+                }
+            ).encode("utf-8")
+        return LIBGEN_ROWS
+
+    items = search(_libgen_source(), query="tolstoy", get=get)
+    assert [item.item_id for item in items] == ["93"]
+
+
+def test_every_shipped_source_can_be_looked_at_online() -> None:
+    for source in default_sources():
+        if not source.searchable or source.kind == KIND_OPDS:
+            continue
+        assert source.reader_path or source.fields.get("reader"), (
+            f"{source.source_id} offers no way to read online"
+        )
+
+
+def test_a_feed_entry_is_read_online_where_its_own_alternate_link_points() -> None:
+    source = Source(source_id="a", name="A", base_url="https://a.example")
+    page = OpdsLink(
+        href="https://a.example/abs/1",
+        rel="alternate",
+        media_type="text/html",
+        length=None,
+    )
+    entry = OpdsEntry(entry_id="https://a.example/abs/1", fields={}, links=(page,))
+    assert _opds_reader(source, entry) == "https://a.example/abs/1"
+
+
+def test_a_feed_entry_without_an_alternate_falls_back_to_the_template() -> None:
+    source = Source(
+        source_id="g",
+        name="G",
+        base_url="https://g.example",
+        reader_path="/ebooks/{id}",
+    )
+    entry = OpdsEntry(entry_id="https://g.example/ebooks/2600.opds", fields={}, links=())
+    assert _opds_reader(source, entry) == "https://g.example/ebooks/2600"
+    bare = Source(source_id="n", name="N", base_url="https://n.example")
+    assert _opds_reader(bare, entry) == ""
+
+
+def test_a_json_source_reads_online_through_its_declared_template() -> None:
+    source = Source(
+        source_id="zen",
+        name="Zen",
+        kind=KIND_JSON,
+        base_url="https://zen.example",
+        items_key="hits",
+        detail_path="/api/{id}",
+        reader_path="/records/{id}",
+        fields={"id": "id", "title": "title"},
+    )
+    payload = json.dumps({"hits": [{"id": "77", "title": "A record"}]}).encode("utf-8")
+    items = search(source, query="x", get=_serve(payload))
+    assert items[0].reader_url == "https://zen.example/records/77"
+
+
+def test_a_source_that_names_the_page_itself_wins_over_the_template() -> None:
+    source = Source(
+        source_id="ox",
+        name="Ox",
+        kind=KIND_JSON,
+        base_url="https://ox.example",
+        items_key="items",
+        reader_path="/never/{id}",
+        fields={"id": "id", "title": "title", "url": "pdf", "reader": "web"},
+    )
+    row = {
+        "id": "5",
+        "title": "T",
+        "pdf": "https://ox.example/a.pdf",
+        "web": "https://ox.example/read/5",
+    }
+    payload = json.dumps({"items": [row]}).encode("utf-8")
+    items = search(source, query="x", get=_serve(payload))
+    assert items[0].reader_url == "https://ox.example/read/5"
+
+
+def test_a_declared_identifier_with_a_slash_keeps_it_and_one_with_dots_is_refused() -> None:
+    source = Source(
+        source_id="oa",
+        name="Oa",
+        kind=KIND_JSON,
+        base_url="https://oa.example",
+        detail_path="/rest/{id}",
+        reader_path="/handle/{id}",
+        fields={"id": "uuid", "title": "name", "reader": "handle"},
+    )
+    row = {"uuid": "u1", "name": "T", "handle": "20.500.12657/45972"}
+    payload = json.dumps([row]).encode("utf-8")
+    assert search(source, query="x", get=_serve(payload))[0].reader_url == (
+        "https://oa.example/handle/20.500.12657/45972"
+    )
+    escaping = json.dumps([{"uuid": "u1", "name": "T", "handle": "../../etc"}]).encode("utf-8")
+    assert search(source, query="x", get=_serve(escaping))[0].reader_url == ""

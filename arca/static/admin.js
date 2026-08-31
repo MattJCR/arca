@@ -241,9 +241,18 @@ async function loadStatus() {
   }
 }
 
+function onlySource() {
+  const select = document.getElementById("catalog-source");
+  return select ? select.value : "";
+}
+
 function chosenSources() {
+  const only = onlySource();
   return sourcesState.sources.filter(
-    (source) => source.enabled && source.searchable && sourcesState.selected.has(source.source_id)
+    (source) =>
+      source.enabled &&
+      source.searchable &&
+      (only ? source.source_id === only : sourcesState.selected.has(source.source_id))
   );
 }
 
@@ -259,6 +268,7 @@ function supportedFilters() {
 
 function applyFilterVisibility() {
   const supported = supportedFilters();
+  document.getElementById("catalog-sources").hidden = Boolean(onlySource());
   for (const [id, filter] of [
     ["catalog-lang", "language"],
     ["catalog-category", "category"],
@@ -269,9 +279,30 @@ function applyFilterVisibility() {
   }
 }
 
+function rebuildSourceOptions() {
+  const select = document.getElementById("catalog-source");
+  const previous = select.value;
+  select.replaceChildren();
+  const any = document.createElement("option");
+  any.value = "";
+  any.textContent = t("admin.catalog.any_source");
+  select.append(any);
+  for (const source of sourcesState.sources) {
+    if (!source.searchable || !source.enabled) {
+      continue;
+    }
+    const option = document.createElement("option");
+    option.value = source.source_id;
+    option.textContent = source.name;
+    select.append(option);
+  }
+  select.value = [...select.options].some((option) => option.value === previous) ? previous : "";
+}
+
 function renderSourceChoices() {
   const holder = document.getElementById("catalog-source-choices");
   holder.replaceChildren();
+  rebuildSourceOptions();
   for (const source of sourcesState.sources) {
     if (!source.searchable || !source.enabled) {
       continue;
@@ -582,7 +613,7 @@ async function searchCatalog(event) {
   if (q) params.set("q", q);
   if (lang) params.set("lang", lang);
   if (category) params.set("category", category);
-  params.set("sources", [...sourcesState.selected].join(","));
+  params.set("sources", chosenSources().map((source) => source.source_id).join(","));
   let payload;
   try {
     payload = await fetchJson("/api/admin/catalog?" + params.toString());
@@ -1053,6 +1084,7 @@ async function loadVendor(post) {
 
 applyI18n();
 document.getElementById("catalog-form").addEventListener("submit", searchCatalog);
+document.getElementById("catalog-source").addEventListener("change", applyFilterVisibility);
 document.getElementById("catalog-flavour").addEventListener("change", (event) => {
   catalogState.flavour = event.target.value;
   renderCatalog();

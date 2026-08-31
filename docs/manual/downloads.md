@@ -8,9 +8,11 @@ Módulos: `arca/opds.py` (núcleo Atom/OPDS genérico), `arca/catalog.py` (sabor
 
 ### Las que vienen declaradas
 
-`arca init` escribe ocho fuentes en `arca.json`. **Solo Kiwix viene activada**; las otras siete están declaradas y apagadas, para que se vean y se enciendan con un clic sin que el producto salga a sitios que nadie ha pedido. Una lista vacía o entera inválida vuelve a estas ocho, para que un `arca.json` mal editado no deje el sistema sin poder descargar nada.
+`arca init` escribe nueve fuentes en `arca.json`. **Solo Kiwix viene activada**; las otras ocho están declaradas y apagadas, para que se vean y se enciendan con un clic sin que el producto salga a sitios que nadie ha pedido. Una lista vacía o entera inválida vuelve a estas nueve, para que un `arca.json` mal editado no deje el sistema sin poder descargar nada.
 
-Las ocho son de acceso abierto: dominio público (Standard Ebooks, Gutenberg), licencia abierta (OpenStax, Kiwix), depósito de acceso abierto (arXiv, Zenodo, OAPEN) o archivo con material mayoritariamente de dominio público (Internet Archive). Es el criterio con el que se eligen las que vienen de fábrica; para cualquier otra cosa está el formulario.
+Ocho son de acceso abierto: dominio público (Standard Ebooks, Gutenberg), licencia abierta (OpenStax, Kiwix), depósito de acceso abierto (arXiv, Zenodo, OAPEN) o archivo con material mayoritariamente de dominio público (Internet Archive).
+
+**Library Genesis es la excepción, y viene declarada aparte por eso.** No es acceso abierto: es una biblioteca en la sombra, y buena parte de lo que sirve está bajo derechos de autor. Se declara porque cubre el fondo de libros que ninguna de las otras ocho tiene, y viene **apagada como todas**: encenderla es una decisión del operador, no del producto. Su `robots.txt` es `Disallow: /` entero; ARCA le hace tres peticiones por búsqueda que teclea una persona, comportamiento de cliente y no de rastreador, pero conviene saberlo antes de encenderla.
 
 | Fuente | Tipo | Contenido | Activa | Qué hay que saber |
 | --- | --- | --- | --- | --- |
@@ -22,8 +24,9 @@ Las ocho son de acceso abierto: dominio público (Standard Ebooks, Gutenberg), l
 | **Zenodo** (`zenodo`) | `json` de **dos llamadas** | `book` (PDF o EPUB) | no | depósito del CERN; la búsqueda admite `filetype:` y la ficha lista los ficheros |
 | **OAPEN Library** (`oapen`) | `json` de **dos llamadas** | `book` (PDF o EPUB) | no | libros académicos de acceso abierto; su URL de descarga no dice el nombre del fichero, que sale del propio registro |
 | **OpenStax** (`openstax`) | `json` | `book` (PDF) | no | libros de texto completos; los PDF van de 20 MB a más de 150 MB |
+| **Library Genesis** (`libgen`) | `html`, sabor `libgen` | `book` (PDF o EPUB) | no | la única cuya búsqueda es una página HTML; ver abajo. No es acceso abierto, y tiene espejos |
 
-Ninguna fuente salvo Kiwix publica hash, así que lo que venga de las otras siete queda marcado **no verificado**. Que todas contestan, y que de cada una se puede descargar un fichero real, lo comprueba `tests/test_live_sources.py`, que **solo se ejecuta con `ARCA_LIVE=1`** porque sale a la red de verdad:
+Ninguna fuente salvo Kiwix publica un hash que ARCA sepa comprobar, así que lo que venga de las otras ocho queda marcado **no verificado**. LibGen sí publica el **md5** de cada fichero, pero la cadena de verificación de ARCA es sha-256 de punta a punta —columna, sidecar y cola—, así que hoy ese md5 solo se usa para armar la URL de descarga. Que todas contestan, y que de cada una se puede descargar un fichero real, lo comprueba `tests/test_live_sources.py`, que **solo se ejecuta con `ARCA_LIVE=1`** porque sale a la red de verdad:
 
 ```
 ARCA_LIVE=1 pytest tests/test_live_sources.py
@@ -57,9 +60,9 @@ Campos de una fuente:
 | --- | --- |
 | `source_id` | identificador corto en minúsculas (`a-z0-9-_`, máximo 40). Es la clave: si se repite, gana la primera |
 | `name` | lo que se ve en el panel y en la columna «Fuente» de los resultados |
-| `kind` | `opds` (feed Atom), `json` (documento JSON) o `manual` (no se busca: solo recibe direcciones pegadas a mano) |
+| `kind` | `opds` (feed Atom), `json` (documento JSON), `html` (página de resultados; exige `flavour: "libgen"`) o `manual` (no se busca: solo recibe direcciones pegadas a mano) |
 | `base_url` | dirección base. Obligatoria salvo para `manual` |
-| `flavour` | `kiwix` para el sabor de Kiwix, `plain` para OPDS genérico. Una fuente `kiwix` es siempre de contenido `zim` |
+| `flavour` | `kiwix` para el sabor de Kiwix, `libgen` para el de Library Genesis, `plain` para OPDS genérico. Una fuente `kiwix` es siempre de contenido `zim` |
 | `item_kind` | `zim` (va a `<raíz>/zim/`) o `book` (va a `<raíz>/books/`) |
 | `entries_path` | ruta del listado que se cuelga de `base_url` |
 | `query_param` | nombre del parámetro de búsqueda por texto (por defecto `q`) |
@@ -67,7 +70,7 @@ Campos de una fuente:
 | `media_type` | tipo de fichero del enlace de adquisición que hay que elegir (por ejemplo `application/epub+zip`) |
 | `suffixes` | alternativa al anterior: elegir el enlace por extensión |
 | `items_key` | fuentes `json`: clave del documento que contiene la lista |
-| `fields` | fuentes `json`: correspondencia entre los nombres de la fuente y `id`, `title`, `summary`, `language`, `url`, `sha256`, `size`, `filename` |
+| `fields` | fuentes `json`: correspondencia entre los nombres de la fuente y `id`, `title`, `summary`, `language`, `url`, `sha256`, `size`, `filename`, `reader` |
 | `requires_query` | la fuente **exige** su parámetro de búsqueda: se manda siempre, aunque vaya vacío. Sin esto, Standard Ebooks responde 401 al listado desnudo |
 | `probe_query` | el término con el que se comprueba la fuente, para las que ni siquiera aceptan una búsqueda vacía. arXiv devuelve 400 a `search_query=` |
 | `acquisition_via` | `entry` (por defecto): el enlace de descarga está en la propia entrada. `subsection`: la entrada solo trae un puntero a un segundo feed, que es donde vive el enlace |
@@ -77,17 +80,48 @@ Campos de una fuente:
 | `detail_path` | fuentes JSON de dos llamadas: ruta de la ficha del ítem, con `{id}`. Su presencia es lo que convierte a la fuente en de dos pasos |
 | `files_key` | ruta (con puntos) a la lista de ficheros dentro de esa ficha |
 | `download_path` | plantilla de la URL de descarga, con `{id}` y `{name}`, para cuando el fichero no trae una suya. Siempre cuelga de `base_url`: una fuente no puede mandar la descarga a otro dominio |
+| `reader_path` | plantilla de la página **para leer en línea**, con `{id}`. Cuelga de `base_url`. Un valor con `..` se descarta |
+| `mirrors` | lista de direcciones base alternativas, en orden. Si la primera no contesta se prueba la siguiente, tanto al buscar como al comprobar la fuente y al resolver la descarga. Solo la usa el sabor `libgen`; se descarta cualquier entrada que no empiece por `http://` o `https://`. Ningún espejo de LibGen es fiable por sí solo —medidos, van de 1 de cada 3 intentos a 3 de cada 3—, y las tres llamadas de una búsqueda se resuelven cada una por su cuenta, así que pueden acabar en espejos distintos: comparten el mismo espacio de identificadores, de modo que el resultado es el mismo |
 | `enabled` | una fuente desactivada no se busca ni se comprueba, pero se conserva declarada |
 
 Una declaración incompleta o con un `kind` desconocido **se descarta al cargar** en vez de romper el arranque (invariante 5). Desde el panel, en cambio, se rechaza con código `bad_source`: allí hay alguien mirando a quien se le puede decir qué falta.
 
 ## Lo que no puede ser una fuente
 
-Los adaptadores son genéricos, pero no hacen milagros: hablan Atom/OPDS y JSON. Un sitio cuya búsqueda solo existe como **página HTML** no se puede declarar como fuente buscable, porque no hay nada que analizar sin escribir un raspador con su dominio dentro — justo lo que este diseño evita.
+Los adaptadores genéricos hablan Atom/OPDS y JSON. Un sitio cuya búsqueda solo existe como **página HTML** no se puede declarar como fuente buscable con solo rellenar el formulario: no hay nada que analizar sin saber qué forma tiene esa página. La salida **no** es un raspador configurable —una expresión regular escrita en `arca.json` sería frágil y, viniendo de fuera, peligrosa—, sino un **adaptador con nombre**: `kind: "html"` solo se acepta con un `flavour` que el código reconozca, hoy únicamente `libgen`. Una fuente `html` con cualquier otro sabor se descarta al cargar. La fragilidad queda encerrada en un adaptador que se puede probar, no repartida por la configuración.
 
 A eso se añade un caso más duro: los sitios detrás de un **desafío de JavaScript** (DDoS-Guard, Cloudflare y parecidos). Ahí la respuesta a un cliente sin navegador es un 403 con una página de comprobación, y resolverlo pediría ejecutar JavaScript: un motor de navegador entero como dependencia, contra el tope de cinco.
 
 Para esos sitios queda `kind: "manual"`: la fuente se declara y se ve en la pestaña **Fuentes**, pero no se busca ni se comprueba. El operador busca en la web del sitio, copia el enlace directo del fichero y lo mete por **Descarga manual** o con `arca add --url`. Entra en la biblioteca y se indexa igual que cualquier otro libro.
+
+## Leer en línea antes de bajar
+
+Cada resultado del catálogo remoto lleva su enlace **«Leer en línea»**: abre el ítem en la web de
+su fuente, en una pestaña nueva y fuera de ARCA. No descarga nada; sirve para mirar qué trae un
+título antes de gastar disco. Es lo único del panel que necesita conexión por definición: lo que ya
+está en la biblioteca se lee sin red desde el fichero.
+
+Las nueve fuentes lo tienen, por dos caminos y ninguno de ellos un raspador:
+
+- **Por el propio feed**, en las fuentes OPDS: la entrada ya trae un enlace `rel="alternate"` a su
+  página, y ARCA lo usa tal cual. Así funcionan arXiv (`/abs/...`) y Standard Ebooks. Cuesta cero
+  peticiones: viene en la misma respuesta de la búsqueda.
+- **Por plantilla declarada**, con `reader_path`: Internet Archive (`/details/{id}`, que además es
+  un lector de libros de verdad), Zenodo (`/records/{id}`), Gutenberg (`/ebooks/{id}`), OAPEN
+  (`/handle/{id}`) y LibGen (`/file.php?id={id}`, que es ficha, no lectura: es lo que ese sitio
+  tiene). Cuando el identificador de la plantilla no es el del ítem —OAPEN lee en línea por su
+  *handle*, no por su uuid— se declara de dónde sacarlo con `fields.reader`.
+
+Hay un tercer caso, más simple: cuando la fuente **publica ella misma la URL de la página**.
+OpenStax da `webview_rex_link`, que apunta a su lector web completo; basta con `fields.reader`
+apuntando a ese campo y no hace falta plantilla, porque el valor ya es absoluto.
+
+Gutenberg no trae `alternate` en su feed de búsqueda, así que cae en la plantilla: su identificador
+de entrada es `https://www.gutenberg.org/ebooks/2600.opds` y de ahí sale el `2600`, quitando la ruta
+y la extensión.
+
+Kiwix sigue siendo el caso aparte que ya era: su lector se arma con el *slug* del libro contra
+`browse.library.kiwix.org` (`arca/catalog.py`), no con `reader_path`.
 
 ## Estado de una fuente
 
@@ -132,10 +166,11 @@ Dos de las fuentes no publican el enlace de descarga en su búsqueda, y lo hacen
 - **Internet Archive (JSON)**: la búsqueda devuelve identificadores y nada más. La ficha vive en `/metadata/<id>`, la lista de ficheros en su clave `files`, y la URL de descarga **no existe en ninguna respuesta**: se construye con `download_path`.
 - **Zenodo (JSON)**: igual de dos pasos, con la lista en `hits.hits` y la ficha en `/api/records/<id>`. La descarga se arma con `download_path`.
 - **OAPEN (JSON)**: su `/rest/search` devuelve una lista **desnuda**, sin objeto que la envuelva, que es justo lo que `items_key` vacío espera. Los ficheros llegan en `bitstreams` y cada uno **sí** trae su URL en `retrieveLink`.
+- **Library Genesis (HTML + JSON)**: el único cuyo primer paso no es un documento de datos. Su `json.php` es una API de verdad, pero **no sabe buscar por texto**: solo devuelve registros por identificador. Así que la búsqueda es la misma página que usa una persona, `/index.php?req=…`, de la que se extraen únicamente los pares (edición, fichero) de la tabla `tablelibgen` — ids, nunca títulos ni tamaños. La tabla se recorre con `html.parser.HTMLParser`, el mismo que ya usa `arca/zim.py` para el texto de los artículos, y no con expresiones regulares: aguanta HTML mal cerrado, no confunde la tabla de resultados con las de menú o pie, y descarta entradas repetidas. Con esos ids van **dos llamadas en lote** a `json.php`: `object=e` da título, autor y año; `object=f` da md5, tamaño y extensión. Tres peticiones por página de resultados, no una por libro. Lo que no sea PDF o EPUB se descarta ahí mismo. El enlace de descarga lleva una clave efímera, así que se resuelve en `acquire()`: `/ads.php?md5=…` devuelve un `get.php?md5=…&key=…` que solo vale para esa descarga.
 
 Los dos comparten la misma regla, y el segundo paso **no ocurre al buscar**:
 
-1. `search()` devuelve el puntero, con el nombre de fichero vacío y sin tamaño. Buscar cuesta una petición, no veintisiete.
+1. `search()` devuelve el puntero, con el nombre de fichero vacío y sin tamaño (LibGen es la excepción: sus dos llamadas en lote ya dejan el nombre y el tamaño puestos). Buscar cuesta una petición, no veintisiete.
 2. `acquire()` se llama **al encolar**, sigue el puntero y devuelve el ítem ya resuelto. Es el mismo sitio donde el sabor Kiwix baja su `.meta4`: nada de esto se persiste (trampa 5).
 
 Hay un tercer caso en el nombre del fichero: que la URL **no lo diga**. OAPEN sirve cada fichero desde `/rest/bitstreams/<uuid>/retrieve`, de donde solo saldría `retrieve.pdf` para todos. Cuando el registro declara un nombre y ese nombre ya termina en un formato conocido, **manda el nombre declarado**; si no, se deduce de la URL como siempre. Un nombre que no sea un componente simple se descarta sin pensarlo: separadores de ruta de cualquiera de los dos sistemas, `..`, letra de unidad al estilo `C:evil.pdf`, nombres reservados de Windows (`CON`, `COM1`...) y bytes de control. La comprobación vive en `is_safe_filename()`, compartida por el nombre declarado por el registro y el deducido de la URL.

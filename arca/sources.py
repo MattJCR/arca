@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import re
 import threading
-import urllib.error
 import urllib.parse
 from dataclasses import dataclass, field, replace
+from html.parser import HTMLParser
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
@@ -25,12 +25,14 @@ from arca.opds import HttpGet, OpdsEntry, OpdsError, OpdsLink, feed_url, http_ge
 
 KIND_OPDS = "opds"
 KIND_JSON = "json"
+KIND_HTML = "html"
 KIND_MANUAL = "manual"
-SOURCE_KINDS = (KIND_OPDS, KIND_JSON, KIND_MANUAL)
+SOURCE_KINDS = (KIND_OPDS, KIND_JSON, KIND_HTML, KIND_MANUAL)
 
 FLAVOUR_KIWIX = "kiwix"
+FLAVOUR_LIBGEN = "libgen"
 FLAVOUR_PLAIN = "plain"
-SOURCE_FLAVOURS = (FLAVOUR_KIWIX, FLAVOUR_PLAIN)
+SOURCE_FLAVOURS = (FLAVOUR_KIWIX, FLAVOUR_LIBGEN, FLAVOUR_PLAIN)
 
 ITEM_ZIM = "zim"
 ITEM_BOOK = "book"
@@ -62,6 +64,7 @@ JSON_FIELDS = (
     "size",
     "filename",
     "mime",
+    "reader",
 )
 EPUB_MEDIA_TYPE = "application/epub+zip"
 GUTENBERG_BOOK_PATTERN = r"^/ebooks/[0-9]+\.opds$"
@@ -81,6 +84,21 @@ RESERVED_DEVICE_NAMES = frozenset(
     | {f"com{index}" for index in range(1, 10)}
     | {f"lpt{index}" for index in range(1, 10)}
 )
+ALLOWED_URL_PREFIXES = ("http://", "https://")
+LIBGEN_MIRRORS = ("https://libgen.la", "https://libgen.gl", "https://libgen.vg")
+LIBGEN_MAX_ROWS = 25
+LIBGEN_SEARCH_PATH = f"/index.php?res={LIBGEN_MAX_ROWS}&covers=off"
+LIBGEN_EDITIONS_PATH = "/json.php?object=e&fields=title,author,year,publisher&ids={ids}"
+LIBGEN_FILES_PATH = "/json.php?object=f&fields=md5,filesize,extension&ids={ids}"
+LIBGEN_DOWNLOAD_PATH = "/ads.php?md5={md5}"
+LIBGEN_PROBE_QUERY = "tolstoy"
+LIBGEN_TABLE_ID = "tablelibgen"
+LIBGEN_EDITION_PATTERN = re.compile(r"edition\.php\?id=([0-9]+)")
+LIBGEN_FILE_PATTERN = re.compile(r"file\.php\?id=([0-9]+)")
+LIBGEN_GET_PATTERN = re.compile(r"get\.php\?md5=[0-9a-fA-F]{32}&(?:amp;)?key=[A-Za-z0-9]+")
+LIBGEN_MD5_PATTERN = re.compile(r"md5=([0-9a-fA-F]{32})")
+LIBGEN_DIGEST_PATTERN = re.compile(r"^[0-9a-f]{32}$")
+LIBGEN_TITLE_LIMIT = 70
 SOURCE_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789-_"
 MAX_SOURCE_ID = 40
 
@@ -102,10 +120,12 @@ class Source:
     language_param: str = ""
     media_type: str = ""
     suffixes: tuple[str, ...] = ()
+    mirrors: tuple[str, ...] = ()
     items_key: str = ""
     files_key: str = ""
     detail_path: str = ""
     download_path: str = ""
+    reader_path: str = ""
     query_filter: str = ""
     fields: dict[str, str] = field(default_factory=dict)
     requires_query: bool = False
@@ -127,8 +147,12 @@ class Source:
         return self.kind == KIND_OPDS and self.flavour == FLAVOUR_KIWIX
 
     @property
+    def is_libgen(self) -> bool:
+        return self.kind == KIND_HTML and self.flavour == FLAVOUR_LIBGEN
+
+    @property
     def searchable(self) -> bool:
-        return self.kind in (KIND_OPDS, KIND_JSON)
+        return self.kind in (KIND_OPDS, KIND_JSON) or self.is_libgen
 
     @property
     def verifies_hash(self) -> bool:
@@ -227,6 +251,7 @@ def default_sources() -> tuple[Source, ...]:
             requires_query=True,
             acquisition_via=ACQUISITION_SUBSECTION,
             item_pattern=GUTENBERG_BOOK_PATTERN,
+            reader_path="/ebooks/{id}",
             media_type=EPUB_MEDIA_TYPE,
             item_kind=ITEM_BOOK,
             enabled=False,
@@ -256,6 +281,7 @@ def default_sources() -> tuple[Source, ...]:
             files_key="files",
             detail_path="/metadata/{id}",
             download_path="/download/{id}/{name}",
+            reader_path="/details/{id}",
             suffixes=DOCUMENT_SUFFIXES,
             fields={"id": "identifier", "title": "title", "filename": "name", "size": "size"},
             item_kind=ITEM_BOOK,
@@ -273,6 +299,7 @@ def default_sources() -> tuple[Source, ...]:
             files_key="files",
             detail_path="/api/records/{id}",
             download_path="/api/records/{id}/files/{name}/content",
+            reader_path="/records/{id}",
             suffixes=DOCUMENT_SUFFIXES,
             fields={"id": "id", "title": "title", "filename": "key", "size": "size"},
             item_kind=ITEM_BOOK,
@@ -288,6 +315,7 @@ def default_sources() -> tuple[Source, ...]:
             requires_query=True,
             files_key="bitstreams",
             detail_path=OAPEN_ITEM_PATH,
+            reader_path="/handle/{id}",
             suffixes=DOCUMENT_SUFFIXES,
             fields={
                 "id": "uuid",
@@ -296,6 +324,7 @@ def default_sources() -> tuple[Source, ...]:
                 "size": "sizeBytes",
                 "mime": "mimeType",
                 "url": "retrieveLink",
+                "reader": "handle",
             },
             item_kind=ITEM_BOOK,
             enabled=False,
@@ -308,7 +337,28 @@ def default_sources() -> tuple[Source, ...]:
             entries_path=OPENSTAX_BOOKS_PATH,
             query_param="search",
             items_key="items",
-            fields={"id": "id", "title": "title", "url": "pdf_url"},
+            fields={
+                "id": "id",
+                "title": "title",
+                "url": "pdf_url",
+                "reader": "webview_rex_link",
+            },
+            item_kind=ITEM_BOOK,
+            enabled=False,
+        ),
+        Source(
+            source_id="libgen",
+            name="Library Genesis",
+            kind=KIND_HTML,
+            flavour=FLAVOUR_LIBGEN,
+            base_url="https://libgen.li",
+            entries_path=LIBGEN_SEARCH_PATH,
+            mirrors=LIBGEN_MIRRORS,
+            reader_path="/file.php?id={id}",
+            query_param="req",
+            requires_query=True,
+            probe_query=LIBGEN_PROBE_QUERY,
+            suffixes=DOCUMENT_SUFFIXES,
             item_kind=ITEM_BOOK,
             enabled=False,
         ),
@@ -426,6 +476,8 @@ def search(
     getter = get or http_get
     if source.is_kiwix:
         return _search_kiwix(source, query, language, category, getter)
+    if source.is_libgen:
+        return _search_libgen(source, query, getter)
     if source.kind == KIND_JSON:
         return _search_json(source, query, language, getter)
     return _search_opds(source, query, language, getter)
@@ -439,10 +491,15 @@ def probe(source: Source, get: HttpGet | None = None) -> None:
         _download(entries_url(source.base_url or CATALOG_BASE_URL, count=1), getter)
         return
     params = _search_params(source, source.probe_query, "")
+    if source.is_libgen:
+        _libgen_fetch(source, feed_url("", source.entries_path, params), getter)
+        return
     _download(feed_url(source.base_url, source.entries_path, params), getter)
 
 
 def acquire(source: Source, item: RemoteItem, get: HttpGet | None = None) -> RemoteItem:
+    if source.is_libgen:
+        return _acquire_libgen(source, item, get or http_get)
     if source.detailed:
         return _acquire_detail(source, item, get or http_get)
     if not source.two_step:
@@ -626,8 +683,39 @@ def _search_params(source: Source, query: str, language: str) -> list[tuple[str,
     return params
 
 
+def _reader_template(path: str, value: str) -> str:
+    if not value or ".." in value:
+        return ""
+    return path.replace("{id}", urllib.parse.quote(value, safe="/"))
+
+
+def _reader_url(source: Source, row: dict[str, object], identifier: str) -> str:
+    declared = _json_text(row, source.fields.get("reader", ""))
+    if declared.startswith(ALLOWED_URL_PREFIXES):
+        return declared
+    if not source.reader_path:
+        return ""
+    templated = _reader_template(source.reader_path, declared or identifier)
+    return _absolute(source, templated) if templated else ""
+
+
+def _entry_identifier(entry_id: str) -> str:
+    tail = entry_id.rstrip("/").rsplit("/", 1)[-1]
+    return tail.rsplit(".", 1)[0] if "." in tail else tail
+
+
+def _opds_reader(source: Source, entry: OpdsEntry) -> str:
+    for link in entry.links:
+        if link.rel == "alternate" and link.href.startswith(ALLOWED_URL_PREFIXES):
+            return link.href
+    if not source.reader_path:
+        return ""
+    templated = _reader_template(source.reader_path, _entry_identifier(entry.entry_id))
+    return _absolute(source, templated) if templated else ""
+
+
 def _absolute(source: Source, href: str) -> str:
-    if href.startswith("http://") or href.startswith("https://"):
+    if href.startswith(ALLOWED_URL_PREFIXES):
         return href
     return f"{source.base_url}{href}"
 
@@ -673,6 +761,7 @@ def _search_opds(source: Source, query: str, language: str, get: HttpGet) -> lis
                 url=link.href,
                 size_bytes=link.length,
                 verified=False,
+                reader_url=_opds_reader(source, entry),
             )
         )
     return items
@@ -735,6 +824,167 @@ def _acquire_detail(source: Source, item: RemoteItem, get: HttpGet) -> RemoteIte
     )
 
 
+class _LibgenRows(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.pairs: list[tuple[str, str]] = []
+        self._depth = 0
+        self._edition = ""
+        self._file = ""
+        self._seen: set[str] = set()
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = dict(attrs)
+        if tag == "table":
+            if self._depth:
+                self._depth += 1
+            elif values.get("id") == LIBGEN_TABLE_ID:
+                self._depth = 1
+            return
+        if not self._depth:
+            return
+        if tag == "tr":
+            self._close_row()
+        elif tag == "a":
+            self._remember(values.get("href") or "")
+
+    def handle_endtag(self, tag: str) -> None:
+        if not self._depth:
+            return
+        if tag == "table":
+            self._depth -= 1
+            if not self._depth:
+                self._close_row()
+        elif tag == "tr":
+            self._close_row()
+
+    def _remember(self, href: str) -> None:
+        edition = LIBGEN_EDITION_PATTERN.search(href)
+        if edition is not None and not self._edition:
+            self._edition = edition.group(1)
+        record = LIBGEN_FILE_PATTERN.search(href)
+        if record is not None and not self._file:
+            self._file = record.group(1)
+
+    def _close_row(self) -> None:
+        wanted = self._edition and self._file and self._file not in self._seen
+        if wanted and len(self.pairs) < LIBGEN_MAX_ROWS:
+            self._seen.add(self._file)
+            self.pairs.append((self._edition, self._file))
+        self._edition = ""
+        self._file = ""
+
+
+def _libgen_pairs(payload: bytes) -> list[tuple[str, str]]:
+    parser = _LibgenRows()
+    try:
+        parser.feed(payload.decode("utf-8", "replace"))
+        parser.close()
+    except (ValueError, AssertionError):
+        return parser.pairs
+    return parser.pairs
+
+
+def _libgen_hosts(source: Source) -> tuple[str, ...]:
+    ordered = [source.base_url, *source.mirrors]
+    return tuple(dict.fromkeys(host for host in ordered if host))
+
+
+def _libgen_fetch(source: Source, path: str, get: HttpGet) -> bytes:
+    last = SourceError(f"no libgen mirror answered for {path}")
+    for host in _libgen_hosts(source):
+        try:
+            return _download(f"{host}{path}", get)
+        except SourceError as error:
+            last = error
+    raise last
+
+
+def _libgen_records(
+    source: Source, path: str, identifiers: list[str], get: HttpGet
+) -> dict[str, dict[str, object]]:
+    if not identifiers:
+        return {}
+    parsed = _json_document(_libgen_fetch(source, path.format(ids=",".join(identifiers)), get))
+    if not isinstance(parsed, dict):
+        return {}
+    return {str(key): value for key, value in parsed.items() if isinstance(value, dict)}
+
+
+def _libgen_filename(title: str, digest: str, extension: str) -> str:
+    kept = "".join(char if char.isalnum() or char in " -_" else " " for char in title)
+    trimmed = " ".join(kept.split())[:LIBGEN_TITLE_LIMIT].strip()
+    stem = f"{trimmed} {digest[:8]}" if trimmed else digest
+    name = f"{stem}.{extension}"
+    return name if is_safe_filename(name) else f"{digest}.{extension}"
+
+
+def _libgen_description(edition: dict[str, object]) -> str:
+    parts = [_json_text(edition, key) for key in ("author", "publisher", "year")]
+    return " \u00b7 ".join(part for part in parts if part)
+
+
+def _libgen_item(
+    source: Source, edition: dict[str, object], record: dict[str, object], file_id: str
+) -> RemoteItem | None:
+    digest = _json_text(record, "md5").lower()
+    extension = _json_text(record, "extension").lower()
+    if not LIBGEN_DIGEST_PATTERN.match(digest):
+        return None
+    if f".{extension}" not in source.suffixes:
+        return None
+    title = _json_text(edition, "title") or file_id
+    size = _json_text(record, "filesize")
+    return RemoteItem(
+        source_id=source.source_id,
+        item_id=file_id,
+        item_kind=source.item_kind,
+        title=title,
+        description=_libgen_description(edition),
+        language="",
+        flavour="",
+        filename=_libgen_filename(title, digest, extension),
+        url=_absolute(source, LIBGEN_DOWNLOAD_PATH.format(md5=digest)),
+        size_bytes=int(size) if size.isdigit() else None,
+        reader_url=_absolute(source, _reader_template(source.reader_path, file_id)),
+    )
+
+
+def _search_libgen(source: Source, query: str, get: HttpGet) -> list[RemoteItem]:
+    if not query:
+        return []
+    params = _search_params(source, query, "")
+    payload = _libgen_fetch(source, feed_url("", source.entries_path, params), get)
+    pairs = _libgen_pairs(payload)
+    editions = _libgen_records(source, LIBGEN_EDITIONS_PATH, [pair[0] for pair in pairs], get)
+    files = _libgen_records(source, LIBGEN_FILES_PATH, [pair[1] for pair in pairs], get)
+    items: list[RemoteItem] = []
+    for edition_id, file_id in pairs:
+        item = _libgen_item(source, editions.get(edition_id, {}), files.get(file_id, {}), file_id)
+        if item is not None:
+            items.append(item)
+    return items
+
+
+def _acquire_libgen(source: Source, item: RemoteItem, get: HttpGet) -> RemoteItem:
+    digest = LIBGEN_MD5_PATTERN.search(item.url)
+    if digest is None:
+        raise SourceError(f"no md5 behind {item.item_id}")
+    path = LIBGEN_DOWNLOAD_PATH.format(md5=digest.group(1))
+    last = SourceError(f"no download link behind {item.item_id}")
+    for host in _libgen_hosts(source):
+        try:
+            document = _download(f"{host}{path}", get).decode("utf-8", "replace")
+        except SourceError as error:
+            last = error
+            continue
+        match = LIBGEN_GET_PATTERN.search(document)
+        if match is not None:
+            link = match.group(0).replace("&amp;", "&")
+            return replace(item, url=f"{host}/{link}")
+    raise last
+
+
 def _json_document(payload: bytes) -> object:
     try:
         return json.loads(payload.decode("utf-8", "replace"))
@@ -790,6 +1040,7 @@ def _from_json_row(source: Source, row: dict[str, object], index: int) -> Remote
         sha256=digest,
         size_bytes=int(size) if size.isdigit() else None,
         verified=bool(digest),
+        reader_url=_reader_url(source, row, identifier),
     )
 
 
@@ -806,6 +1057,7 @@ def _pointer_item(source: Source, row: dict[str, object], identifier: str) -> Re
         flavour="",
         filename="",
         url="",
+        reader_url=_reader_url(source, row, identifier),
     )
 
 
@@ -823,9 +1075,7 @@ def _json_text(row: dict[str, object], key: str) -> str:
 def _download(url: str, get: HttpGet) -> bytes:
     try:
         return get(url)
-    except urllib.error.URLError as error:
-        raise SourceError(str(error)) from error
-    except OpdsError as error:
+    except (OSError, OpdsError) as error:
         raise SourceError(str(error)) from error
 
 
@@ -845,6 +1095,8 @@ def _build_source(raw: object) -> Source | None:
     item_pattern = _text(raw, "item_pattern")
     if acquisition_via not in ACQUISITION_MODES or not _compiles(item_pattern):
         return None
+    if kind == KIND_HTML and flavour != FLAVOUR_LIBGEN:
+        return None
     base = Source(
         source_id=source_id,
         name=_text(raw, "name") or source_id,
@@ -857,10 +1109,12 @@ def _build_source(raw: object) -> Source | None:
         language_param=_text(raw, "language_param"),
         media_type=_text(raw, "media_type"),
         suffixes=_suffixes(raw.get("suffixes")),
+        mirrors=_mirrors(raw.get("mirrors")),
         items_key=_text(raw, "items_key"),
         files_key=_text(raw, "files_key"),
         detail_path=_text(raw, "detail_path"),
         download_path=_text(raw, "download_path"),
+        reader_path=_text(raw, "reader_path"),
         query_filter=_text(raw, "query_filter"),
         fields=_field_map(raw.get("fields")),
         requires_query=raw.get("requires_query") is True,
@@ -902,6 +1156,13 @@ def _suffixes(raw: object) -> tuple[str, ...]:
     if not isinstance(raw, list):
         return ()
     return tuple(item.strip().lower() for item in raw if isinstance(item, str) and item.strip())
+
+
+def _mirrors(raw: object) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        return ()
+    kept = [item.strip() for item in raw if isinstance(item, str)]
+    return tuple(url for url in kept if url.startswith(ALLOWED_URL_PREFIXES))
 
 
 def _field_map(raw: object) -> dict[str, str]:

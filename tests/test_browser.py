@@ -485,3 +485,25 @@ def test_an_existing_source_can_be_read_and_edited_from_the_panel(
     assert edited["name"] == "Gutenberg, renombrada"
     assert edited["acquisition_via"] == "subsection"
     assert edited["item_pattern"]
+
+
+def test_the_catalog_can_be_narrowed_to_a_single_source(
+    fresh_page: Page, server: Server, library: Path
+) -> None:
+    fresh_page.goto(f"{server.url}/admin", wait_until="domcontentloaded")
+    fresh_page.click("button[data-tab='catalog-section']")
+    fresh_page.wait_for_selector("#catalog-source-choices input")
+    assert not fresh_page.is_hidden("#catalog-sources")
+    options = fresh_page.eval_on_selector_all(
+        "#catalog-source option", "nodes => nodes.map(node => node.value)"
+    )
+    assert options[0] == ""
+    assert "kiwix" in options
+
+    fresh_page.select_option("#catalog-source", "kiwix")
+    fresh_page.wait_for_selector("#catalog-sources", state="hidden")
+    chosen = fresh_page.evaluate("chosenSources().map(source => source.source_id)")
+    assert chosen == ["kiwix"]
+
+    fresh_page.select_option("#catalog-source", "")
+    fresh_page.wait_for_selector("#catalog-sources", state="visible")

@@ -452,6 +452,78 @@ def test_oapen_keeps_the_name_the_repository_gives_not_the_opaque_url(library: P
 
 
 @live
+def test_libgen_searches_by_title_and_lands_a_real_book(library: Path) -> None:
+    root = library
+    source = _source("libgen")
+    probe(source)
+    items = search(source, query="war and peace tolstoy")
+    assert items, "the search answered with no item"
+    assert any("war and peace" in item.title.lower() for item in items[:10]), (
+        "the first ten results do not mention the query"
+    )
+    assert all(item.filename.lower().endswith((".pdf", ".epub")) for item in items)
+
+    ready = None
+    for candidate in items[:5]:
+        try:
+            ready = acquire(source, candidate)
+        except SourceError:
+            continue
+        break
+    assert ready is not None, "no item in the first five gave a download link"
+    assert "get.php" in ready.url
+
+    connection = open_library_rw(library_db_path(root))
+    try:
+        queue_book_download(
+            connection,
+            root,
+            ref=ready.ref,
+            filename=ready.filename,
+            resolution=resolve(source, ready),
+        )
+    finally:
+        connection.close()
+    assert [result.status for result in run_queue(library_db_path(root), concurrency=1)] == ["done"]
+
+    downloaded = root / "books" / ready.filename
+    assert downloaded.is_file()
+    assert downloaded.stat().st_size == ready.size_bytes
+    assert read_sha256_sidecar(downloaded) == file_sha256(downloaded)
+    assert detect_format(downloaded) in (PDF, EPUB)
+
+
+@live
+def test_libgen_reaches_a_mirror_when_the_first_host_is_unreachable() -> None:
+    source = replace(_source("libgen"), base_url="https://libgen.invalid")
+    items = search(source, query="tolstoy")
+    assert items, "no mirror answered"
+
+
+@live
+def test_every_shipped_source_hands_out_a_page_to_read_online() -> None:
+    queries = {
+        "kiwix": "wikipedia",
+        "standard-ebooks": "tolstoy",
+        "gutenberg": "tolstoy",
+        "arxiv": "all:electron",
+        "internet-archive": "tolstoy",
+        "zenodo": "climate",
+        "oapen": "meditation",
+        "openstax": "biology",
+        "libgen": "war and peace tolstoy",
+    }
+    for source in default_sources():
+        if not source.searchable:
+            continue
+        items = search(source, query=queries[source.source_id])
+        assert items, f"{source.source_id} answered with no item"
+        readable = [item for item in items if item.reader_url]
+        assert readable, f"{source.source_id} gave no page to read online"
+        assert readable[0].reader_url.startswith("https://")
+
+
+@live
 def test_every_shipped_source_answers_and_declares_whether_it_verifies() -> None:
     for source in default_sources():
         if not source.searchable:
