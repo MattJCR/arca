@@ -8,7 +8,7 @@ Módulos: `arca/opds.py` (núcleo Atom/OPDS genérico), `arca/catalog.py` (sabor
 
 ### Las que vienen declaradas
 
-`arca init` escribe seis fuentes en `arca.json`. **Solo Kiwix viene activada**; las otras cinco están declaradas y apagadas, para que se vean y se enciendan con un clic sin que el producto salga a sitios que nadie ha pedido. Una lista vacía o entera inválida vuelve a estas seis, para que un `arca.json` mal editado no deje el sistema sin poder descargar nada.
+`arca init` escribe ocho fuentes en `arca.json`. **Solo Kiwix viene activada**; las otras siete están declaradas y apagadas, para que se vean y se enciendan con un clic sin que el producto salga a sitios que nadie ha pedido. Una lista vacía o entera inválida vuelve a estas ocho, para que un `arca.json` mal editado no deje el sistema sin poder descargar nada.
 
 Las ocho son de acceso abierto: dominio público (Standard Ebooks, Gutenberg), licencia abierta (OpenStax, Kiwix), depósito de acceso abierto (arXiv, Zenodo, OAPEN) o archivo con material mayoritariamente de dominio público (Internet Archive). Es el criterio con el que se eligen las que vienen de fábrica; para cualquier otra cosa está el formulario.
 
@@ -23,7 +23,7 @@ Las ocho son de acceso abierto: dominio público (Standard Ebooks, Gutenberg), l
 | **OAPEN Library** (`oapen`) | `json` de **dos llamadas** | `book` (PDF o EPUB) | no | libros académicos de acceso abierto; su URL de descarga no dice el nombre del fichero, que sale del propio registro |
 | **OpenStax** (`openstax`) | `json` | `book` (PDF) | no | libros de texto completos; los PDF van de 20 MB a más de 150 MB |
 
-Ninguna de las tres nuevas publica hash, así que lo que venga de ellas queda marcado **no verificado**. Que las cuatro contestan, y que de cada una se puede descargar un fichero real, lo comprueba `tests/test_live_sources.py`, que **solo se ejecuta con `ARCA_LIVE=1`** porque sale a la red de verdad:
+Ninguna fuente salvo Kiwix publica hash, así que lo que venga de las otras siete queda marcado **no verificado**. Que todas contestan, y que de cada una se puede descargar un fichero real, lo comprueba `tests/test_live_sources.py`, que **solo se ejecuta con `ARCA_LIVE=1`** porque sale a la red de verdad:
 
 ```
 ARCA_LIVE=1 pytest tests/test_live_sources.py
@@ -138,7 +138,7 @@ Los dos comparten la misma regla, y el segundo paso **no ocurre al buscar**:
 1. `search()` devuelve el puntero, con el nombre de fichero vacío y sin tamaño. Buscar cuesta una petición, no veintisiete.
 2. `acquire()` se llama **al encolar**, sigue el puntero y devuelve el ítem ya resuelto. Es el mismo sitio donde el sabor Kiwix baja su `.meta4`: nada de esto se persiste (trampa 5).
 
-Hay un tercer caso en el nombre del fichero: que la URL **no lo diga**. OAPEN sirve cada fichero desde `/rest/bitstreams/<uuid>/retrieve`, de donde solo saldría `retrieve.pdf` para todos. Cuando el registro declara un nombre y ese nombre ya termina en un formato conocido, **manda el nombre declarado**; si no, se deduce de la URL como siempre. Un nombre con `/`, `\\` o `..` se descarta sin pensarlo.
+Hay un tercer caso en el nombre del fichero: que la URL **no lo diga**. OAPEN sirve cada fichero desde `/rest/bitstreams/<uuid>/retrieve`, de donde solo saldría `retrieve.pdf` para todos. Cuando el registro declara un nombre y ese nombre ya termina en un formato conocido, **manda el nombre declarado**; si no, se deduce de la URL como siempre. Un nombre que no sea un componente simple se descarta sin pensarlo: separadores de ruta de cualquiera de los dos sistemas, `..`, letra de unidad al estilo `C:evil.pdf`, nombres reservados de Windows (`CON`, `COM1`...) y bytes de control. La comprobación vive en `is_safe_filename()`, compartida por el nombre declarado por el registro y el deducido de la URL.
 
 Cuando hay varios ficheros donde elegir, **el orden de `suffixes` es el orden de preferencia**, no el orden en que la fuente los liste: Internet Archive declara `(".pdf", ".epub")` y se lleva el PDF aunque el EPUB aparezca antes en la respuesta.
 

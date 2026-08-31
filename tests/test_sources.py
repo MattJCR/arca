@@ -546,6 +546,10 @@ def test_a_file_named_by_the_source_beats_a_name_guessed_from_an_opaque_url() ->
     assert declared_filename("retrieve") == ""
     assert declared_filename("catalogue.marc.xml") == ""
     assert declared_filename("../../etc/passwd.pdf") == ""
+    assert declared_filename("C:evil.pdf") == ""
+    assert declared_filename("CON.pdf") == ""
+    assert declared_filename("com1.pdf") == ""
+    assert declared_filename(chr(0) + "name.pdf") == ""
     assert declared_filename("windows\\path.pdf") == ""
 
 

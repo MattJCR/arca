@@ -6,7 +6,7 @@ import threading
 import urllib.error
 import urllib.parse
 from dataclasses import dataclass, field, replace
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from arca.catalog import (
@@ -76,6 +76,11 @@ ZENODO_RECORDS_PATH = "/api/records?size=25"
 ZENODO_DOCUMENT_FILTER = "(filetype:pdf OR filetype:epub)"
 OAPEN_ITEM_PATH = "/rest/items/{id}?expand=bitstreams"
 DOCUMENT_SUFFIXES = (".pdf", ".epub")
+RESERVED_DEVICE_NAMES = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{index}" for index in range(1, 10)}
+    | {f"lpt{index}" for index in range(1, 10)}
+)
 SOURCE_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789-_"
 MAX_SOURCE_ID = 40
 
@@ -371,15 +376,23 @@ def item_payload(item: RemoteItem, source_name: str, local: dict[str, str]) -> d
     }
 
 
+def is_safe_filename(name: str) -> bool:
+    if not name or name != PureWindowsPath(name).name:
+        return False
+    if any(ord(char) < 32 for char in name):
+        return False
+    if not name.strip(". "):
+        return False
+    return PureWindowsPath(name).stem.lower() not in RESERVED_DEVICE_NAMES
+
+
 def filename_from_url(url: str) -> str:
     raw = urllib.parse.unquote(urllib.parse.urlsplit(url).path.rsplit("/", 1)[-1])
-    if not raw or raw in (".", "..") or "/" in raw or "\\" in raw:
-        return ""
-    return raw
+    return raw if is_safe_filename(raw) else ""
 
 
 def declared_filename(name: str) -> str:
-    if not name or name in (".", "..") or "/" in name or "\\" in name:
+    if not is_safe_filename(name):
         return ""
     if format_for_suffix(Path(name).suffix.lower()) is None:
         return ""
