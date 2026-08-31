@@ -99,6 +99,7 @@ def run_checks(
         _check_shard_manifests(states),
         _check_embedding_coherence(states),
         _check_provisional_shards(states),
+        _check_vanished_batches(root, states),
         _check_embedding_server(root, config),
         _check_incomplete_downloads(root),
         _check_sources(sources if sources is not None else source_states(config.sources)),
@@ -505,6 +506,37 @@ def _check_provisional_shards(states: Sequence[ShardState]) -> CheckResult:
     if pending:
         return CheckResult("provisional_shards", CheckState.DEGRADED, params)
     return CheckResult("provisional_shards", CheckState.OK, params)
+
+
+def _check_vanished_batches(root: Path, states: Sequence[ShardState]) -> CheckResult:
+    present = {state.shard_id for state in states}
+    gone = sorted(shard for shard in _sealed_batch_ids(root) if shard not in present)
+    params = {"count": str(len(gone)), "detail": ", ".join(gone)}
+    if gone:
+        return CheckResult("vanished_batches", CheckState.DEGRADED, params)
+    return CheckResult("vanished_batches", CheckState.OK, params)
+
+
+def _sealed_batch_ids(root: Path) -> set[str]:
+    db_path = library_db_path(root)
+    if not db_path.is_file():
+        return set()
+    try:
+        connection = open_library_ro(db_path)
+    except sqlite3.Error:
+        return set()
+    try:
+        rows = connection.execute(
+            "SELECT shard_id FROM ingest_jobs "
+            "WHERE shard_id IS NOT NULL AND shard_id != '' "
+            "GROUP BY shard_id "
+            "HAVING SUM(status IN ('queued', 'running')) = 0"
+        ).fetchall()
+    except sqlite3.Error:
+        return set()
+    finally:
+        connection.close()
+    return {str(row["shard_id"]) for row in rows}
 
 
 def _check_embedding_server(root: Path, config: ArcaConfig) -> CheckResult:

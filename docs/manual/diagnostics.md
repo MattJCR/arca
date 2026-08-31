@@ -18,6 +18,7 @@ Módulo: `arca/diagnostics.py`. Tres estados por comprobación: `ok`, `degraded`
 | `fulltext_index` | Cuáles de los ZIM traen índice de texto completo y cuáles solo títulos | ok / degraded |
 | `shard_manifests` | Estado real de cada lote: manifiesto presente y hashes de sus ficheros | ok / degraded |
 | `embedding_coherence` | `embed_model` y `embed_dims` de cada lote contra el modelo activo (trampa 1) | ok / degraded |
+| `vanished_batches` | Lotes cuyos trabajos de ingesta constan **todos terminados** —ninguno en cola ni corriendo, la misma condición con la que se sella— y cuyo directorio ya no está en disco. Nada de ARCA borra un lote —no hay código que lo haga—, así que si falta, se ha quitado desde fuera; la biblioteca lo daba por importado sin enterarse. Una importación a medias no cuenta: para eso está `provisional_shards` |
 | `provisional_shards` | Lotes sin sellar de una importación interrumpida | ok / degraded |
 | `embedding_server` | Responde, y **devuelve el número de dimensiones esperado**: si devuelve otro, es roto, no degradado | ok / degraded / broken |
 | `chat_model_memory` | Estimación de memoria del GGUF activo con un contexto de referencia de 4096 frente a la RAM del sistema | ok / degraded |

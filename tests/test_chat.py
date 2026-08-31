@@ -662,3 +662,33 @@ def test_an_answer_with_a_combined_marker_is_not_called_unbacked() -> None:
     reply = engine.reply("Como se ceba la bomba?", read_screen({}), ChatSettings(), CATALOG)
     assert reply.citations == (1, 2)
     assert reply.state == STATE_OK
+
+
+def test_the_chat_asks_as_much_of_a_hit_as_the_library_does_and_no_more() -> None:
+    far = result(2, "Se ceba la bomba por el tapon de la carcasa", score=0.55)
+    question = "How is the pump primed?"
+    assert select_evidence([far], ChatSettings(), query=question) == []
+    lowered = select_evidence([far], ChatSettings(), query=question, floor=0.5)
+    assert len(lowered) == 1, "a hit the library was told to let through was dropped anyway"
+    raised = select_evidence([far], ChatSettings(), query=question, floor=0.9)
+    assert raised == []
+
+
+def test_the_chat_reads_the_floor_on_every_question_not_once() -> None:
+    seen: list[float] = []
+    floor = 0.5
+
+    def current() -> float:
+        seen.append(floor)
+        return floor
+
+    engine = ChatEngine(
+        searcher=lambda query, scope: [],
+        base_url=lambda: "http://127.0.0.1:8080",
+        available=lambda: False,
+        floor=current,
+    )
+    assert engine._floor() == 0.5
+    floor = 0.9
+    assert engine._floor() == 0.9
+    assert seen == [0.5, 0.9]

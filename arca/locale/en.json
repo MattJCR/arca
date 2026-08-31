@@ -856,5 +856,10 @@
   "talk.error.no_vision": "The running model does not accept images: it has no «--mmproj» projector.",
   "talk.error.image_too_large": "The image is over the 8 MB limit.",
   "talk.error.not_an_image": "That file is not a PNG, JPEG or WebP image, whatever it is called.",
-  "talk.error.unknown_attachment": "That image is no longer stored."
+  "talk.error.unknown_attachment": "That image is no longer stored.",
+  "home.semantic.offline": "The deep index is there, but the embedding model is not answering, and without it your query cannot be turned into a vector. It is not that there are no results: it is that right now the question cannot be asked. The keyword search above works just the same. Check the diagnostics to start it.",
+  "diag.vanished_batches.ok.summary": "Every sealed batch on record is still on disk.",
+  "diag.vanished_batches.degraded.summary": "{count} batch(es) are on record as sealed but are no longer on disk: {detail}",
+  "diag.vanished_batches.degraded.impact": "Their documents are neither searched nor read: the library counts them as imported and they are not there. Nothing in ARCA deletes a sealed batch, so they were removed from outside.",
+  "diag.vanished_batches.degraded.action": "If they were not wanted, there is nothing to do. If they were, import those documents again: a new batch will be sealed."
 }

@@ -94,10 +94,28 @@ umbral universal: depende del modelo y del corpus, y por eso se ajusta desde el
 panel. A **0** no se filtra nada, que es como se comportaba antes de existir el
 ajuste.
 
+### Franja vacía: tres motivos distintos, tres mensajes distintos
+
+La franja semántica puede quedarse vacía por razones que no se parecen en nada, y decirlas mal
+convierte una avería en «no hay nada»:
+
+| Situación | Qué dice la franja |
+|---|---|
+| No hay índice profundo todavía | Que aún no lo hay, y que la búsqueda por palabras sigue entera |
+| Hay índice, el modelo no contesta | Que **no se puede preguntar** ahora, y que mire el diagnóstico |
+| Todo en pie, nada llega al suelo | Que esa consulta no tiene respuesta aquí |
+
+El segundo caso es el que más engaña. Sin modelo no hay vector de consulta, así que no hay nada que
+comparar: la franja sale vacía **igual** que si la pregunta no tuviera respuesta. Es exactamente lo
+que promete el README —si el modelo desaparece, la biblioteca sigue siendo enteramente útil— pero
+solo se cumple si el producto **dice** que el modelo ha desaparecido, en vez de callarse. Lo
+distingue `semantic_offline` en la respuesta de `/api/search`.
+
 El suelo se aplica **por fragmento**, antes de ordenar e intercalar, así que una
 consulta sin respuesta devuelve la franja semántica vacía en vez de ruido con
-buena pinta. El chat tiene su propio criterio, `MIN_SEMANTIC_SCORE` en
-`chat.py`, que no es un suelo sino un atajo de relevancia: ver `chat.md`.
+buena pinta. Este suelo es además el que usa el chat para decidir si una evidencia se parece
+bastante sin compartir palabras: lo lee en cada pregunta, así que bajarlo aquí lo baja
+también allí y no hay dos criterios que puedan separarse (ver `chat.md`).
 
 Los pesos son profundidad de intercalado, no puntuaciones: siguen sin compararse scores de fuentes distintas (trampa 3). Un valor fuera de rango no rompe nada — se conserva el que ya había. Si el mínimo llega por encima del máximo, se intercambian.
 

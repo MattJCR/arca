@@ -12,7 +12,7 @@ from arca.db import read_setting, write_setting
 from arca.i18n import SUPPORTED_LANGUAGES, Catalog, load_catalog
 from arca.ingest import estimate_tokens
 from arca.llama import Completion, chat_completion
-from arca.search import SearchResult
+from arca.search import SEMANTIC_FLOOR, SearchResult
 
 SETTINGS_KEY = "chat"
 MAX_CHUNKS = 5
@@ -26,9 +26,10 @@ SEARCH_PREFIX = "SEARCH:"
 MARKER_PATTERN = re.compile(r"\[(\d{1,2}(?:\s*,\s*\d{1,2})*)\]")
 TERM_PATTERN = re.compile(r"[a-z0-9]+")
 MIN_TERM_LENGTH = 4
-MIN_SEMANTIC_SCORE = 0.75
 DEFAULT_SAMPLING: dict[str, Any] = {"temperature": 0.2, "top_p": 0.9, "n_predict": 2048}
 RISK_TOPICS_KEY = "chat.risk_topics"
+
+DEFAULT_FLOOR = SEMANTIC_FLOOR / 100
 
 STATE_OK = "ok"
 STATE_UNAVAILABLE = "unavailable"
@@ -217,10 +218,10 @@ def terms_of(text: str) -> set[str]:
     return {word for word in TERM_PATTERN.findall(stripped) if len(word) >= MIN_TERM_LENGTH}
 
 
-def is_relevant(result: SearchResult, terms: set[str]) -> bool:
+def is_relevant(result: SearchResult, terms: set[str], floor: float = DEFAULT_FLOOR) -> bool:
     if not terms:
         return True
-    if result.score >= MIN_SEMANTIC_SCORE:
+    if result.score >= floor:
         return True
     return bool(terms & terms_of(f"{result.title} {result.snippet}"))
 
@@ -230,6 +231,7 @@ def select_evidence(
     settings: ChatSettings,
     taken: Sequence[Evidence] = (),
     query: str = "",
+    floor: float = DEFAULT_FLOOR,
 ) -> list[Evidence]:
     chosen = list(taken)
     seen = {(item.doc_id, item.anchor, item.url) for item in chosen}
@@ -239,7 +241,7 @@ def select_evidence(
         if len(chosen) >= settings.max_chunks:
             break
         key = (result.doc_id, result.anchor, result.url)
-        if key in seen or not is_relevant(result, terms):
+        if key in seen or not is_relevant(result, terms, floor):
             continue
         text = result.snippet or result.title
         cost = estimate_tokens(text)
@@ -301,8 +303,10 @@ class ChatEngine:
         available: Callable[[], bool],
         completer: Callable[..., Completion] = chat_completion,
         reader: PageReader | None = None,
+        floor: Callable[[], float] = lambda: DEFAULT_FLOOR,
     ) -> None:
         self._search = searcher
+        self._floor = floor
         self._base_url = base_url
         self._available = available
         self._complete = completer
@@ -342,7 +346,9 @@ class ChatEngine:
             if len(evidence) >= settings.max_chunks:
                 break
             searches.append(query)
-            evidence = select_evidence(self._search(query, ""), settings, evidence, query)
+            evidence = select_evidence(
+                self._search(query, ""), settings, evidence, query, self._floor()
+            )
         return evidence
 
     def _open_page(self, screen: Screen) -> list[Evidence]:
@@ -410,7 +416,9 @@ class ChatEngine:
             if request and calls < settings.max_tool_calls:
                 calls += 1
                 searches.append(request)
-                evidence = select_evidence(self._search(request, ""), settings, evidence, request)
+                evidence = select_evidence(
+                    self._search(request, ""), settings, evidence, request, self._floor()
+                )
                 continue
             if request:
                 text = catalog.text("chat.search_budget_spent")

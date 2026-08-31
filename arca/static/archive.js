@@ -313,6 +313,11 @@ function renderSemantic(payload) {
     note.hidden = false;
     return;
   }
+  if (payload.semantic_offline) {
+    note.textContent = t("home.semantic.offline");
+    note.hidden = false;
+    return;
+  }
   if (!payload.semantic.length) {
     note.textContent = t("home.semantic.empty");
     note.hidden = false;

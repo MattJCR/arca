@@ -662,8 +662,8 @@
   "admin.search.chunk_min_tokens": "Troceado: mínimo de tokens",
   "admin.search.chunk_max_tokens": "Troceado: máximo de tokens",
   "admin.search.weights_note": "El peso es cuántos resultados aporta cada fuente por vuelta de intercalado. Las puntuaciones de fuentes distintas no se comparan nunca: se intercala por rango.",
-  "admin.search.semantic_floor": "Parecido m\u00ednimo para la b\u00fasqueda sem\u00e1ntica (%)",
-  "admin.search.floor_note": "Un resultado sem\u00e1ntico por debajo de este parecido no se ense\u00f1a. Con el modelo multiling\u00fce e5 los parecidos se api\u00f1an entre 0,70 y 0,90: medido sobre la biblioteca, lo que responde de verdad a la pregunta queda por encima de 0,82 y lo que no, por debajo. A 0 se ense\u00f1a todo, que es como estaba antes y por lo que una consulta sin respuesta devolv\u00eda el documento m\u00e1s parecido igualmente.",
+  "admin.search.semantic_floor": "Parecido mínimo para la búsqueda semántica (%)",
+  "admin.search.floor_note": "Un resultado semántico por debajo de este parecido no se enseña. Con el modelo multilingüe e5 los parecidos se apiñan entre 0,70 y 0,90: medido sobre la biblioteca, lo que responde de verdad a la pregunta queda por encima de 0,82 y lo que no, por debajo. A 0 se enseña todo, que es como estaba antes y por lo que una consulta sin respuesta devolvía el documento más parecido igualmente.",
   "admin.search.chunk_note": "El troceado solo afecta a las importaciones futuras. Los lotes ya sellados son inmutables: para cambiarlos hay que reindexar.",
   "admin.search.save": "Guardar",
   "admin.search.saved": "Ajustes de búsqueda guardados.",
@@ -856,5 +856,10 @@
   "talk.error.no_vision": "El modelo activo no acepta imágenes: le falta el proyector «--mmproj».",
   "talk.error.image_too_large": "La imagen supera el tope de 8 MB.",
   "talk.error.not_an_image": "Ese fichero no es una imagen PNG, JPEG o WebP, se llame como se llame.",
-  "talk.error.unknown_attachment": "Esa imagen ya no está guardada."
+  "talk.error.unknown_attachment": "Esa imagen ya no está guardada.",
+  "home.semantic.offline": "El índice profundo está ahí, pero el modelo de embeddings no contesta, y sin él no se puede convertir tu consulta en un vector. No es que no haya resultados: es que ahora mismo no se puede preguntar. La búsqueda por palabras de arriba funciona igual. Mira el diagnóstico para arrancarlo.",
+  "diag.vanished_batches.ok.summary": "Todos los lotes sellados que constan importados siguen en disco.",
+  "diag.vanished_batches.degraded.summary": "{count} lote(s) constan sellados pero ya no están en disco: {detail}",
+  "diag.vanished_batches.degraded.impact": "Sus documentos no se buscan ni se leen: la biblioteca los da por importados y no están. Nada de ARCA borra un lote sellado, así que se han quitado desde fuera.",
+  "diag.vanished_batches.degraded.action": "Si sobraban, no hay nada que hacer. Si no, vuelve a importar esos documentos: se sellará un lote nuevo."
 }

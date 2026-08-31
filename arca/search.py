@@ -76,6 +76,7 @@ class SearchOutcome:
     semantic: list[SearchResult]
     semantic_available: bool
     sources: list[SourceReport]
+    semantic_offline: bool = False
 
 
 def normalize_mode(value: str | None) -> str:
@@ -108,6 +109,7 @@ def search_library(
     per_source = normalize_limit(tuning.per_source)
     infos = _selected(library, scope, disabled)
     semantic_ready = any(shard.state.searchable_by_vector for shard in shards)
+    wanted = effective_mode in (MODE_SEMANTIC, MODE_BOTH)
     if not text:
         return SearchOutcome(text, effective_mode, [], [], semantic_ready, _idle_reports(infos))
     keyword: list[SearchResult] = []
@@ -123,11 +125,12 @@ def search_library(
     else:
         reports = _idle_reports(infos)
     semantic: list[SearchResult] = []
-    if effective_mode in (MODE_SEMANTIC, MODE_BOTH) and query_vector is not None:
+    if wanted and query_vector is not None:
         semantic = search_shards_by_vector(
             shards, query_vector, effective_limit, tuning.snippet_chars, tuning.semantic_floor
         )
-    return SearchOutcome(text, effective_mode, keyword, semantic, semantic_ready, reports)
+    offline = wanted and semantic_ready and query_vector is None
+    return SearchOutcome(text, effective_mode, keyword, semantic, semantic_ready, reports, offline)
 
 
 def _zim_groups(

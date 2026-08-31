@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import stat
 from collections.abc import Iterator
 from pathlib import Path
+from shutil import rmtree
 from typing import Any
 
 import pytest
@@ -279,3 +281,76 @@ def test_rebuilding_the_documentation_batch_says_when_there_is_nothing_to_index(
     payload = json.loads(body)
     assert payload["sealed"] is False
     assert payload["reason"] in ("nothing_to_index", "embeddings_down")
+
+
+def test_a_silent_model_is_told_apart_from_a_question_with_no_answer(
+    library: tuple[Path, FastAPI], server: EmbeddingServer
+) -> None:
+    _, app = library
+    answered = json.loads(http_get(app, "/api/search", query="q=primed")[1])
+    assert answered["semantic_available"] is True
+    assert answered["semantic_offline"] is False
+    assert answered["semantic"]
+
+    server.healthy = False
+    server.status = 503
+    try:
+        quiet = json.loads(http_get(app, "/api/search", query="q=primed")[1])
+    finally:
+        server.healthy = True
+        server.status = 200
+    assert quiet["semantic_available"] is True
+    assert quiet["semantic_offline"] is True
+    assert quiet["semantic"] == []
+    assert quiet["keyword"], "the keyword half must keep working without the model"
+
+
+def test_a_keyword_search_never_complains_about_the_model(
+    library: tuple[Path, FastAPI], server: EmbeddingServer
+) -> None:
+    _, app = library
+    server.healthy = False
+    server.status = 503
+    try:
+        outcome = json.loads(http_get(app, "/api/search", query="q=primed&mode=keyword")[1])
+    finally:
+        server.healthy = True
+        server.status = 200
+    assert outcome["semantic_offline"] is False
+
+
+def test_a_batch_that_left_the_disk_is_reported_not_ignored(
+    library: tuple[Path, FastAPI],
+) -> None:
+    root, app = library
+    checks = {check["id"]: check for check in _json(app, "/api/diagnostics")["checks"]}
+    assert checks["vanished_batches"]["state"] == "ok"
+
+    def _writable(action: object, path: str, error: object) -> None:
+        Path(path).chmod(stat.S_IWRITE)
+        Path(path).unlink()
+
+    for batch in (root / "docs" / "shards").iterdir():
+        rmtree(batch, onerror=_writable)
+    after = {check["id"]: check for check in _json(app, "/api/diagnostics")["checks"]}
+    assert after["vanished_batches"]["state"] == "degraded"
+    assert "lote" in after["vanished_batches"]["summary"]
+
+
+def test_an_import_still_running_is_not_a_vanished_batch(
+    library: tuple[Path, FastAPI],
+) -> None:
+    root, app = library
+    connection = open_library_rw(library_db_path(root))
+    try:
+        for status in ("done", "queued"):
+            connection.execute(
+                "INSERT INTO ingest_jobs (shard_id, source_path, sha256, pages, status, "
+                "last_error, updated_at) VALUES (?, ?, ?, ?, ?, '', ?)",
+                ("2026-09-01T1000-halfway", "docs/originals/x.pdf", "b" * 64, 1, status, "now"),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+    checks = {check["id"]: check for check in _json(app, "/api/diagnostics")["checks"]}
+    assert checks["vanished_batches"]["state"] == "ok"

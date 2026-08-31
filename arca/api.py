@@ -395,6 +395,7 @@ def create_app(root: Path, config: ArcaConfig) -> FastAPI:
         base_url=lambda: llama.base_url,
         available=lambda: llama.health() == HEALTH_OK,
         reader=read_page,
+        floor=lambda: _search_settings(root).semantic_floor / 100,
     )
     store = TalkStore(talk_dir(root, config))
     cancels = CancelBoard()
@@ -1970,6 +1971,7 @@ def _search_payload(outcome: SearchOutcome) -> dict[str, Any]:
         "keyword": [_result_payload(result) for result in outcome.keyword],
         "semantic": [_result_payload(result) for result in outcome.semantic],
         "semantic_available": outcome.semantic_available,
+        "semantic_offline": outcome.semantic_offline,
         "sources": [_source_payload(report) for report in outcome.sources],
     }
 

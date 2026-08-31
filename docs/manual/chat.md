@@ -29,7 +29,7 @@ Orden de búsqueda: primero la selección del visor si la hay, luego la pregunta
 
 Un buscador siempre devuelve algo: el vecino más cercano existe aunque no tenga nada que ver. Sin un suelo, «no lo tengo» no se dispararía nunca. Un resultado entra como evidencia si **una** de estas dos cosas es cierta:
 
-- su puntuación semántica llega a `MIN_SEMANTIC_SCORE` (0,75 de coseno), o
+- su puntuación semántica llega al **suelo vigente de la búsqueda** —`semantic_floor`, el que el operador tiene puesto ahora mismo en el panel, no un número de fábrica—, que el motor consulta en cada pregunta. Antes había aquí un `MIN_SEMANTIC_SCORE = 0,75` suelto: dos criterios de «esto se parece bastante» que coincidían solo mientras nadie tocara el ajuste, y se separaban en silencio en cuanto alguien lo bajaba, o
 - comparte al menos un término de cuatro letras o más con la consulta, comparado sin acentos y en minúsculas.
 
 La primera condición es la que salva la recuperación entre idiomas y por sinónimos, donde no hay palabras compartidas; la segunda es la que sostiene el criterio cuando la puntuación no es fiable. Sin evidencia que pase el suelo, el motor **no llama al modelo**: responde «no lo tengo» y ofrece buscar de otra manera. Es determinista, no depende de la honestidad del modelo.
