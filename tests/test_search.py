@@ -5,13 +5,16 @@ from pathlib import Path
 from arca.search import (
     MODE_BOTH,
     MODE_SEMANTIC,
+    SEMANTIC_FLOOR,
     SOURCE_ZIM,
     SearchResult,
+    SearchSettings,
     entry_url,
     interleave,
     normalize_limit,
     normalize_mode,
     passage,
+    read_search_payload,
     search_library,
 )
 from arca.zim import (
@@ -194,3 +197,15 @@ def test_the_passage_anchors_on_the_rarest_word_not_the_first_one() -> None:
         infobox + useful + "enlaces externos " * 20, ["paracetamol", "dosis"], limit=160
     )
     assert "dosis habitual" in found
+
+
+def test_the_semantic_floor_survives_a_round_trip_and_stays_in_range() -> None:
+    defaults = SearchSettings()
+    assert defaults.semantic_floor == SEMANTIC_FLOOR
+    kept = read_search_payload({"semantic_floor": 91}, defaults)
+    assert kept.semantic_floor == 91
+    assert read_search_payload({"semantic_floor": 0}, defaults).semantic_floor == 0
+    assert read_search_payload({"semantic_floor": 250}, defaults).semantic_floor == SEMANTIC_FLOOR
+    assert read_search_payload({"semantic_floor": -3}, defaults).semantic_floor == SEMANTIC_FLOOR
+    assert read_search_payload({"semantic_floor": "82"}, defaults).semantic_floor == SEMANTIC_FLOOR
+    assert read_search_payload({}, kept).semantic_floor == 91

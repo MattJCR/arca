@@ -18,7 +18,14 @@ from arca.db import open_library_rw
 from arca.embed import EmbeddingClient
 from arca.i18n import load_catalog
 from arca.pipeline import ingest_documents
-from tests.support import EmbeddingServer, article, build_epub, build_zim, free_port
+from tests.support import (
+    EmbeddingServer,
+    article,
+    build_epub,
+    build_pdf,
+    build_zim,
+    free_port,
+)
 
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Browser, Page, sync_playwright
@@ -367,6 +374,36 @@ def shelf(tmp_path_factory: pytest.TempPathFactory, embeddings: EmbeddingServer)
 
 
 @pytest.fixture(scope="module")
+def paged(
+    tmp_path_factory: pytest.TempPathFactory, embeddings: EmbeddingServer
+) -> tuple[Path, str]:
+    base = tmp_path_factory.mktemp("paged")
+    root = base / "library"
+    init_library(root)
+    pages = [[f"Page {index} about the {BOOK_TERM}. " + BOOK_FILLER * 4] for index in range(1, 4)]
+    source = build_pdf(base / "inbox" / "manual.pdf", pages, title=BOOK_TITLE)
+    connection = open_library_rw(library_db_path(root))
+    client = EmbeddingClient(base_url=embeddings.url, dims=BOOK_DIMS, timeout=5.0)
+    try:
+        report = ingest_documents(root, connection, [source], client)
+    finally:
+        connection.close()
+    assert report.sealed is True
+    return root, report.results[0].doc_id
+
+
+@pytest.fixture(scope="module")
+def paged_server(paged: tuple[Path, str], embeddings: EmbeddingServer) -> Iterator[Server]:
+    instance = Server(
+        paged[0],
+        config=ArcaConfig(auto_engine=False, embed_url=embeddings.url, embed_dims=BOOK_DIMS),
+    )
+    instance.start()
+    yield instance
+    instance.stop()
+
+
+@pytest.fixture(scope="module")
 def shelf_server(shelf: Path, embeddings: EmbeddingServer) -> Iterator[Server]:
     instance = Server(
         shelf,
@@ -507,3 +544,21 @@ def test_the_catalog_can_be_narrowed_to_a_single_source(
 
     fresh_page.select_option("#catalog-source", "")
     fresh_page.wait_for_selector("#catalog-sources", state="visible")
+
+
+def test_the_pdf_viewer_paints_the_page_it_was_asked_for(
+    fresh_page: Page, paged_server: Server, paged: tuple[Path, str]
+) -> None:
+    doc_id = paged[1]
+    errors: list[str] = []
+    fresh_page.on("pageerror", lambda error: errors.append(str(error)))
+    fresh_page.goto(
+        f"{paged_server.url}/static/pdf.html?doc={doc_id}&page=2", wait_until="domcontentloaded"
+    )
+    fresh_page.wait_for_function(
+        "() => document.getElementById('pdf-seal').textContent.includes(' / ')",
+        timeout=30000,
+    )
+    assert errors == []
+    assert "2 / 3" in fresh_page.inner_text("#pdf-seal")
+    assert fresh_page.evaluate("() => document.getElementById('pdf-canvas').width") > 400

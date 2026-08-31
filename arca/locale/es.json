@@ -662,6 +662,8 @@
   "admin.search.chunk_min_tokens": "Troceado: mínimo de tokens",
   "admin.search.chunk_max_tokens": "Troceado: máximo de tokens",
   "admin.search.weights_note": "El peso es cuántos resultados aporta cada fuente por vuelta de intercalado. Las puntuaciones de fuentes distintas no se comparan nunca: se intercala por rango.",
+  "admin.search.semantic_floor": "Parecido m\u00ednimo para la b\u00fasqueda sem\u00e1ntica (%)",
+  "admin.search.floor_note": "Un resultado sem\u00e1ntico por debajo de este parecido no se ense\u00f1a. Con el modelo multiling\u00fce e5 los parecidos se api\u00f1an entre 0,70 y 0,90: medido sobre la biblioteca, lo que responde de verdad a la pregunta queda por encima de 0,82 y lo que no, por debajo. A 0 se ense\u00f1a todo, que es como estaba antes y por lo que una consulta sin respuesta devolv\u00eda el documento m\u00e1s parecido igualmente.",
   "admin.search.chunk_note": "El troceado solo afecta a las importaciones futuras. Los lotes ya sellados son inmutables: para cambiarlos hay que reindexar.",
   "admin.search.save": "Guardar",
   "admin.search.saved": "Ajustes de búsqueda guardados.",

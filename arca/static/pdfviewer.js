@@ -45,8 +45,8 @@ async function load() {
   }
   label(docId.slice(0, 12));
   try {
-    state.document = await pdfjs.getDocument("/api/doc/" + encodeURIComponent(docId) + "/original")
-      .promise;
+    const source = { url: "/api/doc/" + encodeURIComponent(docId) + "/original" };
+    state.document = await pdfjs.getDocument(source).promise;
   } catch (error) {
     label(docId.slice(0, 12) + " · " + error.name);
     return;

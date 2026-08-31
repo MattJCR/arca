@@ -2212,6 +2212,7 @@ def _search_settings_payload(settings: SearchSettings) -> dict[str, Any]:
         "snippet_chars": settings.snippet_chars,
         "chunk_min_tokens": settings.chunk_min_tokens,
         "chunk_max_tokens": settings.chunk_max_tokens,
+        "semantic_floor": settings.semantic_floor,
     }
 
 

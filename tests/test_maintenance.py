@@ -10,7 +10,7 @@ from fastapi import FastAPI
 
 from arca.api import create_app
 from arca.config import ArcaConfig, init_library, library_db_path
-from arca.db import open_library_rw
+from arca.db import open_library_ro, open_library_rw
 from arca.diagnostics import (
     KIND_DATABASE,
     KIND_DOCUMENT,
@@ -187,6 +187,7 @@ def test_search_settings_round_trip_and_stay_within_bounds(tmp_path: Path) -> No
                     "snippet_chars": 5,
                     "chunk_min_tokens": 480,
                     "chunk_max_tokens": 200,
+                    "semantic_floor": 91,
                 },
                 SearchSettings(),
             ),
@@ -198,7 +199,9 @@ def test_search_settings_round_trip_and_stay_within_bounds(tmp_path: Path) -> No
         assert stored.snippet_chars == SearchSettings().snippet_chars
         assert stored.chunk_min_tokens == 200
         assert stored.chunk_max_tokens == 480
+        assert stored.semantic_floor == 91
         assert read_search_settings(connection) == stored
+        assert read_search_settings(connection).semantic_floor == 91
         beyond = write_search_settings(
             connection,
             read_search_payload({"chunk_max_tokens": 900}, SearchSettings()),
@@ -233,6 +236,29 @@ def test_the_extract_length_setting_reaches_the_results(library: tuple[Path, Fas
     results = payload["keyword"] + payload["semantic"]
     assert results
     assert all(len(result["snippet"]) <= 100 for result in results)
+
+
+def test_the_semantic_floor_the_panel_saves_is_the_one_the_search_uses(
+    library: tuple[Path, FastAPI],
+) -> None:
+    root, app = library
+    shown = _json(app, "/api/admin/settings")["search"]
+    assert shown["semantic_floor"] == SearchSettings().semantic_floor
+    status, _ = http_request(
+        app, "PUT", "/api/admin/settings", json_body={"search": {"semantic_floor": 91}}
+    )
+    assert status == 200
+    assert _json(app, "/api/admin/settings")["search"]["semantic_floor"] == 91
+    loose = http_request(
+        app, "PUT", "/api/admin/settings", json_body={"search": {"semantic_floor": 0}}
+    )
+    assert loose[0] == 200
+    assert _json(app, "/api/admin/settings")["search"]["semantic_floor"] == 0
+    connection = open_library_ro(library_db_path(root))
+    try:
+        assert read_search_settings(connection).semantic_floor == 0
+    finally:
+        connection.close()
 
 
 def test_the_status_counts_batches_documents_and_chunks(library: tuple[Path, FastAPI]) -> None:

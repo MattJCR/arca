@@ -2022,6 +2022,7 @@ async function loadSearchSettings() {
   document.getElementById("search-snippet").value = search.snippet_chars;
   document.getElementById("search-chunk-min").value = search.chunk_min_tokens;
   document.getElementById("search-chunk-max").value = search.chunk_max_tokens;
+  document.getElementById("search-floor").value = search.semantic_floor;
 }
 
 async function saveSearchSettings(event) {
@@ -2033,6 +2034,7 @@ async function saveSearchSettings(event) {
     snippet_chars: Number(document.getElementById("search-snippet").value),
     chunk_min_tokens: Number(document.getElementById("search-chunk-min").value),
     chunk_max_tokens: Number(document.getElementById("search-chunk-max").value),
+    semantic_floor: Number(document.getElementById("search-floor").value),
   };
   try {
     await fetchJson("/api/admin/settings", {

@@ -662,6 +662,8 @@
   "admin.search.chunk_min_tokens": "Chunking: minimum tokens",
   "admin.search.chunk_max_tokens": "Chunking: maximum tokens",
   "admin.search.weights_note": "The weight is how many results each source contributes per interleaving round. Scores from different sources are never compared: results are interleaved by rank.",
+  "admin.search.semantic_floor": "Minimum similarity for semantic search (%)",
+  "admin.search.floor_note": "A semantic result below this similarity is not shown. With the multilingual e5 model similarities bunch up between 0.70 and 0.90: measured against the library, what truly answers the question sits above 0.82 and what does not sits below. At 0 everything is shown, which is how it used to be and why a question with no answer still returned the closest document.",
   "admin.search.chunk_note": "Chunking only affects future imports. Sealed batches are immutable: changing them means reindexing.",
   "admin.search.save": "Save",
   "admin.search.saved": "Search settings saved.",

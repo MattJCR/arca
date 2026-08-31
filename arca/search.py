@@ -31,6 +31,8 @@ MODE_BOTH = "both"
 SEARCH_MODES = (MODE_KEYWORD, MODE_SEMANTIC, MODE_BOTH)
 SETTINGS_KEY = "search"
 MAX_WEIGHT = 5
+SEMANTIC_FLOOR = 82
+MAX_FLOOR = 100
 MIN_SNIPPET_CHARS = 80
 MAX_SNIPPET_CHARS = 1000
 MIN_TOKENS_FLOOR = 100
@@ -123,7 +125,7 @@ def search_library(
     semantic: list[SearchResult] = []
     if effective_mode in (MODE_SEMANTIC, MODE_BOTH) and query_vector is not None:
         semantic = search_shards_by_vector(
-            shards, query_vector, effective_limit, tuning.snippet_chars
+            shards, query_vector, effective_limit, tuning.snippet_chars, tuning.semantic_floor
         )
     return SearchOutcome(text, effective_mode, keyword, semantic, semantic_ready, reports)
 
@@ -354,13 +356,16 @@ def search_shards_by_vector(
     vector: Sequence[float],
     limit: int,
     snippet_chars: int = SNIPPET_CHARS,
+    floor: int = SEMANTIC_FLOOR,
 ) -> list[SearchResult]:
+    least = floor / 100
     scored: list[tuple[Shard, VectorHit]] = []
     for shard in shards:
         if not shard.state.searchable_by_vector:
             continue
         for hit in shard.search_vectors(vector, limit):
-            scored.append((shard, hit))
+            if floor <= 0 or hit.score >= least:
+                scored.append((shard, hit))
     scored.sort(key=lambda item: hit_order(item[1]))
     results: list[SearchResult] = []
     for position, (shard, found) in enumerate(scored[:limit]):
@@ -399,6 +404,7 @@ class SearchSettings:
     snippet_chars: int = SNIPPET_CHARS
     chunk_min_tokens: int = MIN_CHUNK_TOKENS
     chunk_max_tokens: int = MAX_CHUNK_TOKENS
+    semantic_floor: int = SEMANTIC_FLOOR
 
 
 def read_search_settings(connection: sqlite3.Connection) -> SearchSettings:
@@ -433,6 +439,9 @@ def read_search_settings(connection: sqlite3.Connection) -> SearchSettings:
         ),
         chunk_min_tokens=min(minimum, maximum),
         chunk_max_tokens=max(minimum, maximum),
+        semantic_floor=_bounded(
+            parsed.get("semantic_floor"), defaults.semantic_floor, 0, MAX_FLOOR
+        ),
     )
 
 
@@ -450,6 +459,7 @@ def write_search_settings(
                 "snippet_chars": settings.snippet_chars,
                 "chunk_min_tokens": settings.chunk_min_tokens,
                 "chunk_max_tokens": settings.chunk_max_tokens,
+                "semantic_floor": settings.semantic_floor,
             }
         ),
     )
@@ -464,6 +474,7 @@ def read_search_payload(payload: Mapping[str, object], current: SearchSettings) 
         "snippet_chars": payload.get("snippet_chars", current.snippet_chars),
         "chunk_min_tokens": payload.get("chunk_min_tokens", current.chunk_min_tokens),
         "chunk_max_tokens": payload.get("chunk_max_tokens", current.chunk_max_tokens),
+        "semantic_floor": payload.get("semantic_floor", current.semantic_floor),
     }
     defaults = SearchSettings()
     minimum = _bounded(
@@ -481,6 +492,7 @@ def read_search_payload(payload: Mapping[str, object], current: SearchSettings) 
         ),
         chunk_min_tokens=min(minimum, maximum),
         chunk_max_tokens=max(minimum, maximum),
+        semantic_floor=_bounded(merged["semantic_floor"], defaults.semantic_floor, 0, MAX_FLOOR),
     )
 
 

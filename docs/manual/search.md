@@ -63,6 +63,41 @@ Guardados en la tabla `settings` bajo la clave `search`, editables desde la pest
 | `snippet_chars` | 320 | 80–1000 | Longitud del extracto de cada resultado |
 | `chunk_min_tokens` | 270 | 100–512 | Troceado mínimo, **solo para importaciones futuras** |
 | `chunk_max_tokens` | 450 | 100–512 | Troceado máximo, **solo para importaciones futuras** |
+| `semantic_floor` | 82 | 0–100 | Parecido mínimo, en tanto por ciento, para que un resultado semántico se enseñe |
+
+### El suelo semántico, y por qué existe
+
+Una búsqueda por vectores **siempre** tiene respuesta: por lejos que quede la
+pregunta, algún fragmento será el menos lejano de todos. Sin un suelo, preguntar
+por una receta de cocina a una biblioteca que solo guarda el manual de una moto
+devuelve veinte trozos del manual de la moto. No es un fallo del índice —el
+índice contesta exactamente lo que se le pregunta— sino la falta de un criterio
+para decir «esto no responde a nada».
+
+Con `multilingual-e5-base` los parecidos **no reparten de 0 a 1**: se apiñan
+arriba. Medido sobre una biblioteca real de un solo documento, un manual de 190
+páginas:
+
+| Consulta | Mejor parecido |
+|---|---|
+| «cambiar el aceite del motor» | 0,857 |
+| «cómo arrancar la moto» | 0,852 |
+| «presión de los neumáticos» | 0,846 |
+| «tensión de la cadena de transmisión» | 0,844 |
+| «síntomas de la diabetes tipo 2» | 0,806 |
+| «receta de tortilla de patatas» | 0,784 |
+| «historia del imperio romano» | 0,765 |
+
+Lo que responde de verdad queda por encima de 0,819; lo que no, por debajo de
+0,807. El hueco está ahí, y por eso el valor de fábrica es **82**. No es un
+umbral universal: depende del modelo y del corpus, y por eso se ajusta desde el
+panel. A **0** no se filtra nada, que es como se comportaba antes de existir el
+ajuste.
+
+El suelo se aplica **por fragmento**, antes de ordenar e intercalar, así que una
+consulta sin respuesta devuelve la franja semántica vacía en vez de ruido con
+buena pinta. El chat tiene su propio criterio, `MIN_SEMANTIC_SCORE` en
+`chat.py`, que no es un suelo sino un atajo de relevancia: ver `chat.md`.
 
 Los pesos son profundidad de intercalado, no puntuaciones: siguen sin compararse scores de fuentes distintas (trampa 3). Un valor fuera de rango no rompe nada — se conserva el que ya había. Si el mínimo llega por encima del máximo, se intercambian.
 

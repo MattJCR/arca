@@ -11,6 +11,7 @@ import pytest
 from arca.embed import EMBED_DIMS, EMBED_MODEL, PASSAGE_PREFIX, QUERY_PREFIX
 from arca.formats import Block
 from arca.ingest import Chunk, OriginalRecord, anchor
+from arca.search import search_shards_by_vector
 from arca.shards import (
     MANIFEST_FILENAME,
     STATE_CORRUPT,
@@ -253,3 +254,53 @@ def test_shards_are_listed_from_both_document_and_vendor_folders(tmp_path: Path)
     _seal(vendor)
     found = [path.name for path in list_shard_paths(tmp_path)]
     assert found == ["2026-09-02T1000-aaaaaa", "2026-09-02T1001-bbbbbb"]
+
+
+def test_a_semantic_result_below_the_floor_is_not_offered(tmp_path: Path) -> None:
+    directory = tmp_path / "shard"
+    chunk_ids = _seal(directory)
+    shard = Shard(inspect_shard(directory, EMBED_MODEL, DIMS))
+    rng = np.random.default_rng(4)
+    query = rng.standard_normal((len(chunk_ids), DIMS)).astype(np.float32)[0].tolist()
+    open_floor = search_shards_by_vector([shard], query, 10, floor=0)
+    assert open_floor, "the index answered nothing at all"
+    best = max(result.score for result in open_floor)
+    above = int(best * 100) + 1
+    assert search_shards_by_vector([shard], query, 10, floor=above) == []
+    kept = search_shards_by_vector([shard], query, 10, floor=int(best * 100))
+    assert kept
+    assert all(result.score >= int(best * 100) / 100 for result in kept)
+    shard.close()
+
+
+def test_a_floor_of_zero_keeps_every_semantic_result(tmp_path: Path) -> None:
+    directory = tmp_path / "shard"
+    chunk_ids = _seal(directory)
+    shard = Shard(inspect_shard(directory, EMBED_MODEL, DIMS))
+    rng = np.random.default_rng(4)
+    query = rng.standard_normal((len(chunk_ids), DIMS)).astype(np.float32)[0].tolist()
+    hits = shard.search_vectors(query, 10)
+    assert len(search_shards_by_vector([shard], query, 10, floor=0)) == len(hits)
+    shard.close()
+
+
+def test_the_floor_applies_across_every_batch(tmp_path: Path) -> None:
+    first = tmp_path / "one"
+    second = tmp_path / "two"
+    chunk_ids = _seal(first)
+    _seal(second, record=_record(doc_id="b" * 64))
+    shards = [
+        Shard(inspect_shard(first, EMBED_MODEL, DIMS)),
+        Shard(inspect_shard(second, EMBED_MODEL, DIMS)),
+    ]
+    rng = np.random.default_rng(4)
+    query = rng.standard_normal((len(chunk_ids), DIMS)).astype(np.float32)[0].tolist()
+    everything = search_shards_by_vector(shards, query, 20, floor=0)
+    assert len({result.source_id for result in everything}) == 2
+    best = max(result.score for result in everything)
+    demanding = search_shards_by_vector(shards, query, 20, floor=int(best * 100))
+    assert demanding
+    assert len(demanding) < len(everything)
+    assert all(result.score >= int(best * 100) / 100 for result in demanding)
+    for shard in shards:
+        shard.close()
